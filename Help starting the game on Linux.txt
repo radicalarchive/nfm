@@ -1,0 +1,16 @@
+To start the game, click the "Madness.sh" file.
+
+If the game won't start by clicking the 'Madness.sh' file,
+ - Make sure your Linux settings allow files to be executed by clicking them. (found at "File Preferences")
+ - Make sure "Madness.sh" has permission to be executed. (right-click it and select "Properties > Permissions")
+
+If you are still unable to start the game, you will need to use the following command in a terminal window:
+
+java -jar Game.jar
+or
+java -Xms512M -Xms512M -jar Game.jar
+
+Game requires Java to be installed to work on Linux. 
+You can download Java from java.com
+
+Have fun playing!
