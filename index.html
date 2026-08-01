@@ -178,12 +178,8 @@
           <legend>Timing</legend>
           <div class="row"><label for="tickms">Tick ms</label><input type="number" id="tickms" data-def="53" step="1">
             <span class="hint">530ms per 10 frames. Changing this changes game speed.</span></div>
-          <div class="check"><input type="checkbox" id="interp"><label for="interp">Frame interpolation</label></div>
-          <div class="row"><label for="cam">Camera</label>
-            <select id="cam" data-def="derive">
-              <option value="derive">re-derive (default)</option>
-              <option value="blend">blend</option>
-            </select></div>
+          <div class="check"><input type="checkbox" id="interp" checked><label for="interp">Frame interpolation</label></div>
+          <span class="hint" style="grid-column:auto">On by default. Turning it off renders only on ticks, which pins the game to 18.9fps.</span>
           <div class="row"><label for="maxfps">Max fps</label><input type="number" id="maxfps" data-def="0" min="0" step="1">
             <span class="hint">0 = uncapped. Pinned to 18.9 without interpolation.</span></div>
           <div class="row"><label for="seed">Seed</label><input type="number" id="seed" data-def="12345" step="1"></div>
@@ -231,7 +227,11 @@ const STAGE_COUNT = 32;
 // ---- advanced form ---------------------------------------------------------
 const form = $('f');
 const fields = [...form.querySelectorAll('input, select')];
-const INVERTED = new Set(['geom', 'overlay', 'raster']);   // these read `=0`
+// Two kinds of `=0` checkbox, and they are not the same:
+//   STUBS are off by default, so TICKING one emits `=0` (it disables a thing).
+//   DEFAULT_ON are on by default, so UNTICKING one emits `=0`.
+const STUBS = new Set(['geom', 'overlay', 'raster']);
+const DEFAULT_ON = new Set(['interp']);
 const defaultAA = () => parseFloat($('res').value || '2') <= 1;
 
 function buildURL() {
@@ -248,7 +248,10 @@ function buildURL() {
       if (el.id === 'aa') {
         changed = el.checked !== defaultAA();
         if (changed) p.set('aa', el.checked ? '1' : '0');
-      } else if (INVERTED.has(el.id)) {
+      } else if (DEFAULT_ON.has(el.id)) {
+        changed = !el.checked;
+        if (changed) p.set(el.id, '0');
+      } else if (STUBS.has(el.id)) {
         changed = el.checked;
         if (changed) p.set(el.id, '0');
       } else {
@@ -271,7 +274,7 @@ function buildURL() {
 
 function resetAdvanced() {
   for (const el of fields) {
-    if (el.type === 'checkbox') el.checked = false;
+    if (el.type === 'checkbox') el.checked = DEFAULT_ON.has(el.id);
     else el.value = el.dataset.def ?? '';
   }
   $('aa').checked = defaultAA();
@@ -347,7 +350,11 @@ const step = (sel, d, count) => {
     for (const [k, v] of new URLSearchParams(location.search)) {
       const el = $(k);
       if (!el) continue;
-      if (el.type === 'checkbox') el.checked = INVERTED.has(k) ? v === '0' : v === '1';
+      if (el.type === 'checkbox') {
+        el.checked = DEFAULT_ON.has(k) ? v !== '0'
+                   : STUBS.has(k) ? v === '0'
+                   : v === '1';
+      }
       else el.value = v;
     }
 

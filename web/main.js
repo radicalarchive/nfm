@@ -171,13 +171,11 @@ async function boot() {
   // independent of the display refresh (rAF alone gave 60-144 ticks/sec).
   const TICK_MS = parseFloat(params.get('tickms') || '53');   // 530ms / 10 frames
   const MAX_CATCHUP = 3;        // don't spiral after a tab-switch stall
-  // Default OFF. Both interpolation modes tested worse than the raw 18.9Hz
-  // sim on the target machine: the CAR visibly jitters (the camera does not,
-  // which rules out the camera-blend theory that `cam=` was added to test).
-  // Something in the car's per-tick state is not captured by blending
-  // x/y/z/xz/xy/zy alone. Opt back in with ?interp=1.
-  const INTERPOLATE = params.get('interp') === '1';
-  const REDERIVE_CAM = params.get('cam') !== 'blend';   // 'blend' = old behaviour
+  // Default ON. Without it the game draws only on a tick, so the render rate
+  // is the tick rate -- 18.9fps by construction. It was off while blended
+  // frames jittered on turns; that was Medium.sin/cos quantising headings to
+  // whole degrees, and is fixed. ?interp=0 restores tick-rate rendering.
+  const INTERPOLATE = params.get('interp') !== '0';
   const MAX_FPS = parseFloat(params.get('maxfps') || '0');   // 0 = uncapped
   const SHOW_STATS = params.get('stats') === '1';
   const POOLING = params.get('pool') === '1';
@@ -262,27 +260,33 @@ async function boot() {
       const p = snapPrev.obj[i];
       const c = snapCurr.obj[i];
       if (!o || !p || !c) continue;
-      for (const f of FIELDS) {
-        o[f] = Math.round(blend(p[f], c[f], t, f !== 'x' && f !== 'y' && f !== 'z'));
-      }
+      // Positions are rounded (they are integers in the game, and a unit is
+      // far below a pixel), but ANGLES are left fractional. Medium.sin/cos
+      // interpolate between table entries, so a heading no longer has to snap
+      // to a whole degree -- which is ~13px of yaw and was the jitter you see
+      // on turns and only on turns.
+      o.x = Math.round(blend(p.x, c.x, t, false));
+      o.y = Math.round(blend(p.y, c.y, t, false));
+      o.z = Math.round(blend(p.z, c.z, t, false));
+      o.xz = blend(p.xz, c.xz, t, true);
+      o.xy = blend(p.xy, c.xy, t, true);
+      o.zy = blend(p.zy, c.zy, t, true);
     }
-    if (REDERIVE_CAM && gs.view === 0 && array2[0] && array3[0]) {
-      // The chase camera is DERIVED from the car's position and heading, and
-      // that relationship is nonlinear. Blending camera and car independently
-      // makes them disagree mid-turn, which reads as the car shaking against
-      // the background. Re-running follow() on the interpolated car keeps
-      // them locked together.
-      //
-      // follow() mutates bcxz (the look-back easing), so save and restore it:
-      // otherwise it would ease ~3x too fast at display rate.
-      const savedBcxz = medium.bcxz;
-      medium.follow(array2[0], array3[0].cxz, gs.u[0].lookback);
-      medium.bcxz = savedBcxz;
-    } else {
-      for (const f of CAM) {
-        medium[f] = Math.round(blend(snapPrev.cam[f], snapCurr.cam[f], t, f === 'xz' || f === 'zy'));
-      }
-    }
+    // The camera is interpolated between its own two tick states, exactly as
+    // the objects are and over the same t, so the two cannot disagree.
+    //
+    // The alternative -- re-running Medium.follow() on the interpolated car --
+    // is gone. follow() is a stateful ease, not a function of t: each frame
+    // restored the camera to the tick state and applied exactly one ease step,
+    // so the camera lurched once per tick however smoothly the cars moved.
+    //
+    // Same here: the camera's heading is what the whole frame pivots on, so
+    // quantising it to a degree moves every pixel on screen.
+    medium.x = Math.round(blend(snapPrev.cam.x, snapCurr.cam.x, t, false));
+    medium.y = Math.round(blend(snapPrev.cam.y, snapCurr.cam.y, t, false));
+    medium.z = Math.round(blend(snapPrev.cam.z, snapCurr.cam.z, t, false));
+    medium.xz = blend(snapPrev.cam.xz, snapCurr.cam.xz, t, true);
+    medium.zy = blend(snapPrev.cam.zy, snapCurr.cam.zy, t, true);
   };
 
   const restoreCurr = () => {
@@ -313,7 +317,6 @@ async function boot() {
 
   const config = () =>
     `res=${res} textres=${textRes} aa=${AA ? 1 : 0} interp=${INTERPOLATE ? 1 : 0}`
-    + `${INTERPOLATE ? ` cam=${REDERIVE_CAM ? 'derive' : 'blend'}` : ''}`
     + ` players=${players} stage=${stage} pool=${POOLING ? 1 : 0}`
     + `${RASTER ? '' : ' raster=0'}`
     + `${GEOMETRY ? '' : ' geom=0'}`
@@ -519,7 +522,7 @@ async function boot() {
         line += `\n  sim ${(simMs / Math.max(1, ticks)).toFixed(1)}ms/tick`
           + `  draw ${(drawMs / Math.max(1, frames)).toFixed(1)}ms/frame`
           + `  -> ${((simPer + drawPer) / 10).toFixed(0)}% of one core`
-          + `  [interp=${INTERPOLATE ? 1 : 0} cam=${REDERIVE_CAM ? 'derive' : 'blend'}`
+          + `  [interp=${INTERPOLATE ? 1 : 0}`
           + ` maxfps=${MAX_FPS || 'off'} pool=${POOLING ? 1 : 0}`
           + ` aa=${AA ? 1 : 0} textres=${textRes}]`;
       }

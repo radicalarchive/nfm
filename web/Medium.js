@@ -1456,16 +1456,37 @@ export class Medium {
     return idiv(Math.imul(n2 - this.focus_point, this.cy - n), n2) + n;
   }
 
+  // Angles are whole degrees everywhere in the simulation, and these are
+  // 360-entry tables indexed directly. An integer argument takes the same
+  // path it always did and returns the same float32, so the simulation is
+  // unchanged and stays bit-identical to the Java.
+  //
+  // A FRACTIONAL argument lerps between neighbouring entries. Only the
+  // interpolated redraw passes one: without it a blended heading has to be
+  // rounded to a whole degree, and at ~800px across a ~60-degree view one
+  // degree is ~13 pixels -- so an interpolated frame translated smoothly but
+  // rotated in 13px steps, which read as jitter on turns and nowhere else.
+  // Before this, a fractional index would have hit tsin[1.5] and returned
+  // undefined, which is why the caller rounded.
+
   cos(i) {
     while (i >= 360) i -= 360;
     while (i < 0) i += 360;
-    return this.tcos[i];
+    const i0 = i | 0;
+    if (i0 === i) return this.tcos[i0];
+    const a = this.tcos[i0];
+    const b = this.tcos[i0 + 1 === 360 ? 0 : i0 + 1];
+    return fr(a + (b - a) * (i - i0));
   }
 
   sin(i) {
     while (i >= 360) i -= 360;
     while (i < 0) i += 360;
-    return this.tsin[i];
+    const i0 = i | 0;
+    if (i0 === i) return this.tsin[i0];
+    const a = this.tsin[i0];
+    const b = this.tsin[i0 + 1 === 360 ? 0 : i0 + 1];
+    return fr(a + (b - a) * (i - i0));
   }
 
   rot(array, array2, n, n2, n3, n4) {

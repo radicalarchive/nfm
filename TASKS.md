@@ -106,11 +106,18 @@ and it has returned a negative fixed cost). Measure fixed costs with `?prof=1`.
 - [x] HUD vanished with `?interp=1` — `rd.begin()` clears the 2D overlay, and
       the interpolated redraw ran it after `simulate()` had drawn the HUD
       there. Interpolated frames now pass `keepOverlay`.
-- [ ] **Interpolation jitter.** The car visibly jitters under `?interp=1`; the
-      camera does not, which rules out the camera-blend theory. Blending
-      x/y/z/xz/xy/zy is evidently not capturing all of the car's per-tick
-      state. Off by default. This is the only route past 18.9 fps, so it
-      matters more than "off by default" suggests.
+- [x] **Interpolation jitter — fixed, and interpolation is now the default.**
+      Cause: `Medium.sin`/`cos` index a
+      360-entry table by whole degrees, so blended headings were rounded to 1
+      degree — ~13px of yaw — giving smooth translation with stepped rotation.
+      Hence jitter on turns only. Both now interpolate between table entries
+      for fractional arguments; integers take the old branch, so the
+      simulation is unchanged. Confirmed smooth in play, so `?interp=1` is now
+      the default and the game renders at display rate (~58fps measured)
+      instead of the 18.9fps tick rate. `?interp=0` restores tick-rate drawing.
+      `cam=` is gone: re-derive was structurally unfixable, since `follow()` is
+      a stateful ease rather than a function of the interpolation fraction and
+      lurched once per tick regardless.
 - [ ] **Seeded PRNG on the Java side.** `Medium.random()` bottoms out in
       unseeded `Math.random()`, so `contO.zy`/`xy` cannot be verified against a
       probe. Patch + recompile `Medium.class` with a seeded LCG matching
