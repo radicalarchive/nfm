@@ -1,6 +1,6 @@
 # TASKS.md — remaining work on the JS/WebGL port
 
-See `WORK.md` for gotchas, `js/TRANSPILE_SPEC.md` for the transpilation
+See `WORK.md` for gotchas, `web/TRANSPILE_SPEC.md` for the transpilation
 contract, `AGENTS.md` for how to run, deploy and measure.
 
 Status key: `[x]` done · `[~]` in progress · `[ ]` not started · `[!]` blocked/needs a human
@@ -9,12 +9,12 @@ Status key: `[x]` done · `[~]` in progress · `[ ]` not started · `[!]` blocke
 
 ## Done
 
-- [x] Java-semantics runtime (`js/java.js`) — idiv/i32/trunc/fr, JavaRandom, Color
-- [x] VFS + zip reader (`js/vfs.js`) — fetch, `DecompressionStream`, fpath autodetect
-- [x] WebGL `Graphics2D` (`js/graphics.js`) — colour-as-attribute, one draw call, even-odd fill
+- [x] Java-semantics runtime (`web/java.js`) — idiv/i32/trunc/fr, JavaRandom, Color
+- [x] VFS + zip reader (`web/vfs.js`) — fetch, `DecompressionStream`, fpath autodetect
+- [x] WebGL `Graphics2D` (`web/graphics.js`) — colour-as-attribute, one draw call, even-odd fill
 - [x] Transpile: `Plane`, `Medium`, `Trackers`, `Wheels`, `CheckPoints`, `ContO`, `Record`, `Control`, `CarDefine`, `Mad`
-- [x] Race harness (`js/GameSparker.js`) — `loadbase`, `loadstage`, `fase == 0` tick
-- [x] Browser shell (`js/main.js`, `js/main.html`) — rAF pacing, keyboard, scale-to-fit
+- [x] Race harness (`web/GameSparker.js`) — `loadbase`, `loadstage`, `fase == 0` tick
+- [x] Browser shell (`web/main.js`, `web/main.html`) — rAF pacing, keyboard, scale-to-fit
 - [x] Audit `ContO`/`Record`/`Control` against §2/§2b
 - [x] Fix black skybox, checkpoint flash (`*= (int)<float>` artifacts)
 - [x] Fix tick rate (530ms/10 frames, not the 400ms menu figure)
@@ -22,7 +22,7 @@ Status key: `[x]` done · `[~]` in progress · `[ ]` not started · `[!]` blocke
 - [x] `xtGraphics.stat()` — the in-race HUD. 11 multiplayer/clan/LAN branches
       deliberately skipped, each marked `// TODO not ported:` at the site.
 - [x] `CarDefine.loadcar()` — un-stubbed; IO seam takes the file text as a parameter
-- [x] **HUD image assets** (`js/images.js`) — decode from images.zip, port
+- [x] **HUD image assets** (`web/images.js`) — decode from images.zip, port
       `loadsnap()` (per-stage tint + grey-ramp-as-alpha). Watch the mixed
       backgrounds: some assets are opaque 192-grey, later ones use GIF index
       transparency.
@@ -84,6 +84,23 @@ and it has returned a negative fixed cost). Measure fixed costs with `?prof=1`.
 - [x] Packed vertex colour (uint32, 12 bytes/vertex). ~3%, pixel-identical.
 - [x] MSAA off above res=1 (~12%); overlay no longer scales with `?res=`.
 
+## Launcher (`index.html` + `web/preview.js`)
+
+- [x] Car/stage picker with names, live rotating 3D car preview (the game's own
+      car-select camera and car-maker spin), stat bars from CarDefine's tables,
+      the NFM face keyed as `loadude` keys it, and a collapsed advanced panel
+      carrying every query parameter.
+- [x] Stage-specific opponent grid (`xtGraphics.sortcars`).
+- [x] Overhead stage preview rendered with the real renderer (`m.trk = 2`).
+- [ ] **Stage 8 renders nothing in the overhead view** and falls back to the
+      flat map. 172 objects pass the object-level gates and emit 24 vertices;
+      the cause is inside `Plane.d`'s face culling at ~91k depth and is not
+      understood. Stages needing more than 85k depth all take the fallback,
+      so any large stage is affected.
+- [ ] Reported but unconfirmed: "some tracks have textures extending off
+      screen" (stage 9). Not reproduced since the camera-clearance fix; needs
+      a look with fresh eyes.
+
 ## Rendering / correctness
 
 - [ ] **Interpolation jitter.** The car visibly jitters under `?interp=1`; the
@@ -94,7 +111,7 @@ and it has returned a negative fixed cost). Measure fixed costs with `?prof=1`.
 - [ ] **Seeded PRNG on the Java side.** `Medium.random()` bottoms out in
       unseeded `Math.random()`, so `contO.zy`/`xy` cannot be verified against a
       probe. Patch + recompile `Medium.class` with a seeded LCG matching
-      `js/java.js`, then extend `MadProbe`. Unblocks full verification of `Mad`.
+      `web/java.js`, then extend `MadProbe`. Unblocks full verification of `Mad`.
 - [x] Stage-specific opponent grid — `xtGraphics.sortcars()` ported. Draws
       slots 1..6 by rejection sampling biased toward faster cars in later
       stages, then forces specific opponents for stages 10/12/14/15/16.
@@ -106,11 +123,11 @@ and it has returned a negative fixed cost). Measure fixed costs with `?prof=1`.
       `XtGraphics.crash/scrape/gscrape/skid` are named no-op stubs ready for it.
 - [ ] Menus, car select, stage select — the other ~9600 lines of `xtGraphics`.
       Genuine brute work; the one part of this port that would suit a subagent.
-      **Follow `PORT_SPEC.md`'s "Calibrate before batching" procedure** — one
+      **Follow `decompilation/PORT_SPEC.md`'s "Calibrate before batching" procedure** — one
       representative class first, catalogue every systematic error into the
       template, and only then fan out. See also the warning in `WORK.md` about
       subagents editing tests green.
-- [ ] `CarMaker` / `StageMaker` — on PORT_SPEC's drop list.
+- [ ] `CarMaker` / `StageMaker` — on decompilation/PORT_SPEC.md's drop list.
 
 ## Known gaps / risks
 

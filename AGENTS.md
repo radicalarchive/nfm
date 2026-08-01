@@ -2,10 +2,10 @@
 
 ## Project
 A 2015 Java game being ported to run natively in the browser as JS + WebGL.
-The original source was never released; `java-src/` is decompiled bytecode and
+The original source was never released; `decompilation/java-src/` is decompiled bytecode and
 is the reference for the port, not a build input.
 
-The **JS/WebGL port under `js/` is the active work.** The patched `Game.jar`
+The **JS/WebGL port under `web/` is the active work.** The patched `Game.jar`
 still exists and still runs — it is the reference implementation you compare
 against when the port looks wrong.
 
@@ -15,27 +15,30 @@ against when the port looks wrong.
   hour rediscovering.** Especially when a measurement overturns something
   already written there: strike the old entry, don't delete it.
 - `TASKS.md` — what is done, what is next, what is blocked.
-- `js/TRANSPILE_SPEC.md` — the contract for turning decompiled Java into JS
+- `web/TRANSPILE_SPEC.md` — the contract for turning decompiled Java into JS
   (int wrapping, float32 rounding, compound-assignment classification).
-- `PORT_SPEC.md` — the original plan. `TASKS.md` supersedes its status, but its
+- `decompilation/PORT_SPEC.md` — the original plan. `TASKS.md` supersedes its status, but its
   **subagent delegation methodology is still live and still binding** — read
   "Using a subagent" and "Calibrate before batching" before delegating any part
   of the remaining `xtGraphics` menu work.
 
 ## Layout
-- `js/` — the port. `main.html` is the game, `index.html` is the A/B test index.
-- `js/tools/` — Java probes that drive the real classes by reflection, for
+- `index.html` — the launcher (car/stage picker; advanced settings collapsed).
+- `web/` — the port. `main.html` is the game itself.
+- `web/tools/` — Java probes that drive the real classes by reflection, for
   differential testing against the port.
-- `java-src/` — decompiled originals. Read-only reference.
+- `decompilation/` — decompiled originals (`java-src/`), `PORT_SPEC.md`, and
+  the delegated-job records. Read-only reference.
+- `java/` — the patched jar and its history.
 - `data/`, `stages/`, `mycars/`, `mystages/`, `music/` — game assets, byte-identical
   to the original and **not to be modified**; the port reads them as-is.
-- `Game.jar` — patched desktop jar. `Game.jar.bak` is pristine, do not modify.
+- `java/Game.jar` — patched desktop jar. `java/Game.jar.bak` is pristine, do not modify.
 - `start.sh` — runs the desktop game (the visual reference).
 
 ## Running the port
 ```sh
 python3 -m http.server 8123        # from the repo root
-# then open http://localhost:8123/js/main.html
+# then open http://localhost:8123/  (or /web/main.html to skip the launcher)
 ```
 `vfs.detectFpath()` probes `./` then `../`, so it works from either layout.
 
@@ -52,7 +55,7 @@ deploy's code.
 Three levels, cheapest first.
 
 ```sh
-node --test                        # 99 tests; unit + differential + integration
+cd web && node --test              # 104 tests; unit + differential + integration
 ```
 
 Headless render, to confirm something actually draws:
@@ -60,7 +63,7 @@ Headless render, to confirm something actually draws:
 chromium --headless=new --no-sandbox --enable-unsafe-swiftshader \
   --window-size=900,506 --virtual-time-budget=90000 \
   --screenshot=out.png --hide-scrollbars \
-  "http://localhost:8123/js/main.html?players=8&res=1&bench=0"
+  "http://localhost:8123/web/main.html?players=8&res=1&bench=0"
 compare -metric AE before.png out.png /dev/null     # 0 = pixel-identical
 ```
 `--screenshot` is required — without it rAF never fires and the page looks
@@ -69,7 +72,7 @@ hung. Add `--enable-logging=stderr --vmodule=console=1` to read `console.log`.
 Performance, in a real browser (headless timings are meaningless: virtual time
 does not advance `performance.now()` within a task):
 ```
-main.html?stats=1&bench=3          # 3s warmup, 3s average, then freezes
+web/main.html?stats=1&bench=3          # 3s warmup, 3s average, then freezes
 ```
 
 ## Measuring performance — read this before optimising
@@ -110,7 +113,7 @@ Colour is a vertex attribute, the whole frame is one draw call, and the depth
 sort in `GameSparker.draw()` consumes `ContO.dist`. Do not batch by material,
 do not sort, do not split primitive types into separate passes. Any of those
 still looks plausible in a screenshot, which is what makes it dangerous. See
-the banner at the top of `js/graphics.js`.
+the banner at the top of `web/graphics.js`.
 
 ## The desktop jar (reference implementation)
 All patches are ASM bytecode edits; there is no source to rebuild from.

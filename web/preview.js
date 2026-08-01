@@ -43,6 +43,20 @@ TRACK_NAMES.forEach((name, j) => { BASE_NAMES[j + 56] = name; });
  */
 const GROUND = new Set(['hpground']);
 
+/**
+ * Furthest the overhead view can pull back and still render.
+ *
+ * The renderer was never asked for a view this wide. The StageMaker's own
+ * overhead mode stops at `m.y = -15000` and SCROLLS rather than zooming out,
+ * and past a point the geometry simply stops arriving: stage 8 spans 91,000
+ * units and emitted 24 vertices for 172 objects that pass every gate I could
+ * check by hand. The cause is inside Plane.d's own culling and is NOT
+ * understood. This bound is empirical -- stages 1, 3 and 9 render at ~67-81k,
+ * stage 8 does not at ~91k -- and anything beyond it falls back to the flat
+ * map rather than showing an empty frame.
+ */
+const MAX_DEPTH = 85000;
+
 let world = null;
 
 /** Build the shared preview world. Idempotent. */
@@ -169,15 +183,27 @@ export function drawCar(canvas, car, angle) {
   const o = models[car];
   o.x = 0;
   o.z = 1000;
-  o.y = 0;
+  o.y = 0;                          // as the car-select screen leaves it
   o.xz = Math.round(angle) % 360;
   o.zy = 0;
   o.xy = 0;
   o.wzy = (o.wzy - 10) % 360;      // wheels turn with the body
 
-  rd.begin();
-  o.d(rd);
-  rd.end();
+  // No shadow. ContO.d's `crs` path projects a flat silhouette that, with the
+  // car floating rather than sitting on a track, lands across the middle of
+  // the model instead of beneath it. Seating the car on the ground plane
+  // (y = ground - grat, as loadstage does) only makes the shadow the whole
+  // picture. A preview does not need one, so skip it rather than invent a
+  // placement the game never uses.
+  const hadShadow = o.shadow;
+  o.shadow = false;
+  try {
+    rd.begin();
+    o.d(rd);
+    rd.end();
+  } finally {
+    o.shadow = hadShadow;
+  }
 }
 
 // ---- the face --------------------------------------------------------------
@@ -221,29 +247,47 @@ export async function faceURL() {
 
 // ---- stage preview ---------------------------------------------------------
 
-const stageCache = new Map();
+// Stage metadata, keyed by number. The BUILT stage is not cached: loadstage
+// writes into one shared set of arrays, so what is in `placed` is whatever was
+// loaded last, and only one stage can exist at a time.
+const stageMeta = new Map();
+
+// loadstage mutates the shared world, so two of them must never interleave.
+// Without this, clicking through stages quickly corrupted the shared state and
+// eventually produced checkPoints.stage === -3 ("could not load this stage").
+let stageQueue = Promise.resolve();
 
 /**
- * Load a stage and return what the launcher needs to describe and draw it.
- * Runs the real loadstage, so the layout is whatever the game would build.
+ * Build stage `n` into the shared world and return what the launcher needs.
+ *
+ * Always rebuilds, even on a metadata cache hit: the caller draws from
+ * `placed` immediately afterwards, and returning early left the previous
+ * stage's geometry in there while the camera moved to the new stage's bounds
+ * -- which looked like the map being stuck and sliding around.
  */
-export async function loadStage(n) {
-  if (stageCache.has(n)) return stageCache.get(n);
+export function loadStage(n) {
+  const run = stageQueue.then(() => buildStage(n), () => buildStage(n));
+  stageQueue = run.catch(() => {});      // a failure must not wedge the queue
+  return run;
+}
+
+async function buildStage(n) {
   const { medium, trackers, checkPoints, models, gs, xt, record, placed, mads } = world;
 
-  const text = await readText(`stages/${n}.txt`);
+  const text = await readText(`stages/${n}.txt`);   // vfs caches the fetch
   checkPoints.stage = n;
   xt.nplayers = 7;
   gs.loadstage(placed, models, medium, trackers, checkPoints, xt, mads, record, text);
   if (checkPoints.stage === -3) throw new Error(`stage ${n} failed to load`);
 
-  // Snapshot only what the minimap needs; `placed` is reused by the next call.
+  if (stageMeta.has(n)) return stageMeta.get(n);
+
   const objects = [];
   for (let i = 0; i < gs.nob; i++) {
     const o = placed[i];
     if (!o) continue;
     objects.push({
-      x: o.x, z: o.z, r: o.maxR,
+      x: o.x, y: o.y, z: o.z, r: o.maxR,
       cp: o.checkpoint !== 0,
       decor: !!o.decor,
       name: BASE_NAMES[o.baseIndex] || '',
@@ -252,27 +296,136 @@ export async function loadStage(n) {
     });
   }
 
+  // The stage declares its own extent: maxl/maxr/maxt/maxb in the stage file
+  // are the four boundary walls, and loadstage feeds exactly those to
+  // trackers.devidetrackers(). So the spatial index already holds the game's
+  // own idea of where the stage is, in 3000-unit cells -- no need to infer a
+  // bounding box from object positions, which outliers skew.
+  const minX = trackers.sx;
+  const maxX = trackers.sx + trackers.ncx * 3000;
+  const minZ = trackers.sz;
+  const maxZ = trackers.sz + trackers.ncz * 3000;
+
+  let topY = Infinity;                 // y grows downward: the smallest is highest
+  let sumY = 0, nY = 0;
+  for (const o of objects) {
+    if (o.name === 'hpground' || o.isCar) continue;
+    if (o.y - o.r < topY) topY = o.y - o.r;
+    sumY += o.y; nY++;
+  }
+  if (!nY) topY = 0;
+  const meanY = nY ? sumY / nY : 0;
+
   const info = {
     n,
+    bounds: { minX, maxX, minZ, maxZ, meanY, topY },
     name: (text.match(/name\(([^)]*)\)/) || [, `Stage ${n}`])[1],
     laps: checkPoints.nlaps,
     checkpoints: checkPoints.nsp,
     objects,
     start: { x: xt.xstart[0], z: xt.zstart[0] },
   };
-  stageCache.set(n, info);
+  stageMeta.set(n, info);
   return info;
 }
 
 /** Just the display name, without building the stage. */
 export async function stageName(n) {
-  if (stageCache.has(n)) return stageCache.get(n).name;
+  if (stageMeta.has(n)) return stageMeta.get(n).name;
   try {
     const text = await readText(`stages/${n}.txt`);
     return (text.match(/name\(([^)]*)\)/) || [, `Stage ${n}`])[1];
   } catch {
     return null;               // stage file absent
   }
+}
+
+/**
+ * Render the stage from directly overhead with the game's own renderer.
+ *
+ * The abstract block map this replaced could only ever be coloured rectangles;
+ * this draws the actual track geometry, shaded exactly as it is in a race,
+ * because it IS the race renderer with the camera pointed straight down.
+ *
+ * Requires the stage to be the one currently built into `placed` -- loadStage
+ * reuses that array -- so it is called immediately after it.
+ *
+ * `zy = 90` looks straight down and the camera height comes from the stage's
+ * own bounds. Returns the vertex count so the caller can tell a stage that
+ * rendered from one the renderer could not reach — see MAX_DEPTH.
+ */
+export function drawStage3D(canvas, stage) {
+  const { medium, gs, xt, placed, mads } = world;
+  if (!canvas._rd) {
+    const overlay = document.createElement('canvas');
+    overlay.width = canvas.width;
+    overlay.height = canvas.height;
+    canvas._rd = new Graphics2D(canvas, overlay, 800, 450);
+  }
+  const rd = canvas._rd;
+
+  const b = stage.bounds;
+  const spanX = Math.max(1, b.maxX - b.minX);
+  const spanZ = Math.max(1, b.maxZ - b.minZ);
+
+  // Work the camera height out of the projection rather than guessing it.
+  // With xz = 0 and zy = 90 the transform in ContO.d collapses to
+  //   screenX = cx + (x - m.x - cx) * focus / depth
+  //   screenY = cy - (z - m.z - cz) * focus / depth
+  //   depth   = cz + (y - m.y - cy)
+  // so fitting spanX into 800 needs depth >= spanX/2, and spanZ into 450
+  // needs depth >= spanZ * 400/450. Take the larger, with a margin.
+  let depth = Math.max(spanX / 2, spanZ * (400 / 450)) * 1.12;
+  // The camera must clear the TALLEST object with room to spare. Framing off
+  // the mean height alone leaves tall geometry at or above the camera plane,
+  // where depth goes to zero and the projection stretches it across the whole
+  // screen -- what stage 9's ramps did. `xs()` clamps the divisor but that
+  // only bounds the blow-up, it does not prevent the smear.
+  const clearance = (b.meanY - b.topY) * 2 + 2000;
+  if (depth < clearance) depth = clearance;
+  // The renderer was never asked for a view this wide: the StageMaker's own
+  // overhead mode stops at m.y = -15000 and SCROLLS instead. Past roughly that
+  // distance, face-level culling inside Plane.d strips the geometry -- stage 8
+  // spans 91,000 units and emitted 24 vertices for 172 visible objects.
+  // Clamp to the supported range; larger stages show their middle rather than
+  // an empty frame.
+  if (depth > MAX_DEPTH) return 0;      // caller falls back to the flat map
+
+
+  // trk = 2 is the StageMaker's overhead editing mode (StageMaker.java:886).
+  // It is not cosmetic: ContO.d's distance-fade and minimum-projected-size
+  // culls are both written as `... || this.m.trk !== 0`, so at map scale
+  // everything is culled without it -- 7 of 190 objects survived at trk = 0.
+  // trk = 1 would additionally hide decor; 2 keeps it.
+  medium.trk = 2;
+  medium.crs = false;
+  medium.ih = 0;
+  medium.iw = 0;
+  medium.w = 800;
+  medium.h = 450;
+  medium.focus_point = 400;
+  medium.cx = 400;
+  medium.cy = 225;
+  medium.cz = 50;
+  medium.xz = 0;
+  medium.zy = 90;
+  medium.x = (b.minX + b.maxX) / 2 - medium.cx;
+  medium.z = (b.minZ + b.maxZ) / 2 - medium.cz;
+  medium.y = b.meanY - medium.cy + medium.cz - depth;
+  medium.ground = b.meanY;
+
+  // Skip the backdrop: pointed straight down it fills the frame with sky and
+  // washes the track out. gs.draw calls it, so stub it for this one call.
+  const backdrop = medium.d;
+  medium.d = () => {};
+  try {
+    rd.begin();
+    gs.draw(rd, medium, xt, placed, mads);
+    rd.end();
+  } finally {
+    medium.d = backdrop;
+  }
+  return rd.vertexCount;
 }
 
 /**

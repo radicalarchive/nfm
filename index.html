@@ -27,6 +27,9 @@
 
   .stage-view { position: relative; background: #0b0d13; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
   canvas { display: block; width: 100%; height: auto; }
+  /* An author `display:block` beats the UA stylesheet's [hidden] rule, so the
+     hidden fallback canvas would still take up space. */
+  canvas[hidden] { display: none; }
   /* The car preview renders in 800x450 game space because the original's
      projection centre and focus point are absolute screen coordinates. Crop
      to the part the car occupies rather than moving the camera. */
@@ -119,7 +122,12 @@
 
     <section class="card">
       <h2>Stage</h2>
-      <div class="stage-view"><canvas id="mapview" width="520" height="300"></canvas></div>
+      <div class="stage-view">
+        <canvas id="mapview" width="1600" height="900"></canvas>
+        <!-- A canvas holds one context type for life, so the flat fallback
+             map needs its own element rather than a 2D context on the GL one. -->
+        <canvas id="mapflat" width="800" height="450" hidden></canvas>
+      </div>
       <div class="chooser">
         <button class="arrow" id="stageprev" type="button" aria-label="Previous stage">‹</button>
         <select id="stage"></select>
@@ -179,6 +187,8 @@
           <div class="row"><label for="maxfps">Max fps</label><input type="number" id="maxfps" data-def="0" min="0" step="1">
             <span class="hint">0 = uncapped. Pinned to 18.9 without interpolation.</span></div>
           <div class="row"><label for="seed">Seed</label><input type="number" id="seed" data-def="12345" step="1"></div>
+          <div class="row"><label for="path">Asset path</label><input type="text" id="path" data-def="" placeholder="auto-detect">
+            <span class="hint">Probes ./ then ../ when empty.</span></div>
         </fieldset>
 
         <fieldset>
@@ -203,7 +213,7 @@
           <div class="check"><input type="checkbox" id="pool"><label for="pool">Array pooling — 30% slower</label></div>
         </fieldset>
       </div>
-      <div class="url" id="url">main.html</div>
+      <div class="url" id="url">web/main.html</div>
       <button type="button" class="mini" id="copy">Copy URL</button>
       <button type="button" class="mini" id="reset">Reset advanced</button>
     </form>
@@ -212,7 +222,7 @@
 
 <script type="module">
 import { initPreview, carNames, carStats, drawCar, loadStage, stageName, drawMinimap,
-         faceURL, CAR_COUNT } from './preview.js';
+         faceURL, drawStage3D, CAR_COUNT } from './web/preview.js';
 
 const $ = (id) => document.getElementById(id);
 const carSel = $('car'), stageSel = $('stage'), status = $('status');
@@ -254,7 +264,7 @@ function buildURL() {
     if (row) row.classList.toggle('changed', changed);
   }
   const qs = p.toString();
-  const url = 'main.html' + (qs ? '?' + qs : '');
+  const url = 'web/main.html' + (qs ? '?' + qs : '');
   $('url').textContent = url;
   return url;
 }
@@ -293,7 +303,14 @@ async function showStage() {
   try {
     const s = await loadStage(n);
     if (parseInt(stageSel.value, 10) !== n) return;      // superseded
-    drawMinimap($('mapview'), s);
+    // Must follow loadStage immediately: it reuses one placed-object array.
+    // Large stages need a wider view than the renderer supports, and come
+    // back empty; those fall back to the flat map.
+    const verts = drawStage3D($('mapview'), s);
+    const tooBig = verts < 200;
+    $('mapview').hidden = tooBig;
+    $('mapflat').hidden = !tooBig;
+    if (tooBig) drawMinimap($('mapflat'), s);
     $('stagefacts').innerHTML =
       `<span><b>${s.laps}</b> laps</span><span><b>${s.checkpoints}</b> checkpoints</span>`;
   } catch (e) {

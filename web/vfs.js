@@ -18,8 +18,12 @@ export function setFpath(p) {
 /**
  * Pick fpath by probing, so the same build works from either layout:
  *
- *   repo:   /js/main.html  with assets at /data, /stages   -> '../'
- *   deploy: /main.html     with assets at ./data, ./stages -> './'
+ *   /web/main.html   with assets at /data, /stages   -> '../'
+ *   /index.html      with assets at ./data, ./stages -> './'
+ *
+ * Both layouts are live at once: the launcher sits at the repo root and the
+ * game one level down in web/, so the probe is what makes a single build work
+ * from either.
  *
  * Java solved this by having Madness.main() validate the prefix and silently
  * reset it to "" on failure -- which, per web/README.md, produces a blank

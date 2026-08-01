@@ -6,14 +6,16 @@
 # Builds a staging tree, then mirrors it with rsync --delete, so the remote
 # directory ends up containing exactly what's here and nothing else.
 #
-# Layout is FLAT, matching what the host already served:
-#   nfm/index.html   A/B test link page
-#   nfm/main.html    the game
-#   nfm/*.js         the port modules (tests excluded)
+# The deployed tree mirrors the repo, minus everything the browser never asks
+# for (the jar, the decompiled sources, the tests):
+#
+#   nfm/index.html   the launcher
+#   nfm/web/         main.html + the port modules
 #   nfm/data/        models.zip, images.zip, HUD gifs
 #   nfm/stages/      stage definitions
 #
-# vfs.detectFpath() probes './' first, which is what this layout wants.
+# Keeping the same shape as the repo is what lets vfs.detectFpath() work
+# unchanged in both places: './' from the root launcher, '../' from web/.
 
 set -eu
 
@@ -22,8 +24,10 @@ SRC="$(cd "$(dirname "$0")" && pwd)"
 STAGE="$(mktemp -d)"
 trap 'rm -rf "$STAGE"' EXIT
 
-cp "$SRC"/js/*.js "$SRC"/js/index.html "$SRC"/js/main.html "$STAGE/"
-rm -f "$STAGE"/*.test.js
+mkdir -p "$STAGE/web"
+cp "$SRC"/index.html "$STAGE/"
+cp "$SRC"/web/*.js "$SRC"/web/main.html "$STAGE/web/"
+rm -f "$STAGE"/web/*.test.js
 cp -r "$SRC/data" "$SRC/stages" "$STAGE/"
 
 # ---- cache busting ---------------------------------------------------------
@@ -34,13 +38,14 @@ cp -r "$SRC/data" "$SRC/stages" "$STAGE/"
 #
 # Stamp = hash of the module sources, so the query only changes when the code
 # does and an unchanged deploy still hits cache. Every relative import and the
-# <script src> gets ?v=STAMP appended. Asset fetches (data/, stages/) go
-# through vfs.js and are deliberately NOT stamped: they are the big files and
-# they change far less often.
-STAMP="$(cat "$STAGE"/*.js "$STAGE"/*.html | md5sum | cut -c1-8)"
-for f in "$STAGE"/*.js "$STAGE"/*.html; do
-  sed -i -E "s@(from '\./[A-Za-z0-9_.-]+\.js)'@\1?v=$STAMP'@g; \
-             s@(src=\"\./[A-Za-z0-9_.-]+\.js)\"@\1?v=$STAMP\"@g" "$f"
+# <script src> gets ?v=STAMP appended, including index.html's './web/...'
+# imports. Asset fetches (data/, stages/) go through vfs.js and are
+# deliberately NOT stamped: they are the big files and they change far less
+# often.
+STAMP="$(cat "$STAGE"/web/*.js "$STAGE"/web/*.html "$STAGE"/index.html | md5sum | cut -c1-8)"
+for f in "$STAGE"/web/*.js "$STAGE"/web/*.html "$STAGE"/index.html; do
+  sed -i -E "s@(from '\./([A-Za-z0-9_.-]+/)?[A-Za-z0-9_.-]+\.js)'@\1?v=$STAMP'@g; \
+             s@(src=\"\./([A-Za-z0-9_.-]+/)?[A-Za-z0-9_.-]+\.js)\"@\1?v=$STAMP\"@g" "$f"
 done
 echo "cache stamp: $STAMP"
 

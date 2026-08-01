@@ -4,3 +4,9 @@ web/nfm.jar
 
 # npm deps for the JS port
 js/node_modules/
+
+# mycars/ is a runtime dir: the game and the port extract models into it.
+# Only the two cars that shipped with the game are tracked.
+mycars/*.rad
+!mycars/Example, MAX Revenge.rad
+!mycars/Simple Car.rad
