@@ -3,208 +3,369 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>NFM web port — A/B tests</title>
+<title>Need for Madness</title>
 <style>
-  :root { color-scheme: dark; }
+  :root { color-scheme: dark; --line:#2c2f3a; --panel:#161821; --dim:#8a8f9c; --accent:#6cf; }
+  * { box-sizing: border-box; }
   body {
-    margin: 0; padding: 2rem 1.5rem 4rem; background: #111; color: #ddd;
-    font: 15px/1.6 system-ui, sans-serif;
+    margin: 0; padding: 1.5rem 1.25rem 3rem; color: #e6e8ee;
+    background: radial-gradient(120% 90% at 50% 0%, #1d2130 0%, #0d0f16 60%);
+    font: 15px/1.5 system-ui, sans-serif; min-height: 100vh;
   }
-  main { max-width: 46rem; margin: 0 auto; }
-  h1 { font-size: 1.4rem; margin: 0 0 .3rem; }
-  h2 { font-size: 1rem; margin: 2rem 0 .4rem; color: #9f9; font-weight: 600; }
-  p { margin: .4rem 0; }
-  p.lede { color: #999; margin-bottom: 1.2rem; }
-  .pair a { display: inline-block; margin-right: .7rem; }
-  a { color: #6cf; }
-  a:visited { color: #9ad; }
-  .done { color: #888; }
-  .done h2 { color: #7a7; }
-  hr { border: 0; border-top: 1px solid #333; margin: 2.5rem 0 1rem; }
-  table { border-collapse: collapse; margin: .8rem 0; font-size: 14px; }
-  th, td { text-align: left; padding: .2rem 1.2rem .2rem 0; }
-  th { color: #9f9; font-weight: 600; }
-  td.n { font: 13px ui-monospace, Menlo, Consolas, monospace; }
-  code, kbd {
-    font: 12px ui-monospace, Menlo, Consolas, monospace;
-    background: #222; border: 1px solid #333; border-radius: 3px; padding: 0 .3em;
+  main { max-width: 62rem; margin: 0 auto; }
+  header { display: flex; align-items: center; justify-content: center; gap: .9rem; margin-bottom: 1.5rem; }
+  header > div { text-align: left; }
+  /* d1.png from images.zip, green-keyed at load. Pixel art, so no smoothing. */
+  #face { height: 4.4rem; width: auto; image-rendering: pixelated; filter: drop-shadow(0 2px 6px #0008); }
+  #face:not([src]) { display: none; }
+  h1 { font-size: 1.75rem; margin: 0; letter-spacing: .02em; }
+  header p { color: var(--dim); margin: .3rem 0 0; font-size: .9rem; }
+
+  .picks { display: grid; gap: 1.25rem; grid-template-columns: repeat(auto-fit, minmax(20rem, 1fr)); }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 1rem 1.1rem 1.1rem; }
+  .card h2 { font-size: .78rem; text-transform: uppercase; letter-spacing: .09em; color: var(--dim); margin: 0 0 .7rem; font-weight: 700; }
+
+  .stage-view { position: relative; background: #0b0d13; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  canvas { display: block; width: 100%; height: auto; }
+  /* The car preview renders in 800x450 game space because the original's
+     projection centre and focus point are absolute screen coordinates. Crop
+     to the part the car occupies rather than moving the camera. */
+  /* The car lands at (402, 264) in 800x450 game space, about 100px wide.
+     Crop to a 260x146 window around it; the 2x backing store keeps it sharp
+     under the ~3x magnification. */
+  .carview-crop { aspect-ratio: 16 / 9; }
+  .carview-crop canvas { position: absolute; width: 308%; left: -105%; top: -131%; }
+
+  .chooser { display: flex; align-items: center; gap: .6rem; margin-top: .8rem; }
+  .chooser select { flex: 1; }
+  select {
+    background: #0b0d13; color: #e6e8ee; border: 1px solid #39404f; border-radius: 6px;
+    padding: .45rem .55rem; font: 600 14px system-ui, sans-serif; width: 100%;
   }
+  select:focus, input:focus, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .arrow {
+    width: 2.1rem; height: 2.1rem; flex: none; border-radius: 6px; cursor: pointer;
+    border: 1px solid #39404f; background: #1d212c; color: #e6e8ee; font-size: 1rem; line-height: 1;
+  }
+  .arrow:hover { background: #2a2f3d; }
+
+  .facts { display: flex; gap: 1rem; flex-wrap: wrap; color: var(--dim); font-size: .82rem; margin-top: .6rem; }
+  .facts b { color: #e6e8ee; font-weight: 600; }
+
+  .bars { margin-top: .8rem; display: grid; gap: .35rem; }
+  .bar { display: grid; grid-template-columns: 4.6rem 1fr; align-items: center; gap: .5rem; font-size: .8rem; color: var(--dim); }
+  /* Both are spans, so they need display:block or the heights do nothing. */
+  .bar .track { display: block; height: 8px; background: #0b0d13; border-radius: 4px; overflow: hidden; border: 1px solid #262b36; }
+  .bar .fill { display: block; height: 100%; background: linear-gradient(90deg, #3a7bd5, var(--accent)); }
+
+  .go { text-align: center; margin: 1.6rem 0 .5rem; }
+  .race {
+    font: 700 17px system-ui, sans-serif; padding: .7rem 3rem; border-radius: 9px; cursor: pointer;
+    border: 1px solid #4a8fe0; background: #2f6dc4; color: #fff;
+  }
+  .race:hover { filter: brightness(1.15); }
+  .race[disabled] { opacity: .5; cursor: default; filter: none; }
+
+  .opts { display: flex; gap: 1.2rem; justify-content: center; flex-wrap: wrap; align-items: center; margin-top: 1rem; color: var(--dim); font-size: .85rem; }
+  .opts label { display: flex; align-items: center; gap: .4rem; }
+  .opts select { width: auto; font-weight: 500; font-size: 13px; padding: .3rem .4rem; }
+
+  details.adv { margin-top: 2.2rem; border-top: 1px solid var(--line); padding-top: .9rem; }
+  details.adv > summary { cursor: pointer; color: var(--dim); font-size: .85rem; font-weight: 600; }
+  details.adv > summary:hover { color: #e6e8ee; }
+  .grid { display: grid; gap: .9rem; grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr)); margin-top: 1rem; }
+  fieldset { border: 1px solid var(--line); border-radius: 8px; padding: .6rem .8rem .8rem; margin: 0; background: var(--panel); }
+  legend { color: #9fe6a0; font-weight: 600; font-size: .78rem; padding: 0 .35rem; }
+  .row { display: grid; grid-template-columns: 7rem 1fr; align-items: center; gap: .45rem; margin: .4rem 0; }
+  .row > label { color: #b9bec9; font-size: .85rem; }
+  .hint { grid-column: 2; color: #6f747f; font-size: .74rem; margin-top: -.15rem; }
+  input[type=number], input[type=text] {
+    background: #0b0d13; color: #e6e8ee; border: 1px solid #39404f; border-radius: 5px;
+    padding: .22rem .4rem; font: 12px ui-monospace, Menlo, Consolas, monospace; width: 100%;
+  }
+  .check { display: flex; align-items: center; gap: .4rem; margin: .35rem 0; }
+  .check label { color: #b9bec9; font-size: .85rem; }
+  .changed > label, .check.changed label { color: #fff; font-weight: 600; }
+  .url { font: 11px ui-monospace, Menlo, Consolas, monospace; color: var(--accent); background: #0b0d13;
+         border: 1px solid var(--line); border-radius: 5px; padding: .45rem .55rem; margin-top: 1rem; word-break: break-all; }
+  .mini { font: 600 12px system-ui, sans-serif; padding: .3rem .7rem; border-radius: 5px; margin-top: .6rem;
+          border: 1px solid #39404f; background: #1d212c; color: #e6e8ee; cursor: pointer; }
+  .status { text-align: center; color: var(--dim); font-size: .85rem; min-height: 1.2rem; }
+  code { font: 11px ui-monospace, Menlo, Consolas, monospace; background: #0b0d13; border: 1px solid var(--line); border-radius: 3px; padding: 0 .3em; }
 </style>
 </head>
 <body>
 <main>
-  <h1>Need for Madness — WebGL port</h1>
-  <p class="lede">
-    Round 3. Stage 1, seed 12345. Each link discards 3s of warmup, averages 3s,
-    then pauses with the result frozen. <kbd>R</kbd> reruns.
-    <a href="./main.html">Play with current defaults →</a>
-  </p>
+  <header>
+    <img id="face" alt="">
+    <div>
+      <h1>Need for Madness</h1>
+      <p>Pick a car and a stage.</p>
+    </div>
+  </header>
 
-  <h2>Where the frame actually goes (measured, round 2)</h2>
-  <table>
-    <tr><th>Run</th><th>sim</th><th>draw</th><th>verts</th></tr>
-    <tr><td>1 car</td><td class="n">0.61 ms</td><td class="n">14.60 ms</td><td class="n">47,328</td></tr>
-    <tr><td>8 cars</td><td class="n">1.72 ms</td><td class="n">24.38 ms</td><td class="n">100,254</td></tr>
-  </table>
-  <p>
-    Physics is 2–7% of the tick. Drawing is everything else, and it tracks
-    vertex count almost exactly (~0.25 µs/vertex in both runs). Static stage
-    geometry is ~40k of those verts and is re-projected on the CPU every frame
-    even though it never moves; each car adds ~7.5k verts and ~1.4 ms.
-  </p>
+  <div class="picks">
+    <section class="card">
+      <h2>Car</h2>
+      <div class="stage-view carview-crop"><canvas id="carview" width="1600" height="900"></canvas></div>
+      <div class="chooser">
+        <button class="arrow" id="carprev" type="button" aria-label="Previous car">‹</button>
+        <select id="car"></select>
+        <button class="arrow" id="carnext" type="button" aria-label="Next car">›</button>
+      </div>
+      <div class="facts"><span id="carclass"></span></div>
+      <div class="bars" id="carbars"></div>
+    </section>
 
-  <h2>Round 6 — trapezoid fill (done, please confirm)</h2>
-  <p>
-    The concave/self-intersecting fill emitted one quad per pixel <em>row</em>;
-    it now cuts the polygon into trapezoids at every vertex y and every
-    edge-edge crossing, which is O(vertices) instead of O(height). Node:
-    <strong>40,041 → 25,455 verts/frame, 8.4% faster</strong>. Both fills are
-    exact even-odd, verified against a point-in-polygon truth.
-  </p>
-  <p>
-    Rendering is visually identical — 1.4% of pixels differ, all of them
-    sub-pixel edges on cloud and mountain boundaries, because trapezoids are
-    exact in continuous space rather than snapped to pixel rows.
-    <code>?fill=scan</code> restores the old path for comparison.
-  </p>
-  <p class="pair">
-    <a href="./main.html?players=8&amp;stats=1&amp;bench=10&amp;prof=1">A — trapezoid (new default)</a>
-    <a href="./main.html?players=8&amp;stats=1&amp;bench=10&amp;prof=1&amp;fill=scan">B — old scanline fill</a>
-  </p>
-  <p>Compare <code>ns/vert submitted</code> and the emitted vertex count. Also worth a look for anything visually wrong that a pixel diff wouldn't flag.</p>
-
-  <h2>Round 5 — measure the fixed cost instead of fitting it (answered: backdrop, 6.38 ms)</h2>
-  <p>
-    Round 4's fit was ill-conditioned: run B returned a <em>negative</em> fixed
-    cost (−3.44 ms) and a higher µs/vert than A while doing strictly less work.
-    Slope and intercept were trading off because scene weight doesn't vary
-    enough within one run. So the 7.68 ms isn't evidence either.
-  </p>
-  <p>
-    <code>?prof=1</code> now times <code>medium.d()</code> — the sky, ground and
-    terrain backdrop — separately from the object loop. That's the obvious
-    candidate for a cost that scales with nothing, and it's a direct
-    measurement rather than an extrapolation. The fit line also now reports its
-    x-range and R², so it's visible when it's meaningless.
-  </p>
-  <p class="pair">
-    <a href="./main.html?players=8&amp;stats=1&amp;bench=10&amp;prof=1">Profile backdrop vs objects, 10s</a>
-  </p>
-  <p>
-    Drive around as before. What settles it: if <code>backdrop</code> is several
-    ms, that's the fixed cost and it's a contained target. If it's under a
-    millisecond, there is no fixed cost worth chasing and projection is the
-    whole story.
-  </p>
-
-  <h2>Round 4 — does the fixed cost exist? (answered: fit was ill-conditioned)</h2>
-  <p>
-    Your two runs fit <code>draw ≈ 9.8 ms fixed + 1.01 µs × projected
-    vertex</code>. The slope is solid; the intercept is not — two points only
-    1.7× apart in scene weight extrapolate badly, and a few percent of noise
-    swings it by milliseconds. It also can't be checked against my node numbers,
-    since those are a different machine and V8 rather than SpiderMonkey.
-  </p>
-  <p>
-    So the benchmark now fits the line <em>within a single run</em>: scene
-    weight changes every frame as the camera moves, giving hundreds of points
-    across a wide range instead of two. The result prints as
-    <code>fit over N frames: … µs/projected vert + … ms fixed</code>.
-  </p>
-  <p>
-    <strong>One run, and please drive around during it</strong> — the wider the
-    range of scene weights, the better the fit. 10s gives ~190 points.
-  </p>
-  <p class="pair">
-    <a href="./main.html?players=8&amp;stats=1&amp;bench=10">Fit, 8 cars, 10s</a>
-    <a href="./main.html?players=8&amp;stats=1&amp;bench=10&amp;geom=0">Fit, geometry stubbed</a>
-  </p>
-  <p>
-    If the fixed term comes back near zero, there is nothing to chase and the
-    projection slope is the whole story. If it holds up at several ms, it is
-    real and worth finding before the shader rewrite.
-  </p>
-
-  <h2>Round 3b — splitting the 11.5 ms that <code>?raster=0</code> removed</h2>
-  <p>
-    Last round showed draw is ~half projection, ~half "everything else". But
-    <code>raster=0</code> stubs two unrelated things at once: geometry
-    batching (triangulation, vertex writes) and the Canvas2D overlay
-    (<code>fillText</code>, <code>drawImage</code> for the HUD). Node says the
-    batcher is only ~26% of draw — but node's null 2D context already no-ops
-    the overlay, so node cannot see that half at all. Hence four runs.
-  </p>
-  <p>
-    <strong>B loses the HUD, C and D go blank.</strong> Expected — stopwatches,
-    not rendering modes.
-  </p>
-  <p class="pair">
-    <a href="./main.html?players=8&amp;stats=1&amp;bench=3">A — normal</a>
-    <a href="./main.html?players=8&amp;overlay=0&amp;stats=1&amp;bench=3">B — no overlay</a>
-    <a href="./main.html?players=8&amp;geom=0&amp;stats=1&amp;bench=3">C — no geometry</a>
-    <a href="./main.html?players=8&amp;raster=0&amp;stats=1&amp;bench=3">D — projection only</a>
-  </p>
-  <p>
-    <strong>Compare the <code>ns/vert submitted</code> line, not
-    <code>ms/frame</code>.</strong> Your first run of this came back with the
-    stubbed configs <em>slower</em> than the normal one, which is impossible —
-    the cause was that scene weight swings by ~60% depending on where the car
-    is and what's on screen, and that swamps the differences being measured.
-    The benchmark now counts polygon vertices <em>submitted</em> (counted even
-    when emitting is stubbed, which it wasn't before — C and D reported a scene
-    of zero) and normalises by it.
-  </p>
-  <p>
-    From the four <code>ns/vert</code> figures: overlay = A−B, geometry = A−C,
-    projection = D. If A−B is the big one, the fix is the HUD overlay and is
-    cheap; if A−C is, it's triangulation; if D dominates both, it's the shader
-    rewrite and nothing else will help much.
-  </p>
-  <p>
-    Still worth keeping the runs similar: same stage, and either drive all four
-    the same way or — easier — don't touch the keys at all in any of them.
-  </p>
-
-  <h2>Round 3 — is it projection, or the batcher? (answered: both, ~50/50)</h2>
-  <p>
-    "Draw" is two costs stacked: the per-vertex projection in
-    <code>Plane.d()</code>, and the triangulation + vertex-buffer writes in
-    <code>graphics.js</code>. Only the first can move to a vertex shader, so
-    this decides whether that rewrite is worth doing.
-  </p>
-  <p>
-    B makes every draw call still happen — so all the projection maths is still
-    paid — but throws the geometry away instead of triangulating it.
-    <strong>The screen will be blank in B. That is expected</strong>; it's a
-    stopwatch, not a rendering mode. Just let the 6s run.
-  </p>
-  <p class="pair">
-    <a href="./main.html?players=8&amp;stats=1&amp;bench=3">A — normal, 8 cars</a>
-    <a href="./main.html?players=8&amp;raster=0&amp;stats=1&amp;bench=3">B — projection only (blank screen)</a>
-  </p>
-  <p>
-    If B is still ~20 ms, it's projection and the shader work pays off
-    ~4x. If B collapses to a few ms, the cost is in the batcher and the
-    shader would buy almost nothing — different fix entirely.
-  </p>
-
-  <hr>
-  <div class="done">
-    <h2>Settled — no need to retest</h2>
-    <p><strong>Physics is not the bottleneck.</strong> 0.6–1.7 ms/tick. The 10.3 ms figure in WORK.md was sim+draw measured as one.</p>
-    <p><strong>Resolution is nearly free on the CPU</strong> (res=1 24.1 ms vs res=2 24.1 ms); MSAA at 2x cost ~12% and is now off above 1x. GPU fill time is invisible to these timers, so this is a CPU statement only.</p>
-    <p><strong>fps is pinned to 18.9</strong> whenever interpolation is off — the game draws only on a tick. Don't compare builds by fps in that mode.</p>
-    <p><strong>Interpolation</strong> — the only route past 18.9 fps, but the car jitters and each interpolated frame costs a full ~17 ms CPU redraw. Off by default.</p>
-    <p><strong>Array pooling</strong> — no measurable difference. Dropped.</p>
-    <p><strong>Frame cap</strong> — moot, the machine never reaches 60.</p>
+    <section class="card">
+      <h2>Stage</h2>
+      <div class="stage-view"><canvas id="mapview" width="520" height="300"></canvas></div>
+      <div class="chooser">
+        <button class="arrow" id="stageprev" type="button" aria-label="Previous stage">‹</button>
+        <select id="stage"></select>
+        <button class="arrow" id="stagenext" type="button" aria-label="Next stage">›</button>
+      </div>
+      <div class="facts" id="stagefacts"></div>
+    </section>
   </div>
 
-  <p style="margin-top:2rem; color:#888">
-    Params: <kbd>?res=</kbd> <kbd>?textres=</kbd> <kbd>?aa=</kbd> <kbd>?raster=</kbd> <kbd>?geom=</kbd> <kbd>?overlay=</kbd>
-    <kbd>?interp=</kbd> <kbd>?cam=</kbd> <kbd>?maxfps=</kbd> <kbd>?pool=</kbd>
-    <kbd>?stats=</kbd> <kbd>?bench=</kbd> <kbd>?prof=</kbd> <kbd>?fill=</kbd> <kbd>?warmup=</kbd>
-    <kbd>?players=</kbd> <kbd>?stage=</kbd> <kbd>?car=</kbd> <kbd>?seed=</kbd> <kbd>?tickms=</kbd>
-  </p>
+  <div class="opts">
+    <label>Cars on track
+      <select id="players">
+        <option>2</option><option>3</option><option>4</option><option>5</option>
+        <option>6</option><option selected>7</option><option>8</option>
+      </select>
+    </label>
+    <label>Opponents
+      <select id="cars">
+        <option value="">chosen by stage</option>
+        <option value="same">same as mine</option>
+      </select>
+    </label>
+  </div>
+
+  <div class="go">
+    <button class="race" id="race" disabled>Loading…</button>
+    <div class="status" id="status"></div>
+  </div>
+
+  <details class="adv">
+    <summary>Advanced &amp; developer settings</summary>
+    <form id="f">
+      <div class="grid">
+        <fieldset>
+          <legend>Rendering</legend>
+          <div class="row"><label for="res">Resolution</label><input type="number" id="res" data-def="2" min="1" max="4" step="0.5">
+            <span class="hint">Backing store scale. Game space is always 800×450.</span></div>
+          <div class="row"><label for="textres">Overlay res</label><input type="number" id="textres" data-def="1" min="1" max="4" step="1"></div>
+          <div class="check"><input type="checkbox" id="aa"><label for="aa">MSAA — on by default only at res 1</label></div>
+          <div class="row"><label for="fill">Concave fill</label>
+            <select id="fill" data-def="trap">
+              <option value="trap">trapezoid (default)</option>
+              <option value="scan">scanline (old)</option>
+            </select></div>
+        </fieldset>
+
+        <fieldset>
+          <legend>Timing</legend>
+          <div class="row"><label for="tickms">Tick ms</label><input type="number" id="tickms" data-def="53" step="1">
+            <span class="hint">530ms per 10 frames. Changing this changes game speed.</span></div>
+          <div class="check"><input type="checkbox" id="interp"><label for="interp">Frame interpolation</label></div>
+          <div class="row"><label for="cam">Camera</label>
+            <select id="cam" data-def="derive">
+              <option value="derive">re-derive (default)</option>
+              <option value="blend">blend</option>
+            </select></div>
+          <div class="row"><label for="maxfps">Max fps</label><input type="number" id="maxfps" data-def="0" min="0" step="1">
+            <span class="hint">0 = uncapped. Pinned to 18.9 without interpolation.</span></div>
+          <div class="row"><label for="seed">Seed</label><input type="number" id="seed" data-def="12345" step="1"></div>
+        </fieldset>
+
+        <fieldset>
+          <legend>Benchmark</legend>
+          <div class="check"><input type="checkbox" id="stats"><label for="stats">Show stats readout</label></div>
+          <div class="row"><label for="bench">Window (s)</label><input type="number" id="bench" data-def="" min="0" step="1" placeholder="3 when stats on">
+            <span class="hint">Averages, then freezes. R reruns.</span></div>
+          <div class="row"><label for="warmup">Warmup (ms)</label><input type="number" id="warmup" data-def="3000" min="0" step="500"></div>
+          <div class="check"><input type="checkbox" id="prof"><label for="prof">Time the backdrop separately</label></div>
+        </fieldset>
+
+        <fieldset>
+          <legend>Diagnostic stubs</legend>
+          <p class="hint" style="grid-column:auto;margin:.1rem 0 .5rem;color:#c09a5e">
+            Draw calls still happen but the work is discarded, so the caller
+            still pays for projection. The screen goes blank — stopwatches,
+            not rendering modes.
+          </p>
+          <div class="check"><input type="checkbox" id="geom"><label for="geom">Stub geometry batching</label></div>
+          <div class="check"><input type="checkbox" id="overlay"><label for="overlay">Stub Canvas2D overlay</label></div>
+          <div class="check"><input type="checkbox" id="raster"><label for="raster">Stub both</label></div>
+          <div class="check"><input type="checkbox" id="pool"><label for="pool">Array pooling — 30% slower</label></div>
+        </fieldset>
+      </div>
+      <div class="url" id="url">main.html</div>
+      <button type="button" class="mini" id="copy">Copy URL</button>
+      <button type="button" class="mini" id="reset">Reset advanced</button>
+    </form>
+  </details>
 </main>
+
+<script type="module">
+import { initPreview, carNames, carStats, drawCar, loadStage, stageName, drawMinimap,
+         faceURL, CAR_COUNT } from './preview.js';
+
+const $ = (id) => document.getElementById(id);
+const carSel = $('car'), stageSel = $('stage'), status = $('status');
+const STAGE_COUNT = 32;
+
+// ---- advanced form ---------------------------------------------------------
+const form = $('f');
+const fields = [...form.querySelectorAll('input, select')];
+const INVERTED = new Set(['geom', 'overlay', 'raster']);   // these read `=0`
+const defaultAA = () => parseFloat($('res').value || '2') <= 1;
+
+function buildURL() {
+  const p = new URLSearchParams();
+  const car = carSel.value, stage = stageSel.value;
+  if (car !== '1') p.set('car', car);
+  if (stage !== '1') p.set('stage', stage);
+  if ($('players').value !== '7') p.set('players', $('players').value);
+  if ($('cars').value) p.set('cars', $('cars').value);
+
+  for (const el of fields) {
+    let changed = false;
+    if (el.type === 'checkbox') {
+      if (el.id === 'aa') {
+        changed = el.checked !== defaultAA();
+        if (changed) p.set('aa', el.checked ? '1' : '0');
+      } else if (INVERTED.has(el.id)) {
+        changed = el.checked;
+        if (changed) p.set(el.id, '0');
+      } else {
+        changed = el.checked;
+        if (changed) p.set(el.id, '1');
+      }
+    } else {
+      const val = el.value.trim();
+      changed = val !== '' && val !== (el.dataset.def ?? '');
+      if (changed) p.set(el.id, val);
+    }
+    const row = el.closest('.row') || el.closest('.check');
+    if (row) row.classList.toggle('changed', changed);
+  }
+  const qs = p.toString();
+  const url = 'main.html' + (qs ? '?' + qs : '');
+  $('url').textContent = url;
+  return url;
+}
+
+function resetAdvanced() {
+  for (const el of fields) {
+    if (el.type === 'checkbox') el.checked = false;
+    else el.value = el.dataset.def ?? '';
+  }
+  $('aa').checked = defaultAA();
+  buildURL();
+}
+
+// ---- car preview -----------------------------------------------------------
+let angle = 210, spinning = 0;
+
+function showCar() {
+  const car = parseInt(carSel.value, 10);
+  drawCar($('carview'), car, angle);
+  const { cls, bars } = carStats(car);
+  $('carclass').innerHTML = cls ? `Class <b>${cls}</b>` : '';
+  $('carbars').innerHTML = bars.map(([name, v]) =>
+    `<div class="bar"><span>${name}</span><span class="track"><span class="fill" style="width:${v}%"></span></span></div>`).join('');
+  buildURL();
+}
+
+function spin() {
+  angle = (angle + 0.6) % 360;
+  drawCar($('carview'), parseInt(carSel.value, 10), angle);
+  spinning = requestAnimationFrame(spin);
+}
+
+// ---- stage preview ---------------------------------------------------------
+async function showStage() {
+  const n = parseInt(stageSel.value, 10);
+  try {
+    const s = await loadStage(n);
+    if (parseInt(stageSel.value, 10) !== n) return;      // superseded
+    drawMinimap($('mapview'), s);
+    $('stagefacts').innerHTML =
+      `<span><b>${s.laps}</b> laps</span><span><b>${s.checkpoints}</b> checkpoints</span>`;
+  } catch (e) {
+    $('stagefacts').textContent = 'could not load this stage';
+    console.warn(e);
+  }
+  buildURL();
+}
+
+const step = (sel, d, count) => {
+  sel.selectedIndex = (sel.selectedIndex + d + count) % count;
+  sel.dispatchEvent(new Event('change'));
+};
+
+// ---- boot ------------------------------------------------------------------
+(async () => {
+  resetAdvanced();
+  try {
+    status.textContent = 'loading models…';
+    await initPreview();
+    // Decorative: a missing images.zip must not stop you racing.
+    faceURL().then((u) => { $('face').src = u; }).catch(() => {});
+
+    carNames().forEach((name, i) => carSel.add(new Option(name, i)));
+    carSel.value = '1';
+
+    // Stage names come from the stage files themselves, fetched in parallel.
+    const names = await Promise.all(
+      Array.from({ length: STAGE_COUNT }, (_, i) => stageName(i + 1)));
+    names.forEach((name, i) => { if (name) stageSel.add(new Option(`${i + 1}. ${name}`, i + 1)); });
+    stageSel.value = '1';
+
+    // Restore a previous configuration from this page's own query string.
+    for (const [k, v] of new URLSearchParams(location.search)) {
+      const el = $(k);
+      if (!el) continue;
+      if (el.type === 'checkbox') el.checked = INVERTED.has(k) ? v === '0' : v === '1';
+      else el.value = v;
+    }
+
+    showCar();
+    await showStage();
+    spinning = requestAnimationFrame(spin);
+    status.textContent = '';
+    $('race').disabled = false;
+    $('race').textContent = 'Race';
+  } catch (e) {
+    status.textContent = 'Failed to load game data: ' + e.message;
+    console.error(e);
+  }
+})();
+
+carSel.onchange = showCar;
+stageSel.onchange = showStage;
+$('carprev').onclick = () => step(carSel, -1, CAR_COUNT);
+$('carnext').onclick = () => step(carSel, +1, CAR_COUNT);
+$('stageprev').onclick = () => step(stageSel, -1, stageSel.length);
+$('stagenext').onclick = () => step(stageSel, +1, stageSel.length);
+$('players').onchange = buildURL;
+$('cars').onchange = buildURL;
+form.addEventListener('input', buildURL);
+$('race').onclick = () => { cancelAnimationFrame(spinning); location.href = buildURL(); };
+$('reset').onclick = resetAdvanced;
+$('copy').onclick = async (e) => {
+  await navigator.clipboard.writeText(new URL(buildURL(), location.href).href);
+  e.target.textContent = 'Copied';
+  setTimeout(() => { e.target.textContent = 'Copy URL'; }, 1200);
+};
+addEventListener('keydown', (e) => {
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
+  if (e.key === 'Enter') $('race').click();
+});
+</script>
 </body>
 </html>

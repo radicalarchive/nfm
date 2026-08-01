@@ -831,6 +831,10 @@ export class ContO {
   #initCopy(contO, x, y, z, a) {
     this.m = contO.m;
     this.t = contO.t;
+    // Not game state: the launcher's minimap needs to tell a ground tile from
+    // a track piece, and the base model index is the only thing that does.
+    // loadbase tags the base models; instances inherit the tag.
+    this.baseIndex = contO.baseIndex;
     this.npl = contO.npl;
     this.maxR = contO.maxR;
     this.disp = contO.disp;

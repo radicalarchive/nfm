@@ -30,6 +30,9 @@ async function boot() {
   const params = new URLSearchParams(location.search);
   const stage = parseInt(params.get('stage') || '1', 10);
   const car = parseInt(params.get('car') || '1', 10);        // 1 = formula7
+  // ?cars=same puts the player's car in every slot, which is what this
+  // harness used to do unconditionally.
+  const sameCars = params.get('cars') === 'same';
   const players = parseInt(params.get('players') || '7', 10);
   const base = await detectFpath(params.get('path'));
   setSeed(parseInt(params.get('seed') || '12345', 10));
@@ -96,7 +99,18 @@ async function boot() {
   }
 
   xt.nplayers = players;
-  for (let i = 0; i < 8; ++i) xt.sc[i] = car;
+  xt.sc[0] = car;
+  if (sameCars) {
+    for (let i = 1; i < 8; ++i) xt.sc[i] = car;
+  } else {
+    // The original never races eight identical cars: sortcars() draws the
+    // field for this stage, biased toward faster cars as the stages go on,
+    // and forces specific opponents in for certain stages. It fills slots
+    // 1..6 -- the original grid is seven cars -- so an eighth slot keeps
+    // whatever it had.
+    xt.sortcars(stage);
+    xt.sc[7] = car;
+  }
   checkPoints.stage = stage;
 
   log(`loading stage ${stage}...`);

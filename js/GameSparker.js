@@ -14,13 +14,13 @@ import { ContO } from './ContO.js';
 import { readLines, entryText } from './vfs.js';
 
 /** Base-model names, in the slot order loadbase() assigns. */
-const CAR_NAMES = [
+export const CAR_NAMES = [
   '2000tornados', 'formula7', 'canyenaro', 'lescrab', 'nimi', 'maxrevenge',
   'leadoxide', 'koolkat', 'drifter', 'policecops', 'mustang', 'king',
   'audir8', 'masheen', 'radicalone', 'drmonster',
 ];
 
-const TRACK_NAMES = [
+export const TRACK_NAMES = [
   'road', 'froad', 'twister2', 'twister1', 'turn', 'offroad', 'bumproad',
   'offturn', 'nroad', 'nturn', 'roblend', 'noblend', 'rnblend', 'roadend',
   'offroadend', 'hpground', 'ramp30', 'cramp35', 'dramp15', 'dhilo15',
@@ -67,6 +67,9 @@ export class GameSparker {
       }
       n += bytes.length;
       array[n2] = new ContO(bytes, medium, trackers);
+      // Slot index, carried onto every instance built from this model. Used
+      // only by the launcher's minimap to classify ground vs track.
+      array[n2].baseIndex = n2;
     }
     // Java compares the summed uncompressed size against this exact constant
     // to flag a tampered/short models.zip.

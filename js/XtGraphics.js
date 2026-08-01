@@ -1,4 +1,4 @@
-import { idiv, i32, trunc, fr, intArray, floatArray, RGBtoHSB, HSBtoRGB } from './java.js';
+import { idiv, i32, trunc, fr, intArray, floatArray, random, RGBtoHSB, HSBtoRGB } from './java.js';
 
 export class XtGraphics {
   constructor(m = null, cd = null, rd = null, app = null) {
@@ -1813,6 +1813,196 @@ export class XtGraphics {
     this.rd.setColor(0, 0, 100);
     this.rd.drawString("" + trunc(n15), 62, 245);
     this.rd.drawString("" + trunc(n16), 132, 245);
+  }
+
+  /**
+   * Pick the opponent field for stage `n` — xtGraphics.java:7052.
+   *
+   * The original never uses one car for the whole grid: it draws sc[1..6] by
+   * rejection sampling, biased so that later stages field faster cars, then
+   * forces specific opponents in for certain stages (stage 10 wants a Radical
+   * One and a Nimi, 12 wants a Radical One, 14 wants a Formula 7 and an
+   * M.A.S.H.E.E.N., and so on).
+   *
+   * The rejection test is `(15 - sc[j]) / 15 * (n / 10)` capped at 0.8: a
+   * low-numbered (slow) car is rejected more often the later the stage, so
+   * the grid drifts upward through the roster without ever being fixed.
+   *
+   * `sc[0]` — the player's car — must be set BEFORE calling: several branches
+   * avoid duplicating it.
+   *
+   * Duplicates are rejected across all 7 slots, so this loop only terminates
+   * because the pool is larger than the grid. Slot 7 is untouched: the
+   * original grid is 7 cars and this port allows 8.
+   */
+  sortcars(n) {
+    if (n === 0) return;
+    for (let i = 1; i < 7; ++i) {
+      this.sc[i] = -1;
+    }
+    const array = new Array(7).fill(false);
+    if (n < 0) {
+      n = 27;
+    }
+    let n2 = 7;
+    if (this.gmode === 1) {
+      n2 = 5;
+    }
+    let b = false;
+    if (n <= 10) {
+      let n3 = 6;
+      if (this.gmode === 1) {
+        n3 = 4;
+      }
+      if ((n === 1 || n === 2) && this.sc[0] !== 5) {
+        this.sc[n3] = 5;
+        n2 = n3;
+      }
+      if ((n === 3 || n === 4) && this.sc[0] !== 6) {
+        this.sc[n3] = 6;
+        n2 = n3;
+      }
+      if ((n === 5 || n === 6) && this.sc[0] !== 11) {
+        this.sc[n3] = 11;
+        n2 = n3;
+      }
+      if ((n === 7 || n === 8) && this.sc[0] !== 14) {
+        this.sc[n3] = 14;
+        n2 = n3;
+      }
+      if ((n === 9 || n === 10) && this.sc[0] !== 15) {
+        this.sc[n3] = 15;
+        n2 = n3;
+      }
+    } else {
+      n -= 10;
+      b = true;
+      if (this.sc[0] !== 7 + idiv(n + 1, 2) && n !== 17) {
+        this.sc[6] = 7 + idiv(n + 1, 2);
+        n2 = 6;
+      }
+    }
+    let n4 = 16;
+    let n5 = 1;
+    let n6 = 2;
+    for (let j = 1; j < n2; ++j) {
+      array[j] = false;
+      while (!array[j]) {
+        let n7 = 10.0;
+        if (b) {
+          n7 = 17.0;
+        }
+        this.sc[j] = trunc(random() * fr(24.0 + fr(8.0 * fr(n / n7))));
+        if (this.sc[j] >= 16) {
+          this.sc[j] -= 16;
+        }
+        array[j] = true;
+        for (let k = 0; k < 7; ++k) {
+          if (j !== k && this.sc[j] === this.sc[k]) {
+            array[j] = false;
+          }
+        }
+        // n7 is reassigned here, AFTER it was used to pick the car and
+        // BEFORE it is used to weight the rejection. Not a decompiler
+        // artifact -- the two uses genuinely differ for the bonus stages.
+        if (b) {
+          n7 = 16.0;
+        }
+        let n9 = fr(fr((15 - this.sc[j]) / 15.0) * fr(n / n7));
+        if (n9 > 0.8) {
+          n9 = 0.8;
+        }
+        if (n === 17 && n9 > 0.5) {
+          n9 = 0.5;
+        }
+        if (n9 > random()) {
+          array[j] = false;
+        }
+        if (this.gmode === 1) {
+          if (this.sc[j] >= 7 && this.sc[j] <= 10) array[j] = false;
+          if (this.sc[j] === 12 || this.sc[j] === 13) array[j] = false;
+          if (this.sc[j] > 5 && this.unlocked[0] <= 2) array[j] = false;
+          if (this.sc[j] > 6 && this.unlocked[0] <= 4) array[j] = false;
+          if (this.sc[j] > 11 && this.unlocked[0] <= 6) array[j] = false;
+          if (this.sc[j] > 14 && this.unlocked[0] <= 8) array[j] = false;
+        }
+        if (this.gmode === 2) {
+          if ((this.sc[j] - 7) * 2 > this.unlocked[1]) {
+            array[j] = false;
+          }
+          if (n !== 16 || this.unlocked[1] !== 16 || this.sc[j] >= 9) {
+            continue;
+          }
+          array[j] = false;
+        }
+      }
+      // n5/n6 track the two slots holding the slowest cars; the forced
+      // opponents below overwrite those rather than a random slot.
+      if (this.sc[j] < n4) {
+        n4 = this.sc[j];
+        if (n5 !== j) {
+          n6 = n5;
+          n5 = j;
+        }
+      }
+    }
+    const has = (car) => {
+      for (let i = 0; i < 7; ++i) {
+        if (this.sc[i] === car) return true;
+      }
+      return false;
+    };
+    if (!b && n === 10) {
+      if (!has(11) && (random() > random() || this.gmode !== 0)) this.sc[n5] = 11;
+      if (!has(14) && (random() > random() || this.gmode !== 0)) this.sc[n6] = 14;
+    }
+    if (n === 12) {
+      if (!has(11)) this.sc[n5] = 11;
+    }
+    if (n === 14) {
+      if (!has(12) && (random() > random() || this.gmode !== 0)) this.sc[n5] = 12;
+      if (!has(10) && (random() > random() || this.gmode !== 0)) this.sc[n6] = 10;
+    }
+    if (n === 15) {
+      if (!has(11) && (random() > random() || this.gmode !== 0)) this.sc[n5] = 11;
+      if (!has(13) && (random() > random() || this.gmode !== 0)) this.sc[n6] = 13;
+    }
+    if (n === 16) {
+      if (!has(13) && (random() > random() || this.gmode !== 0)) this.sc[n5] = 13;
+      if (!has(12) && (random() > random() || this.gmode !== 0)) this.sc[n6] = 12;
+    }
+    // Custom-car packs. lastload is 0 in the race-only harness, so neither
+    // branch runs; kept so loading a pack later behaves as the original.
+    if (this.cd.lastload === 1) {
+      let n18 = 0;
+      for (let n19 = 0; n19 < this.cd.nlcars - 16; ++n19) {
+        if (n18 === 0) {
+          for (let n20 = 1; n20 < n2; ++n20) array[n20] = false;
+        }
+        if (this.cd.include[n19] && this.sc[0] !== n19 + 16) {
+          let n21;
+          for (n21 = trunc(1.0 + random() * (n2 - 1)); array[n21]; n21 = trunc(1.0 + random() * (n2 - 1))) {}
+          array[n21] = true;
+          this.sc[n21] = n19 + 16;
+          if (++n18 === n2 - 1) n18 = 0;
+        }
+      }
+    }
+    if (this.cd.lastload === 2) {
+      let n22 = 0;
+      for (let n23 = 0; n23 < this.cd.nlocars - 16; ++n23) {
+        if (n22 === 0) {
+          for (let n24 = 1; n24 < n2; ++n24) array[n24] = false;
+        }
+        if (this.cd.include[n23] && this.sc[0] !== n23 + 16) {
+          let n25;
+          for (n25 = trunc(1.0 + random() * (n2 - 1)); array[n25]; n25 = trunc(1.0 + random() * (n2 - 1))) {}
+          array[n25] = true;
+          this.sc[n25] = n23 + 16;
+          if (++n22 === n2 - 1) n22 = 0;
+        }
+      }
+    }
   }
 
   rot(array, array2, n, n2, n3, n4) {

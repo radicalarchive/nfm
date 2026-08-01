@@ -95,8 +95,10 @@ and it has returned a negative fixed cost). Measure fixed costs with `?prof=1`.
       unseeded `Math.random()`, so `contO.zy`/`xy` cannot be verified against a
       probe. Patch + recompile `Medium.class` with a seeded LCG matching
       `js/java.js`, then extend `MadProbe`. Unblocks full verification of `Mad`.
-- [ ] Cars all render as the same model when `?car=` is set, since main.js
-      assigns one car to all 8 slots. The original varies them per slot.
+- [x] Stage-specific opponent grid — `xtGraphics.sortcars()` ported. Draws
+      slots 1..6 by rejection sampling biased toward faster cars in later
+      stages, then forces specific opponents for stages 10/12/14/15/16.
+      `?cars=same` restores one-car-for-everyone.
 
 ## Deferred by earlier decision
 
