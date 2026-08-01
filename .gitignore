@@ -1,1 +1,3 @@
 *.bak
+web/baseline.jar
+web/nfm.jar
