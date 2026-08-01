@@ -11,12 +11,7 @@ const headless = () => new Graphics2D(null, null, 800, 450);
 function colours(g) {
   const out = [];
   for (let i = 0; i < g.vertexCount; i++) {
-    const o = i * 6;
-    out.push([
-      Math.round(g.verts[o + 2] * 255),
-      Math.round(g.verts[o + 3] * 255),
-      Math.round(g.verts[o + 4] * 255),
-    ]);
+    out.push(g.colorAt(i).slice(0, 3));
   }
   return out;
 }
@@ -28,7 +23,7 @@ test('a convex quad fans into two triangles', () => {
   g.fillPolygon([0, 10, 10, 0], [0, 0, 10, 10], 4);
   assert.equal(g.vertexCount, 6);
   // Fan is (0,1,2) then (0,2,3).
-  const xy = (i) => [g.verts[i * 6], g.verts[i * 6 + 1]];
+  const xy = (i) => g.vertexAt(i);
   assert.deepEqual(xy(0), [0, 0]);
   assert.deepEqual(xy(1), [10, 0]);
   assert.deepEqual(xy(2), [10, 10]);
@@ -83,7 +78,7 @@ test('zero-length segments are dropped rather than producing NaN', () => {
   g.begin();
   g.drawLine(5, 5, 5, 5);
   assert.equal(g.vertexCount, 0);
-  assert.ok(g.verts.every((v) => !Number.isNaN(v)));
+  assert.ok(g.f32.every((v) => !Number.isNaN(v)));
 });
 
 test('begin() resets the buffer and the composite alpha', () => {
@@ -92,7 +87,9 @@ test('begin() resets the buffer and the composite alpha', () => {
   g.setComposite(0.25);
   g.fillRect(0, 0, 1, 1);
   assert.equal(g.vertexCount, 6);
-  assert.equal(g.verts[5], 0.25);
+  // Alpha is quantised to 8 bits by the packed vertex format: 0.25 * 255
+  // rounds to 64. The framebuffer is 8-bit anyway, so nothing visible changes.
+  assert.equal(g.colorAt(0)[3], 64);
   g.begin();
   assert.equal(g.vertexCount, 0);
   assert.equal(g.a, 1);
@@ -101,13 +98,13 @@ test('begin() resets the buffer and the composite alpha', () => {
 test('the buffer grows without losing already-written vertices', () => {
   const g = headless();
   g.begin();
-  const initial = g.verts.length;
+  const initial = g.capacity;
   g.setColor(255, 0, 0);
   g.fillPolygon([0, 1, 1], [0, 0, 1], 3);
-  while (g.verts.length === initial) g.fillRect(0, 0, 1, 1);
+  while (g.capacity === initial) g.fillRect(0, 0, 1, 1);
   // The very first triangle must survive the reallocation intact.
   assert.deepEqual(colours(g)[0], [255, 0, 0]);
-  assert.deepEqual([g.verts[0], g.verts[1]], [0, 0]);
+  assert.deepEqual(g.vertexAt(0), [0, 0]);
 });
 
 test('a convex polygon still takes the fast fan path', () => {
@@ -133,7 +130,7 @@ test('a concave polygon is triangulated, not fanned', () => {
                         (x >= 0 && x <= 10 && y >= 0 && y <= 30);
   for (let t = 0; t < g.vertexCount; t += 3) {
     let cx = 0, cy = 0;
-    for (let k = 0; k < 3; k++) { cx += g.verts[(t + k) * 6]; cy += g.verts[(t + k) * 6 + 1]; }
+    for (let k = 0; k < 3; k++) { const [x, y] = g.vertexAt(t + k); cx += x; cy += y; }
     cx /= 3; cy /= 3;
     assert.ok(inL(cx, cy), `triangle ${t / 3} centroid (${cx},${cy}) lies outside the polygon`);
   }
@@ -147,7 +144,7 @@ test('triangulated area equals the polygon area', () => {
   g.fillPolygon(xs, ys, 6);
   let area = 0;
   for (let t = 0; t < g.vertexCount; t += 3) {
-    const p = (k, o) => g.verts[(t + k) * 6 + o];
+    const p = (k, o) => g.vertexAt(t + k)[o];
     area += Math.abs((p(1, 0) - p(0, 0)) * (p(2, 1) - p(0, 1)) -
                      (p(2, 0) - p(0, 0)) * (p(1, 1) - p(0, 1))) / 2;
   }
@@ -162,7 +159,7 @@ test('concave triangles stay contiguous, preserving draw order', () => {
   g.setColor(2, 0, 0);
   g.fillPolygon([0, 5, 5], [0, 0, 5], 3);
   const seq = [];
-  for (let i = 0; i < g.vertexCount; i++) seq.push(Math.round(g.verts[i * 6 + 2] * 255));
+  for (let i = 0; i < g.vertexCount; i++) seq.push(g.colorAt(i)[0]);
   const runs = seq.filter((v, i) => i === 0 || v !== seq[i - 1]);
   assert.deepEqual(runs, [1, 2], 'polygon triangles must not interleave');
 });
@@ -190,7 +187,7 @@ const GLYPH_R_Y = [428,446,314,200,116,116,110,146,182,194,134,116,116,122,32,20
 function emittedArea(g) {
   let a = 0;
   for (let t = 0; t < g.vertexCount; t += 3) {
-    const p = (k, o) => g.verts[(t + k) * 6 + o];
+    const p = (k, o) => g.vertexAt(t + k)[o];
     a += Math.abs((p(1, 0) - p(0, 0)) * (p(2, 1) - p(0, 1)) -
                   (p(2, 0) - p(0, 0)) * (p(1, 1) - p(0, 1))) / 2;
   }

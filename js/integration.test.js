@@ -137,7 +137,9 @@ test('array pooling is output-identical to fresh allocation', async () => {
     for (let t = 0; t < 60; t++) {
       w.rd.begin();
       w.gs.tick(w.rd, w.medium, w.trackers, w.checkPoints, w.xt, w.record, w.array2, w.array3);
-      for (let i = 0; i < w.rd.count * 6 && i < 4000; i += 137) sig = (sig + w.rd.verts[i] * 7) | 0;
+      // Sample the position words; the checksum only has to be stable across
+      // the two runs being compared, not meaningful on its own.
+      for (let i = 0; i < w.rd.count * 3 && i < 4000; i += 137) sig = (sig + w.rd.f32[i] * 7) | 0;
     }
     setPooling(false);
     return [sig, w.rd.vertexCount, w.array2[0].x, w.array2[0].z, Math.fround(w.array3[0].speed)];

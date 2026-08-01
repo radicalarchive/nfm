@@ -41,7 +41,12 @@ in vec4 v_color;
 out vec4 fragColor;
 void main() { fragColor = v_color; }`;
 
-const FLOATS_PER_VERT = 6;          // x, y, r, g, b, a
+// Vertex layout: x, y as float32, then RGBA as four normalized bytes packed
+// into one uint32 — 12 bytes, down from 24 when colour was four floats.
+// Measured at ~100k verts/frame, so this halves both the per-vertex store
+// count and the bytes uploaded each frame.
+const WORDS_PER_VERT = 3;           // 32-bit words: x, y, rgba
+const BYTES_PER_VERT = WORDS_PER_VERT * 4;
 const INITIAL_VERTS = 1 << 16;
 
 export class Graphics2D {
@@ -55,13 +60,37 @@ export class Graphics2D {
     this.width = width;
     this.height = height;
 
-    this.verts = new Float32Array(INITIAL_VERTS * FLOATS_PER_VERT);
+    // One buffer, two views over the same bytes: positions go through the
+    // float view, the packed colour through the uint view.
+    this._alloc(INITIAL_VERTS);
     this.count = 0;               // vertices written this frame
 
     // Current graphics state, mirroring Graphics2D's mutable state.
+    // r/g/b/a stay 0..1 floats because drawString and clearRect read them;
+    // `rgba` is the same colour pre-packed for the vertex buffer, recomputed
+    // only when the colour changes rather than once per vertex.
     this.r = 0; this.g = 0; this.b = 0; this.a = 1;
+    this.rgba = 0xff000000;
     this.lineWidth = 1;
     this.font = '12px sans-serif';
+
+    // DIAGNOSTIC (?raster=0): keep every draw call being *made* -- so the
+    // caller still pays for projection, culling and vertex math in Plane.d --
+    // but throw the geometry away instead of triangulating and buffering it.
+    // The difference against a normal run splits "draw" into the two costs
+    // that hide inside it: per-vertex projection (which a vertex shader could
+    // take over) and this rasteriser front-end (which it could not).
+    //
+    // The screen goes blank in this mode. That is the point; it is not a
+    // rendering path, it is a stopwatch. Installed BEFORE the headless
+    // early-return so the same split can be measured under node.
+    if (opts.raster === false) {
+      const noop = () => {};
+      for (const m of ['fillPolygon', 'drawPolygon', 'drawLine', 'fillRect',
+                       'drawRect', 'fillOval', 'drawString', 'drawImage']) {
+        this[m] = noop;
+      }
+    }
 
     // Headless mode (glCanvas === null) builds vertex data with no GL context,
     // so the submission-order invariant can be unit-tested under node.
@@ -94,13 +123,14 @@ export class Graphics2D {
     this.vbo = gl.createBuffer();
     gl.bindBuffer(gl.ARRAY_BUFFER, this.vbo);
 
-    const stride = FLOATS_PER_VERT * 4;
     const aPos = gl.getAttribLocation(this.program, 'a_pos');
     gl.enableVertexAttribArray(aPos);
-    gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, stride, 0);
+    gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, BYTES_PER_VERT, 0);
+    // normalized:true is what turns the four packed bytes back into the 0..1
+    // floats the shader already expects, so VERT_SRC needs no change.
     const aColor = gl.getAttribLocation(this.program, 'a_color');
     gl.enableVertexAttribArray(aColor);
-    gl.vertexAttribPointer(aColor, 4, gl.FLOAT, false, stride, 8);
+    gl.vertexAttribPointer(aColor, 4, gl.UNSIGNED_BYTE, true, BYTES_PER_VERT, 8);
     gl.bindVertexArray(null);
 
     gl.disable(gl.DEPTH_TEST);
@@ -115,23 +145,6 @@ export class Graphics2D {
     // 800x450 coordinates like the Java does.
     this.textScaleX = textCanvas.width / width;
     this.textScaleY = textCanvas.height / height;
-
-    // DIAGNOSTIC (?raster=0): keep every draw call being *made* -- so the
-    // caller still pays for projection, culling and vertex math in Plane.d --
-    // but throw the geometry away instead of triangulating and buffering it.
-    // The difference against a normal run splits "draw" into the two costs
-    // that hide inside it: per-vertex projection (which a vertex shader could
-    // take over) and this rasteriser front-end (which it could not).
-    //
-    // The screen goes blank in this mode. That is the point; it is not a
-    // rendering path, it is a stopwatch.
-    if (opts.raster === false) {
-      const noop = () => {};
-      for (const m of ['fillPolygon', 'drawPolygon', 'drawLine', 'fillRect',
-                       'drawRect', 'fillOval', 'drawString', 'drawImage']) {
-        this[m] = noop;
-      }
-    }
   }
 
   // --- state ---------------------------------------------------------------
@@ -139,11 +152,41 @@ export class Graphics2D {
   /** setColor(new Color(r,g,b)). Accepts 0-255 ints, as the game passes. */
   setColor(r, g, b) {
     this.r = r / 255; this.g = g / 255; this.b = b / 255;
+    this._pack();
   }
 
   /** setComposite(AlphaComposite.getInstance(rule, alpha)). */
   setComposite(alpha) {
     this.a = alpha;
+    this._pack();
+  }
+
+  /**
+   * Pack the current colour into one uint32 in GL byte order.
+   *
+   * The GPU reads the four bytes at ascending addresses as r,g,b,a, and
+   * TypedArray writes are little-endian on every platform WebGL runs on, so
+   * red must be the LOW byte. Getting this backwards swaps red and blue and
+   * looks like a palette bug, not a packing bug.
+   */
+  _pack() {
+    const r = clampByte(this.r * 255);
+    const g = clampByte(this.g * 255);
+    const b = clampByte(this.b * 255);
+    const a = clampByte(this.a * 255);
+    this.rgba = ((a << 24) | (b << 16) | (g << 8) | r) >>> 0;
+  }
+
+  /** Grow the vertex store, keeping the float and uint views in sync. */
+  _alloc(verts) {
+    const bytes = new ArrayBuffer(verts * BYTES_PER_VERT);
+    const f32 = new Float32Array(bytes);
+    const u32 = new Uint32Array(bytes);
+    if (this.u32) u32.set(this.u32);
+    this.bytes = bytes;
+    this.f32 = f32;
+    this.u32 = u32;
+    this.capacity = verts;
   }
 
   /** setRenderingHint is a no-op: WebGL antialiasing is set at context creation. */
@@ -157,15 +200,11 @@ export class Graphics2D {
   // --- geometry ------------------------------------------------------------
 
   _vert(x, y) {
-    let i = this.count * FLOATS_PER_VERT;
-    if (i + FLOATS_PER_VERT > this.verts.length) {
-      const bigger = new Float32Array(this.verts.length * 2);
-      bigger.set(this.verts);
-      this.verts = bigger;
-    }
-    const v = this.verts;
-    v[i] = x; v[i + 1] = y;
-    v[i + 2] = this.r; v[i + 3] = this.g; v[i + 4] = this.b; v[i + 5] = this.a;
+    if (this.count >= this.capacity) this._alloc(this.capacity * 2);
+    const i = this.count * WORDS_PER_VERT;
+    this.f32[i] = x;
+    this.f32[i + 1] = y;
+    this.u32[i + 2] = this.rgba;
     this.count++;
   }
 
@@ -368,6 +407,7 @@ export class Graphics2D {
   begin() {
     this.count = 0;
     this.a = 1;
+    this._pack();
     // Clear in device space, then restore the game-space transform.
     this.text.setTransform(1, 0, 0, 1, 0, 0);
     this.text.clearRect(0, 0, this.textCanvas.width, this.textCanvas.height);
@@ -386,7 +426,7 @@ export class Graphics2D {
     gl.bindVertexArray(this.vao);
     gl.bindBuffer(gl.ARRAY_BUFFER, this.vbo);
     gl.bufferData(gl.ARRAY_BUFFER,
-                  this.verts.subarray(0, this.count * FLOATS_PER_VERT),
+                  this.u32.subarray(0, this.count * WORDS_PER_VERT),
                   gl.STREAM_DRAW);
     gl.uniform2f(this.uSize, this.width, this.height);
     gl.drawArrays(gl.TRIANGLES, 0, this.count);
@@ -397,6 +437,29 @@ export class Graphics2D {
   get vertexCount() {
     return this.count;
   }
+
+  // --- introspection --------------------------------------------------------
+  // Read access to the batch for tests and debugging. These exist so nothing
+  // outside this file has to know the vertex layout; reaching into the typed
+  // arrays directly is what made the format change break every test.
+
+  /** [x, y] of vertex i, in game space. */
+  vertexAt(i) {
+    const o = i * WORDS_PER_VERT;
+    return [this.f32[o], this.f32[o + 1]];
+  }
+
+  /** [r, g, b, a] of vertex i, as 0-255 ints. */
+  colorAt(i) {
+    const c = this.u32[i * WORDS_PER_VERT + 2];
+    return [c & 255, (c >>> 8) & 255, (c >>> 16) & 255, (c >>> 24) & 255];
+  }
+}
+
+/** Round-and-clamp a 0..255 channel. Colours arrive as ints, alpha as float. */
+function clampByte(v) {
+  const n = v + 0.5 | 0;
+  return n < 0 ? 0 : (n > 255 ? 255 : n);
 }
 
 /** True if every turn has the same sign — i.e. the polygon is convex. */
