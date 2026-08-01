@@ -103,6 +103,12 @@ and it has returned a negative fixed cost). Measure fixed costs with `?prof=1`.
 
 ## Rendering / correctness
 
+- [ ] Audit the rest of `ContO`'s per-frame animation state for the bug fixed
+      in `fcnt`/`fix`: `electrify()` walks `elc`/`edl`/`edr` and the dust/spark
+      system walks `stg[]`, all driven from `d()` and none restored after an
+      interpolated redraw, so they run at display rate and can skip the frame
+      that ends them. Fix is to add them to `OBJ_STATE` in `web/main.js`.
+
 - [x] HUD vanished with `?interp=1` — `rd.begin()` clears the 2D overlay, and
       the interpolated redraw ran it after `simulate()` had drawn the HUD
       there. Interpolated frames now pass `keepOverlay`.
@@ -127,9 +133,8 @@ and it has returned a negative fixed cost). Measure fixed costs with `?prof=1`.
       stages, then forces specific opponents for stages 10/12/14/15/16.
       `?cars=same` restores one-car-for-everyone.
 
-## Deferred by earlier decision
 
-### Audio — next session
+## Remaining Tasks
 
 - [x] Backend: `web/audio.js` decodes sounds.zip into AudioBuffers and plays
       one-shots. Autoplay-gesture unlock on first key press; missing zip or
