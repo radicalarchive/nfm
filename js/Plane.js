@@ -15,7 +15,7 @@
 // PAINTER'S ALGORITHM: faces are submitted in the order this file calls
 // fillPolygon/drawPolygon. There is no depth buffer. Never reorder them.
 
-import { idiv, trunc, fr, i32, intArray, floatArray, random, RGBtoHSB, HSBtoRGB } from './java.js';
+import { idiv, trunc, fr, i32, intArray, floatArray, scratchInt, random, RGBtoHSB, HSBtoRGB } from './java.js';
 import { Madness } from './Madness.js';
 
 export class Plane {
@@ -193,9 +193,10 @@ export class Plane {
       if (this.av > 1500 && !this.m.crs) this.n = 12;
       else this.n = 20;
     }
-    const array = intArray(this.n);
-    const array2 = intArray(this.n);
-    const array3 = intArray(this.n);
+    // Pooled: fully overwritten below before any read. See java.js setPooling.
+    const array = scratchInt(this, 'a', this.n);
+    const array2 = scratchInt(this, 'a2', this.n);
+    const array3 = scratchInt(this, 'a3', this.n);
     if (this.embos === 0) {
       for (let i = 0; i < this.n; ++i) {
         array[i] = this.ox[i] + n;
@@ -462,8 +463,8 @@ export class Plane {
     }
     this.rot(array, array2, this.m.cx, this.m.cz, this.m.xz, this.n);
     let b4 = false;
-    const array24 = intArray(this.n);
-    const array25 = intArray(this.n);
+    const array24 = scratchInt(this, 'a24', this.n);
+    const array25 = scratchInt(this, 'a25', this.n);
     let n36 = 500;
     for (let n37 = 0; n37 < this.n; ++n37) {
       array24[n37] = this.xs(array[n37], array2[n37]);
@@ -501,8 +502,8 @@ export class Plane {
     }
     this.rot(array3, array2, this.m.cy, this.m.cz, this.m.zy, this.n);
     let n45 = 1;
-    const array26 = intArray(this.n);
-    const array27 = intArray(this.n);
+    const array26 = scratchInt(this, 'a26', this.n);
+    const array27 = scratchInt(this, 'a27', this.n);
     let n46 = 0;
     let n47 = 0;
     let n48 = 0;

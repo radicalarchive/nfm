@@ -1,0 +1,32 @@
+# WORK.md — discoveries and gotchas
+
+For future agents. **One line per finding. Newest at the bottom. Date every entry.**
+Append only; don't rewrite history. Keep it terse — details belong in
+`js/TRANSPILE_SPEC.md` or the code comments.
+
+## 2026-08-01
+
+- **Procyon mis-decompiles compound assignment.** `x += (int)(expr)` has TWO sources; disassemble each site. `i2f`/`i2d` on the LHS before the add = artifact, rewrite as `x = trunc(x + expr)`. Truncate-then-`iadd` = genuine, leave alone. ~45 sites in the keep set, 23 in `Mad.java`.
+- **`*= (int)<float literal>` is ALWAYS an artifact.** `r3 *= (int)0.991` (black skybox) and `r6 *= (int)1.6` (checkpoint flash) are really `r3 = (int)(r3 * 0.991)`. Nobody writes a multiply-by-truncated-literal; don't "preserve" it as a game bug.
+- **Every int op wraps at 32 bits, including the addition.** `Math.imul` on the terms is not enough — wrap the whole expression: `i32(Math.imul(a,a) + Math.imul(b,b))`. Reachable in practice: stage coords run to ±83000.
+- **`Medium.sin`/`cos` return `float`.** Any expression touching them is float32 in Java; needs `fr()` at EACH binary op, not just at the end. Missing one drifts over frames instead of failing.
+- **`Medium.random()` bottoms out in unseeded `Math.random()`.** `contO.zy`/`xy` are therefore NOT reproducible from a Java probe — three identical runs gave different values. Run any probe 3× before calling a mismatch a port bug.
+- **In-race tick rate is 530ms per 10 frames (53ms, ~18.9Hz).** `GameSparker.java:1708`, `n5 = 530`. The 400ms figure is the MENU branch. Using 400 runs the game 1.325× too fast.
+- **`java.awt.fillPolygon` is EVEN-ODD.** Checkpoint glyphs are keyhole polygons (bridge out to the counter and back). Ear clipping only works when the inner loop winds opposite the outer — true for "R", false for "O". Use a scanline even-odd fill.
+- **No depth buffer anywhere.** Submission order IS depth. Never reorder, batch by material, or split primitive types into separate draw calls.
+- **A default-constructed `CheckPoints` makes `Mad.drive()` hang forever.** `typ[]` all-zero spins `Mad.java:1600`; `nsp == 0` spins `Mad.java:1578`. Any probe must set `typ[]` positive and `nsp > 0`.
+- **Don't `Unsafe.allocateInstance` a `ContO` for probes.** Constructor never runs, every reference field is null, and `drive()` NPEs on a different one each time you patch the last. Build it from a real `.rad` out of `models.zip`.
+- **Verification pattern that works:** unpack `Game.jar`, drive the real class by reflection (`setAccessible(true)`), print state, diff against JS as exact integers. Probes live in `js/tools/`. `MadProbe` declares `package tools;` → run as `tools.MadProbe`.
+- **`loadbase` self-checks:** summed uncompressed size of `models.zip` must equal 615671, else `mload = 2`.
+- **Delegated transpilation jobs edited tests to make them pass — twice.** Never trust a green suite or a "gaps: none" report from a subagent; diff against an independent artifact and check the baseline file's checksum. `CarDefine.loadcar` was also silently stubbed to `return -1` (its own failure code) while the report claimed only networking was dropped.
+- **`agy` quota is shared across `claude-*` and `gpt-oss`; gemini is a separate pool.** Run jobs ONE AT A TIME — five parallel opus jobs exhausted the quota and killed all five mid-flight.
+- **Render resolution is free; tick rate is not.** The vertex shader divides by `u_size`, so raising the canvas backing store costs zero CPU. Raising the tick rate doubles game speed, because every constant in `Mad.drive()` is per-tick.
+- **`GameSparker.draw()` is NOT pure.** It calls `Medium.d()`, which toggles `cpflik`, recomputes `elecr`, decrements `noelec` and advances `lilo`. Re-running draw at display rate for interpolation advances all of them 3× too fast — snapshot and restore them.
+- ~~**Measured cost split (stage 1, 7 cars, ~8.9k tris):** `simulate()` 10.3ms, `draw()` 3.1ms.~~ WRONG — see the 2026-08-01 re-measurement below. Both the split and the triangle count were off.
+- **"Render resolution is free" is WRONG** (entry above, superseded by measurement on the target machine). Vertex work is free; fragment bandwidth is not — no depth buffer means the painter's algorithm overdraws the whole scene, so 2x = 4x the overdraw. `antialias:true` multiplied it again, and the 2D overlay's per-frame full-size `clearRect` was a CPU cost that also scaled with `?res=`. Overlay is now sized by `?textres=` (default 1) and MSAA is off above 1x.
+- **The static host sends no `Cache-Control`.** An ES module graph then goes stale one file at a time: you get the new `main.html` and last deploy's `graphics.js`, and the change looks like it didn't ship. `deploy.sh` stamps every relative import and `<script src>` with `?v=<md5 of sources>`.
+- **Real cost split, measured in-browser (stage 1, res=2):** 1 car — sim **0.61ms**, draw **14.60ms**, 47k verts. 8 cars — sim **1.72ms**, draw **24.38ms**, 100k verts. Physics is 2-7% of the tick; DRAW IS EVERYTHING. Cost tracks vertex count at ~0.25µs/vert. Static stage geometry is ~40k verts, re-projected on the CPU every frame though it never moves.
+- **Draw splits ~50/50 between projection and the batcher** (8 cars, res=2, `?raster=0` isolates it): 24.09ms normal vs 12.53ms with the emit calls no-op'd. So per-vertex projection in `Plane.d` is 12.5ms and triangulation + vertex-buffer writes in `graphics.js` are 11.6ms. Moving projection alone to a vertex shader is worth ~2x, not 4x.
+- **Timing `GameSparker.tick()` as a unit reports `draw 0.00ms`.** `tick()` is `draw()` then `simulate()`, so with interpolation off the entire draw cost lands in the "sim" number. Time the two halves separately — this is what produced the bogus 10.3/3.1 split above.
+- **With `interp=0` the game draws only on a tick, so fps is pinned at 18.9 by construction.** Comparing render settings by fps in that mode always reads flat; use the ms figures. Interpolation is the only route past 18.9fps and each interpolated frame costs a full CPU redraw (~17ms).
+- **Headless Chromium won't run rAF without `--screenshot`.** `--headless=new --virtual-time-budget=N --dump-dom` boots the page, runs GL, and never fires a single animation frame, so the game appears hung. Adding `--screenshot=x.png --window-size=800,450` drives the compositor and it runs. This is the cheapest way to verify a browser change end-to-end (`--enable-logging=stderr --vmodule=console=1` to read `console.log`).

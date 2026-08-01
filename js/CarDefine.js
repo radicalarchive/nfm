@@ -704,26 +704,58 @@ export class CarDefine {
   }
 
   /**
-   * TODO — NOT TRANSPILED. This is a stub, not a port.
-   *
-   * The Java (CarDefine.java, ~59 lines) reads `mycars/<str>.rad` off disk,
-   * builds a ContO from it, validates `errd`/`npl`, and fills bco[n]. None of
-   * that is network code — it is local custom-car loading, and it was dropped
-   * silently during transpilation rather than deliberately.
-   *
-   * `return -1` is loadcar's own FAILURE code, so callers currently see every
-   * custom car as unloadable rather than getting an error.
-   *
-   * Impact is limited for now: the only caller is GameSparker.java:230, on the
-   * `Madness.testcar` test-drive path. Stock cars come from models.zip via
-   * loadbase()/loadstat(), which IS ported. So the race spike with a stock car
-   * is unaffected — but custom cars will not work until this is written.
-   *
-   * When implementing: take the already-read file text as a parameter rather
-   * than opening a stream (see js/vfs.js readLines/entryText); do not invent
-   * an async API inside this class.
+   * Transpiled from java-src/CarDefine.java lines 1593-1652.
+   * IO seam: Browser/VFS adaptation takes pre-read file contents `text` as third parameter.
    */
-  loadcar(str, n) {
-    return -1;
+  loadcar(str, n, text) {
+    try {
+      if (text !== null && text !== undefined) {
+        // IO seam: in Java, reads mycars/<str>.rad off disk into `string`. Here `text` is passed.
+        const bytes = new TextEncoder().encode(text);
+        this.m.loadnew = true;
+        this.bco[n] = new ContO(bytes, this.m, this.t);
+        if (this.bco[n].errd || this.bco[n].npl <= 60) {
+          n = -1;
+        }
+        if (n !== -1) {
+          this.bco[n].shadow = true;
+          this.bco[n].noline = false;
+          this.bco[n].decor = false;
+          this.bco[n].tnt = 0;
+          this.bco[n].disp = 0;
+          this.bco[n].disline = 7;
+          this.bco[n].grounded = 1.0;
+          let b = true;
+          if (this.bco[n].keyz[0] < 0 || this.bco[n].keyx[0] > 0) {
+            b = false;
+          }
+          if (this.bco[n].keyz[1] < 0 || this.bco[n].keyx[1] < 0) {
+            b = false;
+          }
+          if (this.bco[n].keyz[2] > 0 || this.bco[n].keyx[2] > 0) {
+            b = false;
+          }
+          if (this.bco[n].keyz[3] > 0 || this.bco[n].keyx[3] < 0) {
+            b = false;
+          }
+          if (!b) {
+            n = -1;
+          }
+        }
+        if (n !== -1) {
+          this.loadstat(bytes, str, this.bco[n].maxR, this.bco[n].roofat, this.bco[n].wh, n);
+          if (this.names[n] === '') {
+            n = -1;
+          }
+        }
+        this.m.loadnew = false;
+      } else {
+        n = -1;
+      }
+    } catch (obj) {
+      n = -1;
+      console.log('Error Loading Car: ' + obj);
+    }
+    return n;
   }
 }

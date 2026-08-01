@@ -1,8 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { CarDefine } from './CarDefine.js';
 import { Medium } from './Medium.js';
 import { Trackers } from './Trackers.js';
+import { ContO } from './ContO.js';
+import { parseZip, entryText } from './vfs.js';
 import { fr } from './java.js';
 
 test('CarDefine constructor defaults match Java probe', () => {
@@ -222,3 +225,85 @@ test('CarDefine loadstat Case D (Negative parameters n, n2, n3 & extreme values)
   assert.strictEqual(cd.publish[3], 99);
   assert.strictEqual(cd.enginsignature[19], 0);
 });
+
+test('CarDefine loadcar successfully loads valid custom car RAD file matching Java probe', async () => {
+  const zip = await parseZip(new Uint8Array(readFileSync(new URL('../data/models.zip', import.meta.url))));
+  const formula7Raw = entryText(zip.get('formula7.rad'));
+
+  const customHeader =
+    'stat(150,150,150,150,150)\n' +
+    'physics(50,50,50,50,50,50,50,50,50,50,50,50,50,50,1,1.0)\n' +
+    'handling(100)\n' +
+    'carmaker(TestAuthor)\n' +
+    'publish(1)\n';
+  const validCustomCarText = customHeader + formula7Raw;
+
+  const bco = new Array(56).fill(null);
+  const cd = new CarDefine(bco, new Medium(), new Trackers(), null);
+
+  const res = cd.loadcar('custom_formula7', 16, validCustomCarText);
+
+  // Exact integers and floats verified against real Java class via LoadCarProbe.java
+  assert.strictEqual(res, 16);
+  assert.ok(cd.bco[16] instanceof ContO);
+  assert.strictEqual(cd.bco[16].npl, 186);
+  assert.strictEqual(cd.bco[16].maxR, 181);
+  assert.strictEqual(cd.bco[16].shadow, true);
+  assert.strictEqual(cd.bco[16].noline, false);
+  assert.strictEqual(cd.bco[16].decor, false);
+  assert.strictEqual(cd.bco[16].tnt, 0);
+  assert.strictEqual(cd.bco[16].disp, 0);
+  assert.strictEqual(cd.bco[16].disline, 7);
+  assert.strictEqual(cd.bco[16].grounded, 1.0);
+  assert.strictEqual(cd.bco[16].roofat, -48);
+  assert.strictEqual(cd.bco[16].wh, 18);
+
+  assert.strictEqual(cd.names[16], 'custom_formula7');
+  assert.strictEqual(cd.cclass[16], 4);
+  assert.deepEqual(Array.from(cd.swits[16]), [72, 200, 296]);
+  assert.deepEqual(Array.from(cd.acelf[16]), [8.363636016845703, 8.181818008422852, 3.8636364936828613]);
+  assert.strictEqual(cd.handb[16], 11);
+  assert.strictEqual(cd.airs[16], 0.9481651186943054);
+  assert.strictEqual(cd.airc[16], 55);
+  assert.strictEqual(cd.turn[16], 7);
+  assert.strictEqual(cd.grip[16], 23.0);
+  assert.strictEqual(cd.bounce[16], 1.100000023841858);
+  assert.strictEqual(cd.simag[16], 0.8667000532150269);
+  assert.strictEqual(cd.moment[16], 1.352173924446106);
+  assert.strictEqual(cd.comprad[16], 0.5829347968101501);
+  assert.strictEqual(cd.push[16], 2);
+  assert.strictEqual(cd.revpush[16], 2);
+  assert.strictEqual(cd.lift[16], 7);
+  assert.strictEqual(cd.revlift[16], 16);
+  assert.strictEqual(cd.powerloss[16], 4600000);
+  assert.strictEqual(cd.flipy[16], -48);
+  assert.strictEqual(cd.msquash[16], 8);
+  assert.strictEqual(cd.clrad[16], 3750);
+  assert.strictEqual(cd.dammult[16], 0.550000011920929);
+  assert.strictEqual(cd.maxmag[16], 1);
+  assert.strictEqual(cd.dishandle[16], 0.5);
+  assert.strictEqual(cd.outdam[16], 0.7299998998641968);
+  assert.strictEqual(cd.enginsignature[16], 1);
+  assert.strictEqual(cd.createdby[0], 'TestAuthor');
+  assert.strictEqual(cd.publish[0], 1);
+});
+
+test('CarDefine loadcar returns -1 for missing text or bad stats or npl <= 60 matching Java probe', async () => {
+  const zip = await parseZip(new Uint8Array(readFileSync(new URL('../data/models.zip', import.meta.url))));
+  const formula7Raw = entryText(zip.get('formula7.rad'));
+  const opile1Raw = entryText(zip.get('opile1.rad'));
+
+  const bco = new Array(56).fill(null);
+  const cd = new CarDefine(bco, new Medium(), new Trackers(), null);
+
+  // Missing text / null
+  assert.strictEqual(cd.loadcar('nonexistent', 17, null), -1);
+  assert.strictEqual(cd.loadcar('nonexistent', 17, undefined), -1);
+
+  // Bad stats
+  assert.strictEqual(cd.loadcar('badstat_car', 17, 'stat(invalid)\n' + formula7Raw), -1);
+
+  // Small model npl <= 60 validation failure
+  assert.strictEqual(cd.loadcar('opile1', 18, opile1Raw), -1);
+});
+

@@ -372,6 +372,18 @@ export class GameSparker {
    * ==================================================================
    */
   tick(rd, medium, trackers, checkPoints, xtGraphics, record, array2, array3) {
+    this.draw(rd, medium, xtGraphics, array2, array3);
+    this.simulate(rd, medium, trackers, checkPoints, xtGraphics, record, array2, array3);
+  }
+
+  /**
+   * The DRAWING half of the race tick, split out so the render loop can
+   * re-run it at display rate against interpolated transforms while physics
+   * stays at the game's native 18.9Hz. Reads state and writes geometry; the
+   * only state it mutates is ContO.dist (set by d(), consumed by next frame's
+   * sort, exactly as in the Java).
+   */
+  draw(rd, medium, xtGraphics, array2, array3) {
     for (let n33 = 0; n33 < xtGraphics.nplayers; ++n33) {
       if (array3[n33].newcar) {
         const xz = array2[n33].xz;
@@ -408,6 +420,14 @@ export class GameSparker {
     for (let n41 = 0; n41 < n34; ++n41) {
       array2[array16[array18[n41]]].d(rd);
     }
+  }
+
+  /**
+   * The SIMULATION half: collisions, driving, recording, checkpoints, AI, and
+   * the camera. Never called more than once per TICK_MS, whatever the display
+   * refresh rate -- every constant in Mad.drive() is per-tick.
+   */
+  simulate(rd, medium, trackers, checkPoints, xtGraphics, record, array2, array3) {
     if (xtGraphics.starcnt === 0) {
       for (let n42 = 0; n42 < xtGraphics.nplayers; ++n42) {
         for (let n43 = 0; n43 < xtGraphics.nplayers; ++n43) {

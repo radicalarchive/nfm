@@ -46,6 +46,44 @@ export function intArray(n) {
   return new Int32Array(n);
 }
 
+// --- scratch pooling (opt-in) ----------------------------------------------
+//
+// Plane.d() allocates six-plus Int32Arrays per FACE per FRAME. At ~9k faces
+// that is a lot of short-lived garbage, and GC pauses are the most likely
+// cause of frame-time spikes. Each of those arrays is fully overwritten
+// before it is read, so reusing one per (owner, slot, size) is safe.
+//
+// Off by default: it trades Java-faithful allocation for speed, so it is a
+// deliberate deviation to be measured, not assumed.
+
+let _pooling = false;
+
+export function setPooling(on) {
+  _pooling = !!on;
+}
+
+export function isPooling() {
+  return _pooling;
+}
+
+/**
+ * Pooled scratch array. `owner` is any object to hang the cache off (use
+ * `this`), `slot` a stable name unique within that owner.
+ * Falls back to a fresh allocation when pooling is off.
+ */
+export function scratchInt(owner, slot, n) {
+  if (!_pooling) return new Int32Array(n);
+  let pool = owner.__pool;
+  if (!pool) pool = owner.__pool = new Map();
+  const key = slot + ':' + n;
+  let a = pool.get(key);
+  if (a === undefined) {
+    a = new Int32Array(n);
+    pool.set(key, a);
+  }
+  return a;
+}
+
 /** Allocate the Java `new float[n]` — zero-filled, float32 on store. */
 export function floatArray(n) {
   return new Float32Array(n);

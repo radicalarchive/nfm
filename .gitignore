@@ -1,3 +1,6 @@
 *.bak
 web/baseline.jar
 web/nfm.jar
+
+# npm deps for the JS port
+js/node_modules/
