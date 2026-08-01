@@ -103,6 +103,9 @@ and it has returned a negative fixed cost). Measure fixed costs with `?prof=1`.
 
 ## Rendering / correctness
 
+- [x] HUD vanished with `?interp=1` — `rd.begin()` clears the 2D overlay, and
+      the interpolated redraw ran it after `simulate()` had drawn the HUD
+      there. Interpolated frames now pass `keepOverlay`.
 - [ ] **Interpolation jitter.** The car visibly jitters under `?interp=1`; the
       camera does not, which rules out the camera-blend theory. Blending
       x/y/z/xz/xy/zy is evidently not capturing all of the car's per-tick
