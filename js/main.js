@@ -18,6 +18,7 @@ import { GameSparker } from './GameSparker.js';
 import { XtGraphics } from './XtGraphics.js';
 import { objArray, setSeed, setPooling } from './java.js';
 import { readZip, readText, detectFpath } from './vfs.js';
+import { loadHudImages } from './images.js';
 
 const log = (msg) => {
   console.log(msg);
@@ -102,6 +103,17 @@ async function boot() {
   medium.w = 800;
   medium.h = 450;
   xt.fase = 0;
+
+  // HUD assets. After loadstage, because loadsnap() tints with medium.snap
+  // and the stage file is what sets it. Failure is non-fatal: the draw sites
+  // are null-guarded and fall back to the vector-only HUD.
+  try {
+    const imgZip = await readZip('data/images.zip');
+    const n = await loadHudImages(xt, imgZip, medium);
+    log(`loaded ${n} HUD images`);
+  } catch (e) {
+    console.warn('HUD images unavailable, drawing vector HUD only:', e);
+  }
 
   log(`stage "${checkPoints.name}"  objects=${gs.nob}  checkpoints=${checkPoints.nsp}  laps=${checkPoints.nlaps}`);
   installInput(gs.u[0]);
