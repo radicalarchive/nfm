@@ -79,6 +79,60 @@ export function random() {
   return x / 4294967296;
 }
 
+// --- java.util.Random -------------------------------------------------------
+//
+// Medium.newpolys/newclouds/newmountains seed a java.util.Random from the
+// stage's `mountains(N)` value so terrain is identical every load. That means
+// the LCG has to match the JDK bit for bit, not merely "be random".
+//
+// The 48-bit state is held as a BigInt: the multiply overflows 2^53, so plain
+// numbers silently lose low bits — which is precisely the part next() keeps.
+
+const MULT = 0x5deece66dn;
+const ADDEND = 0xbn;
+const MASK = (1n << 48n) - 1n;
+
+export class JavaRandom {
+  constructor(seed) {
+    this.setSeed(seed);
+  }
+
+  setSeed(seed) {
+    this.seed = (BigInt(seed) ^ MULT) & MASK;
+  }
+
+  /** Returns the top `bits` bits of the next state, as a signed int. */
+  next(bits) {
+    this.seed = (this.seed * MULT + ADDEND) & MASK;
+    return Number(BigInt.asIntN(32, this.seed >> BigInt(48 - bits)));
+  }
+
+  nextInt(bound) {
+    if (bound === undefined) return this.next(32);
+    if ((bound & -bound) === bound) {
+      return Number((BigInt(bound) * BigInt(this.next(31))) >> 31n);
+    }
+    let bits, val;
+    do {
+      bits = this.next(31);
+      val = bits % bound;
+    } while (bits - val + (bound - 1) < 0);
+    return val;
+  }
+
+  nextDouble() {
+    return (this.next(26) * 134217728 + this.next(27)) / 9007199254740992;
+  }
+
+  nextFloat() {
+    return fr(this.next(24) / (1 << 24));
+  }
+
+  nextBoolean() {
+    return this.next(1) !== 0;
+  }
+}
+
 // --- java.awt.Color ---------------------------------------------------------
 
 /**

@@ -1,0 +1,13 @@
+RESETO_FORCA=0.08049845
+RESETO_POWER=98.0
+--- MULTI-TICK DRIFT PROBE (300 TICKS) ---
+TICK_1: x=1000 y=207 z=-5000 xz=45 zy=0 xy=0 speed=10.000000 pzy=0 pxy=0
+TICK_2: x=1000 y=221 z=-5000 xz=45 zy=0 xy=0 speed=20.000000 pzy=0 pxy=0
+TICK_10: x=926 y=251 z=-4865 xz=13 zy=0 xy=-2 speed=57.942753 pzy=0 pxy=0
+TICK_50: x=1977 y=254 z=-5490 xz=-267 zy=0 xy=-7 speed=109.485970 pzy=0 pxy=0
+TICK_100: x=2117 y=255 z=-5446 xz=-617 zy=0 xy=-8 speed=109.485970 pzy=0 pxy=0
+TICK_200: x=2366 y=255 z=-5266 xz=-1317 zy=-1 xy=-7 speed=109.485970 pzy=0 pxy=0
+TICK_300: x=2541 y=254 z=-5011 xz=-2017 zy=1 xy=-7 speed=109.485970 pzy=0 pxy=0
+PY_OVERFLOW=705032704
+PY_NEG=-179869184
+RPY_VAL=1011050

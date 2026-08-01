@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+#
+# agy_batch_tmp — run the remaining transpilation jobs ONE AT A TIME.
+#
+# Sequential on purpose. Launching five in parallel is what exhausted the
+# Claude quota mid-run and killed all of them; it also defeats the spec's
+# "re-verify at intervals during the batch" rule, since a systematic flaw in
+# job 1 gets replicated into jobs 2..5 before anyone looks at it.
+#
+# Each job's stdout goes to its own log. A job that fails does NOT stop the
+# rest — the log records it and the batch moves on.
+#
+# Temporary scaffolding; delete with agy_tmp once transpilation is done.
+
+set -uo pipefail
+
+REPO="/home/evan/games/nfm"
+LOG="/tmp/claude-1000/-home-evan-games-nfm/b996c443-7979-4ad9-bdaf-6b6b9854b370/scratchpad"
+cd "$REPO"
+
+# Mad is last: it is the highest-risk file, and by then the earlier jobs will
+# have shown whether the template is holding up.
+CLASSES=(ContO Record CarDefine Control Mad)
+
+MAD_EXTRA="SPECIAL EMPHASIS FOR THIS CLASS — Mad.java is the car physics and is the HIGHEST-RISK file in the entire port. Errors here do not crash; they make the handling subtly wrong and surface months later as 'the car feels off'.
+
+Mad.java has 23 sites matching '+= (int)(' or '-= (int)(' — more than any other file in the keep set, and every one is in the physics integration path. Spec §2 is the single most likely way this task fails. List all 23 before writing any code and account for each one individually in your report.
+
+Mad is dense with Medium.sin/Medium.cos, which return FLOAT. Per §1, every binary operation in an expression touching them rounds to float32 in Java. A missing fr() does not fail a smoke test — it drifts over frames.
+
+Your verification MUST include a multi-tick drift test, not just single-call checks:
+  1. Probe: construct a real Mad and a real ContO via reflection, set the physics fields to fixed values, call drive() repeatedly with a fixed Control state, and dump position/velocity/rotation EVERY tick.
+  2. Do the same in JS and compare tick by tick as EXACT integers.
+  3. Run at least 300 ticks. A single-tick comparison will NOT catch float32 drift, which is the failure mode that matters here.
+If tick 1 matches and tick 300 does not, you have a missing fr(). Find it. Do not paper over it and do not shorten the test — see §2c."
+
+echo "batch start: $(date -Is)"
+for c in "${CLASSES[@]}"; do
+  echo
+  echo "############ $c  ($(date -Is)) ############"
+  if [ "$c" = "Mad" ]; then
+    EXTRA="$MAD_EXTRA" ./agy_tmp "$c" > "$LOG/agy_$c.log" 2>&1
+  else
+    ./agy_tmp "$c" > "$LOG/agy_$c.log" 2>&1
+  fi
+  rc=$?
+  echo "$c exit=$rc"
+  if grep -qi "quota reached" "$LOG/agy_$c.log"; then
+    echo "!! QUOTA EXHAUSTED at $c — stopping batch, remaining classes not attempted"
+    break
+  fi
+  # Cheap early smell test; full verification is done by hand afterwards.
+  ( cd "$REPO/js" && node --test 2>&1 | grep -E "^# (tests|pass|fail)|^ℹ (tests|pass|fail)" )
+done
+echo
+echo "batch done: $(date -Is)"

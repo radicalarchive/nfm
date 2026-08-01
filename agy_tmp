@@ -1,0 +1,159 @@
+#!/usr/bin/env bash
+#
+# agy_tmp — run ONE bounded transpilation job via `agy -p`.
+#
+# Usage:   ./agy_tmp <JavaClassName>          e.g.  ./agy_tmp CheckPoints
+#          ./agy_tmp <JavaClassName> <Second> e.g.  ./agy_tmp Wheels CheckPoints
+#
+# Temporary scaffolding for the JS port (see PORT_SPEC.md §"Using a subagent").
+# Delete once the transpilation phase is done.
+#
+# ---------------------------------------------------------------------------
+# ▼▼▼  UNCOMMENT THE NEXT LINE TO GRANT agy WRITE ACCESS  ▼▼▼
+#
+SKIP_PERMS="--dangerously-skip-permissions"
+#
+# ▲▲▲  Without it, `agy -p` runs headless, every file-writing tool call is
+#      auto-denied, and the job produces NOTHING (it exits with
+#      "a tool required the \"command\" permission that headless mode cannot
+#      prompt for"). Verified — that is exactly what happened on the trial run.
+#
+#      This flag auto-approves EVERY tool call the sub-agent makes, including
+#      writes anywhere it can reach. It is scoped here only by the prompt.
+#      js/ currently holds verified, passing work; the prompt tells the agent
+#      not to touch anything it was not asked to create, but the flag itself
+#      enforces nothing.
+# ---------------------------------------------------------------------------
+
+set -euo pipefail
+
+SKIP_PERMS="${SKIP_PERMS:-}"
+
+# `agy models` lists: gemini-3.6-flash-{high,medium,low}, gemini-3.5-flash-*,
+# gemini-3.1-pro-{high,low}, claude-sonnet-4-6, claude-opus-4-6-thinking,
+# gpt-oss-120b-medium.
+#
+# PORT_SPEC is explicit that a small model "will return confident, plausible,
+# wrong code" on numeric work and that such errors surface weeks later as "the
+# handling feels off", so pick capability over cost.
+#
+# gemini-3.1-pro-high is the strongest gemini variant (pro > flash; the
+# -high/-low suffix is the reasoning budget). Using gemini because the Claude
+# quota on this account is shared across claude-* AND gpt-oss and is currently
+# exhausted, whereas the Google quota is separate and available.
+MODEL="${MODEL:-gemini-3.1-pro-high}"
+EFFORT="${EFFORT:-high}"
+TIMEOUT="${TIMEOUT:-45m}"
+
+REPO="/home/evan/games/nfm"
+JAR_DIR="/tmp/claude-1000/-home-evan-games-nfm/b996c443-7979-4ad9-bdaf-6b6b9854b370/scratchpad/jar"
+SCRATCH="/tmp/claude-1000/-home-evan-games-nfm/b996c443-7979-4ad9-bdaf-6b6b9854b370/scratchpad"
+
+if [ $# -lt 1 ]; then
+  echo "usage: $0 <JavaClassName> [<SecondClassName>]" >&2
+  exit 2
+fi
+
+CLASS="$1"
+SECOND="${2:-}"
+
+if [ ! -f "$REPO/java-src/$CLASS.java" ]; then
+  echo "no such source: java-src/$CLASS.java" >&2
+  exit 2
+fi
+
+# Build the target list for the prompt.
+TARGETS="  $REPO/java-src/$CLASS.java  ->  $REPO/js/$CLASS.js"
+OUTS="js/$CLASS.js, js/$CLASS.test.js, js/tools/${CLASS}Probe.java"
+if [ -n "$SECOND" ]; then
+  TARGETS="$TARGETS
+  $REPO/java-src/$SECOND.java  ->  $REPO/js/$SECOND.js
+(do them in that order)"
+  OUTS="$OUTS, js/$SECOND.js, js/$SECOND.test.js, js/tools/${SECOND}Probe.java"
+fi
+
+BASELINE_TESTS=$(cd "$REPO/js" && node --test 2>/dev/null | grep -oP '(?<=^# pass )\d+' | head -1 || true)
+BASELINE_TESTS="${BASELINE_TESTS:-29}"
+
+read -r -d '' PROMPT <<PROMPT_EOF || true
+You are transpiling Java to JavaScript for a browser port of the game "Need for Madness". Work in $REPO.
+
+STEP 1 — read $REPO/js/TRANSPILE_SPEC.md IN FULL. It is the contract, not a suggestion. Pay special attention to:
+  §0 transpile LINE BY LINE; keep procyon's local variable names; do not restructure, rename, simplify, or fix apparent bugs.
+  §1 numeric semantics: idiv / trunc / fr / Math.imul. Medium.sin and Medium.cos return FLOAT, so every expression touching them is float32 in Java and needs fr() at EACH binary operation.
+  §2 procyon decompiles compound assignment WRONG. This is the rule that most often causes silent failure. Read the worked example.
+  §2b EVERY int operation wraps at 32 bits, the ADDITION as well as the multiply. Math.imul on the terms is not sufficient; wrap the whole expression with i32().
+  §2c NEVER weaken a test to make it pass. Do not change inputs, loosen assertions, move expected values into comments, or delete cases. If the probe disagrees with your code, YOUR CODE IS WRONG — disassemble and fix the code. If you truly cannot reconcile it, leave the test FAILING, mark it test.todo, and say so loudly. Also: do NOT copy a bug from the reference files; the Java bytecode is the only oracle.
+  §3 preserve the game's own bugs verbatim, including (int) casts of float literals.
+  §4 PAINTER'S ALGORITHM. There is no depth buffer. Submission order is the depth. Never reorder, batch, or hoist a draw call.
+  §6 verification against the REAL Java class via a reflection probe is MANDATORY.
+
+STEP 2 — read these already-verified reference implementations and match their style exactly:
+  $REPO/js/java.js       — the helper library you MUST use. Do NOT edit it.
+  $REPO/js/Plane.js      — reference transpilation
+  $REPO/js/Plane.test.js — reference test
+  $REPO/js/Trackers.js   — small reference
+  $REPO/js/Medium.js     — larger reference; note the int2/int3/int4 nested-array helpers
+
+STEP 3 — transpile:
+$TARGETS
+
+Before writing any code, grep the Java file(s) for '+= (int)(' and '-= (int)(' and list every hit. Handle each one per spec §2. Report them all at the end.
+
+STEP 4 — verify against the REAL Java, not against your reading of it. The unpacked jar is at:
+  $JAR_DIR
+(if it is missing: mkdir -p $JAR_DIR && cd $JAR_DIR && unzip -oq $REPO/Game.jar)
+
+Write a Java reflection probe that drives the real class, prints its state, then compile and run it:
+  javac -cp $JAR_DIR -d $SCRATCH/probe YourProbe.java
+  java -cp $SCRATCH/probe:$JAR_DIR YourProbe
+Fields are package-private, so use getDeclaredField/getDeclaredMethod + setAccessible(true).
+Save the probe SOURCE under $REPO/js/tools/.
+Choose inputs that include NEGATIVE values AND magnitudes large enough to overflow int32. Small all-positive inputs will happily agree while the code is wrong.
+
+Probe the method that DOES THE WORK, not just the small leaf helpers. If it needs collaborator objects, build stubs — plain object literals on the JS side with the fields the method touches, reflection-constructed equivalents on the Java side. "It was awkward to set up" is not a reason to skip the main method. If you genuinely cannot drive it, say so explicitly and prominently in your report and name the method.
+
+STEP 5 — write the node:test file(s), with the literal numbers your Java probe printed as the expected values, and a comment saying they came from the probe.
+Run:  cd $REPO/js && node --test
+There are $BASELINE_TESTS passing tests today; ALL of them must still pass.
+Do NOT modify any file other than the ones you were asked to create: $OUTS
+
+If a value disagrees, do NOT adjust the test to match your code. Disassemble and find out what Java actually does:
+  javap -p -c -cp $JAR_DIR $CLASS | sed -n '/methodName/,/nextMethod/p'
+f2i / i2f / idiv / fdiv in the bytecode show you exactly where truncations and float conversions happen.
+
+${EXTRA:-}
+
+FINALLY report: files created; test pass/fail counts; EVERY compound-assignment site and how you handled each; every preserved bug; and anything you could NOT verify. Be explicit about gaps — a gap you flag is cheap, a gap you paper over costs days.
+PROMPT_EOF
+
+echo "=== agy_tmp ==================================================="
+echo "class(es) : $CLASS ${SECOND:+/ $SECOND}"
+echo "model     : $MODEL   (effort $EFFORT, timeout $TIMEOUT)"
+if [ -z "$SKIP_PERMS" ]; then
+  echo "perms     : NOT GRANTED — agy cannot write files."
+  echo
+  echo "  Uncomment the SKIP_PERMS line near the top of $0 and re-run."
+  echo "  Running anyway would burn the job and produce nothing."
+  exit 1
+fi
+echo "perms     : $SKIP_PERMS"
+echo "==============================================================="
+echo
+
+cd "$REPO"
+
+# Models whose reasoning budget is already fixed by the model name reject
+# --effort ("--effort is not supported for model ..."). That covers the
+# *-thinking models and every gemini/gpt-oss variant, which encode the budget
+# as a -high/-medium/-low suffix.
+EFFORT_ARG=(--effort "$EFFORT")
+case "$MODEL" in
+  *-thinking|*-high|*-medium|*-low) EFFORT_ARG=() ;;
+esac
+
+exec agy -p "$PROMPT" \
+  --model "$MODEL" \
+  "${EFFORT_ARG[@]}" \
+  --print-timeout "$TIMEOUT" \
+  $SKIP_PERMS

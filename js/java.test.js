@@ -2,7 +2,7 @@
 // recollection. Regenerate with:  node --test js/  (after running that file).
 import test from 'node:test';
 import assert from 'node:assert';
-import { idiv, i32, trunc, fr, jround, RGBtoHSB, HSBtoRGB } from './java.js';
+import { idiv, i32, trunc, fr, jround, RGBtoHSB, HSBtoRGB, JavaRandom } from './java.js';
 
 test('int division truncates toward zero', () => {
   assert.equal(idiv(7, 2), 3);
@@ -75,4 +75,27 @@ test('HSBtoRGB round-trips through RGBtoHSB', () => {
     const rgb = HSBtoRGB(out[0], out[1], out[2]);
     assert.deepEqual([(rgb >> 16) & 255, (rgb >> 8) & 255, rgb & 255], [r, g, b]);
   }
+});
+
+test('JavaRandom matches java.util.Random bit for bit', () => {
+  // Values from the JDK; seed is the shape Medium.newpolys builds:
+  //   (mgen + cgrnd[0] + cgrnd[1] + cgrnd[2]) * 1671
+  const r = new JavaRandom(167118381);
+  assert.equal(r.nextDouble(), 0.24311774345140946);
+  assert.equal(r.nextDouble(), 0.9222107107077597);
+  assert.equal(r.nextDouble(), 0.9294754657298414);
+  assert.equal(r.nextDouble(), 0.5536601129130871);
+  assert.equal(r.nextDouble(), 0.9612418302178641);
+  assert.equal(r.nextInt(), 212580432);
+  assert.equal(r.nextInt(), 1789041211);
+  assert.equal(r.nextInt(), 640489841);
+  assert.equal(r.nextInt(100), 35);
+  assert.equal(r.nextInt(100), 17);
+  assert.equal(r.nextInt(100), 74);
+  // Java prints this float as 0.69909424; that is the shortest round-tripping
+  // decimal, not the value. Compare against the float32 itself.
+  assert.equal(r.nextFloat(), fr(0.69909424));
+  assert.equal(r.nextBoolean(), true);
+
+  assert.equal(new JavaRandom(0).nextDouble(), 0.730967787376657);
 });

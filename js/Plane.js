@@ -90,9 +90,9 @@ export class Plane {
       array4[1] = idiv(189 + n6, 2);
       array4[2] = idiv(132 + n6, 2);
       for (let l = 0; l < this.n; ++l) {
-        if (random() > random()) this.ox[l] += trunc(8.0 * random() - 4.0);
-        if (random() > random()) this.oy[l] += trunc(8.0 * random() - 4.0);
-        if (random() > random()) this.oz[l] += trunc(8.0 * random() - 4.0);
+        if (random() > random()) this.ox[l] = trunc(this.ox[l] + (8.0 * random() - 4.0));
+        if (random() > random()) this.oy[l] = trunc(this.oy[l] + (8.0 * random() - 4.0));
+        if (random() > random()) this.oz[l] = trunc(this.oz[l] + (8.0 * random() - 4.0));
       }
     }
     if (array4[0] === array4[1] && array4[1] === array4[2]) {
@@ -752,13 +752,16 @@ export class Plane {
           let g6 = this.c[1];
           let b9 = this.c[2];
           if (n8 === -1 && this.m.cpflik) {
-            // (int)1.6 is 1 in Java, so these multiplies are no-ops. Preserved
-            // verbatim: it is the game's behaviour, not a transpilation slip.
-            r6 = Math.imul(r6, 1);
+            // Procyon renders these as `r6 *= (int)1.6` (a multiply by ONE,
+            // i.e. a no-op). The bytecode is `iload; i2d; ldc2_w 1.6d; dmul;
+            // d2i; istore` -- `r6 = (int)(r6 * 1.6)`, a §2 Case A compound
+            // assignment. The checkpoint marker really does brighten 60% when
+            // it flashes.
+            r6 = trunc(r6 * 1.6);
             if (r6 > 255) r6 = 255;
-            g6 = Math.imul(g6, 1);
+            g6 = trunc(g6 * 1.6);
             if (g6 > 255) g6 = 255;
-            b9 = Math.imul(b9, 1);
+            b9 = trunc(b9 * 1.6);
             if (b9 > 255) b9 = 255;
           }
           for (let n68 = 0; n68 < 16; ++n68) {
@@ -870,12 +873,12 @@ export class Plane {
           for (let n21 = 0; n21 < this.n; ++n21) {
             array3[n21] = this.t.y[n19] - this.m.y;
             if (this.t.zy[n19] !== 0) {
-              array3[n21] += trunc(
+              array3[n21] = trunc(array3[n21] +
                 (array2[n21] - (this.t.z[n19] - this.m.z - this.t.radz[n19])) * this.m.sin(this.t.zy[n19]) / this.m.sin(90 - this.t.zy[n19]) -
                 this.t.radz[n19] * this.m.sin(this.t.zy[n19]) / this.m.sin(90 - this.t.zy[n19]));
             }
             if (this.t.xy[n19] !== 0) {
-              array3[n21] += trunc(
+              array3[n21] = trunc(array3[n21] +
                 (array[n21] - (this.t.x[n19] - this.m.x - this.t.radx[n19])) * this.m.sin(this.t.xy[n19]) / this.m.sin(90 - this.t.xy[n19]) -
                 this.t.radx[n19] * this.m.sin(this.t.xy[n19]) / this.m.sin(90 - this.t.xy[n19]));
             }

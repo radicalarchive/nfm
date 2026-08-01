@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Need for Madness — WebGL port</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
+  #stage {
+    position: absolute; inset: 0; margin: auto;
+    width: 800px; height: 450px;
+    transform-origin: center center;
+  }
+  #stage canvas { position: absolute; left: 0; top: 0; width: 800px; height: 450px; }
+  /* The 2D overlay carries drawString/drawImage and must sit on top of the
+     WebGL geometry — the HUD is always foreground. */
+  #overlay { pointer-events: none; }
+  #log {
+    position: fixed; left: 0; bottom: 0; right: 0;
+    font: 12px/1.6 ui-monospace, Menlo, Consolas, monospace;
+    color: #9f9; background: rgba(0,0,0,.65); padding: 2px 8px;
+    white-space: pre; z-index: 10;
+  }
+</style>
+</head>
+<body>
+  <div id="stage">
+    <canvas id="gl" width="800" height="450"></canvas>
+    <canvas id="overlay" width="800" height="450"></canvas>
+  </div>
+  <div id="log">booting…</div>
+<script type="module" src="./main.js"></script>
+<script type="module">
+  // Scale-to-fit. Render resolution stays 800x450 — this is a GPU-composited
+  // CSS transform, free per frame, and deliberately NOT a render-scale change
+  // (conflating the two is what made the CheerpJ build fill-bound).
+  const stage = document.getElementById('stage');
+  const fit = () => {
+    const s = Math.min(innerWidth / 800, innerHeight / 450);
+    stage.style.transform = `scale(${s})`;
+  };
+  addEventListener('resize', fit);
+  fit();
+</script>
+</body>
+</html>

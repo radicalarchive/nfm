@@ -15,6 +15,33 @@ export function setFpath(p) {
   fpath = p;
 }
 
+/**
+ * Pick fpath by probing, so the same build works from either layout:
+ *
+ *   repo:   /js/index.html  with assets at /data, /stages   -> '../'
+ *   deploy: /index.html     with assets at ./data, ./stages -> './'
+ *
+ * Java solved this by having Madness.main() validate the prefix and silently
+ * reset it to "" on failure -- which, per web/README.md, produces a blank
+ * screen with no error. This reports instead.
+ */
+export async function detectFpath(explicit) {
+  if (explicit) {
+    fpath = explicit;
+    return fpath;
+  }
+  for (const candidate of ['./', '../']) {
+    try {
+      const res = await fetch(candidate + 'data/models.zip', { method: 'HEAD' });
+      if (res.ok) {
+        fpath = candidate;
+        return fpath;
+      }
+    } catch { /* try the next one */ }
+  }
+  throw new Error('cannot locate data/models.zip at ./ or ../');
+}
+
 const textCache = new Map();
 const bytesCache = new Map();
 

@@ -147,13 +147,104 @@ export class Graphics2D {
   }
 
   /**
-   * fillPolygon(xs, ys, n) as a triangle fan.
-   * The game's faces are convex quads and triangles, so a fan is exact.
+   * fillPolygon(xs, ys, n), matching java.awt.Graphics2D.
+   *
+   * A triangle fan is only correct for CONVEX polygons. Most faces in this
+   * game are convex quads, but the checkpoint / fixpoint models spell out
+   * words as glyph outlines with 12-28 vertices, and those are concave -- a
+   * fan on the letter "S" throws triangles outside the glyph, which reads
+   * on screen as a stray polygon over every letter.
+   *
+   * So: fan when convex (the common, fast path), even-odd scanline fill when
+   * not. Either way the triangles for one polygon are emitted contiguously and
+   * in place, so submission order -- and therefore depth -- is unchanged.
    */
   fillPolygon(xs, ys, n) {
-    for (let i = 1; i + 1 < n; i++) {
-      this._tri(xs[0], ys[0], xs[i], ys[i], xs[i + 1], ys[i + 1]);
+    if (n < 3) return;
+    if (n === 3 || isConvex(xs, ys, n)) {
+      for (let i = 1; i + 1 < n; i++) {
+        this._tri(xs[0], ys[0], xs[i], ys[i], xs[i + 1], ys[i + 1]);
+      }
+      return;
     }
+    this._fillEvenOdd(xs, ys, n);
+  }
+
+  /**
+   * Even-odd scanline fill, matching java.awt.Graphics2D.fillPolygon exactly.
+   *
+   * Ear clipping was the wrong tool here. The checkpoint glyphs are KEYHOLE
+   * polygons: the outline walks out to a letter's counter along a bridge,
+   * around the hole, and back down the same bridge. Ear clipping can only
+   * reproduce that when the inner loop winds opposite to the outer -- true for
+   * "R", false for "O", which is why one worked and the other stayed filled.
+   * Even-odd is winding-agnostic and also survives self-intersecting outlines,
+   * so it handles every glyph without special cases.
+   *
+   * Because it rasterizes on the same 800x450 integer grid Java does, it is
+   * also frame-to-frame stable: no triangulation to flip between as vertices
+   * snap to different pixels under camera motion.
+   *
+   * Vertically adjacent scanlines with identical spans are merged into one
+   * quad, so a letter stroke costs a handful of triangles, not one per row.
+   */
+  _fillEvenOdd(xs, ys, n) {
+    let ymin = Infinity;
+    let ymax = -Infinity;
+    for (let i = 0; i < n; i++) {
+      if (ys[i] < ymin) ymin = ys[i];
+      if (ys[i] > ymax) ymax = ys[i];
+    }
+    // Clamp to the viewport: off-screen rows cannot contribute and this is
+    // what bounds the work for a polygon with extreme coordinates.
+    const y0 = Math.max(0, Math.ceil(ymin));
+    const y1 = Math.min(this.height, Math.floor(ymax));
+    if (y1 < y0) return;
+
+    const xsAt = [];
+    let prev = null;        // spans of the previous row
+    let runTop = 0;
+
+    const flush = (rowEnd) => {
+      if (!prev) return;
+      for (let k = 0; k + 1 < prev.length; k += 2) {
+        this._tri(prev[k], runTop, prev[k + 1], runTop, prev[k + 1], rowEnd);
+        this._tri(prev[k], runTop, prev[k + 1], rowEnd, prev[k], rowEnd);
+      }
+    };
+
+    for (let y = y0; y <= y1; y++) {
+      const yc = y + 0.5;
+      xsAt.length = 0;
+      for (let i = 0, j = n - 1; i < n; j = i++) {
+        const ya = ys[j];
+        const yb = ys[i];
+        // Half-open rule: counts a crossing once, so vertices do not
+        // double-count and spans stay consistent between rows.
+        if ((ya <= yc && yb > yc) || (yb <= yc && ya > yc)) {
+          xsAt.push(xs[j] + ((yc - ya) / (yb - ya)) * (xs[i] - xs[j]));
+        }
+      }
+      if (xsAt.length < 2) {
+        flush(y);
+        prev = null;
+        continue;
+      }
+      xsAt.sort((a, b) => a - b);
+
+      let same = prev !== null && prev.length === xsAt.length;
+      if (same) {
+        for (let k = 0; k < xsAt.length; k++) {
+          if (prev[k] !== xsAt[k]) { same = false; break; }
+        }
+      }
+      if (!same) {
+        flush(y);
+        prev = xsAt.slice();
+        runTop = y;
+      }
+    }
+    flush(y1 + 1);
   }
 
   /** drawPolygon(xs, ys, n): closed 1px outline, expanded to quads. */
@@ -269,6 +360,23 @@ export class Graphics2D {
   get vertexCount() {
     return this.count;
   }
+}
+
+/** True if every turn has the same sign — i.e. the polygon is convex. */
+function isConvex(xs, ys, n) {
+  let sign = 0;
+  for (let i = 0; i < n; i++) {
+    const ax = xs[(i + 1) % n] - xs[i];
+    const ay = ys[(i + 1) % n] - ys[i];
+    const bx = xs[(i + 2) % n] - xs[(i + 1) % n];
+    const by = ys[(i + 2) % n] - ys[(i + 1) % n];
+    const cross = ax * by - ay * bx;
+    if (cross === 0) continue;               // collinear, tells us nothing
+    const s = cross > 0 ? 1 : -1;
+    if (sign === 0) sign = s;
+    else if (s !== sign) return false;
+  }
+  return true;
 }
 
 /** No-op 2D context for headless tests; text is not exercised there. */

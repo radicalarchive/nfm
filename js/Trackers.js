@@ -4,7 +4,7 @@
 // every tracker into a 3000-unit grid so Plane.s() and the physics only test
 // nearby ones.
 
-import { idiv, intArray, objArray } from './java.js';
+import { i32, idiv, intArray, objArray } from './java.js';
 
 const MAX = 6700;
 
@@ -84,8 +84,18 @@ export class Trackers {
     --this.ncz;
   }
 
-  /** Squared planar distance. Int in Java, and it does overflow for far pairs. */
+  /**
+   * Squared planar distance, all-int in Java.
+   *
+   * Both the multiplies AND the addition wrap at 32 bits (imul, imul, iadd).
+   * This is NOT academic: stage coordinates run to +-83000, so a far pair
+   * squares well past 2^31 and the wrapped result can land back inside the
+   * `py < 20250000 && py > 0` guard in devidetrackers() -- putting a distant
+   * tracker into a sector, exactly as the original game does. Dropping the
+   * outer i32() silently changes which trackers a sector contains, and with
+   * it the collision behaviour.
+   */
   py(n, n2, n3, n4) {
-    return Math.imul(n - n2, n - n2) + Math.imul(n3 - n4, n3 - n4);
+    return i32(Math.imul(n - n2, n - n2) + Math.imul(n3 - n4, n3 - n4));
   }
 }
