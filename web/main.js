@@ -222,6 +222,14 @@ async function boot() {
   // blend of the two. Nothing in the simulation sees the blended values --
   // they are written in, drawn, and immediately restored.
   const FIELDS = ['x', 'y', 'z', 'xz', 'xy', 'zy'];
+  // Per-object state that draw() ADVANCES rather than reads, the object-level
+  // counterpart of MED_STATE below. ContO.fixit() steps `fcnt` and clears
+  // `fix` once it passes 7, and electrify() walks `noelec`; both are driven
+  // from ContO.d(). An interpolated frame re-runs d(), so without restoring
+  // these the repair sparkle advances at display rate instead of tick rate --
+  // and can step straight past the frame that clears `fix`, leaving the car
+  // sparkling until the next repair resets it.
+  const OBJ_STATE = ['fcnt', 'fix'];
   const CAM = ['x', 'y', 'z', 'xz', 'zy'];
   // Medium state that draw() ADVANCES rather than reads. Medium.d() toggles
   // cpflik, rerolls elecr, counts down noelec and walks lilo/lightn -- all
@@ -240,6 +248,7 @@ async function boot() {
       let d = into.obj[i];
       if (!d) d = into.obj[i] = {};
       for (const f of FIELDS) d[f] = o[f];
+      for (const f of OBJ_STATE) d[f] = o[f];
       // dist is a side effect of draw() and feeds the NEXT frame's depth
       // sort. The interpolated redraw would overwrite it with values derived
       // from blended positions, so snapshot it and put it back.
@@ -303,6 +312,7 @@ async function boot() {
       const c = snapCurr.obj[i];
       if (!o || !c) continue;
       for (const f of FIELDS) o[f] = c[f];
+      for (const f of OBJ_STATE) o[f] = c[f];
       o.dist = c.dist;
     }
     for (const f of CAM) medium[f] = snapCurr.cam[f];
