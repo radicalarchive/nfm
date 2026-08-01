@@ -229,7 +229,19 @@ async function boot() {
   // these the repair sparkle advances at display rate instead of tick rate --
   // and can step straight past the frame that clears `fix`, leaving the car
   // sparkling until the next repair resets it.
-  const OBJ_STATE = ['fcnt', 'fix'];
+  const OBJ_STATE = ['fcnt', 'fix', 'ust'];
+  // The same problem in array form: stg[] and rtg[] are the dust/tyre-mark
+  // particle stages, stepped one per d() call by pdust() until they expire at
+  // 10. At display rate they ran through all ten stages in a fraction of a
+  // tick, which is why landing dust after a ramp was missing rather than just
+  // brief. Copied element-wise, not by reference.
+  const OBJ_ARRAYS = ['stg', 'rtg'];
+
+  const copyInto = (dst, src) => {
+    if (!dst || dst.length !== src.length) return src.slice();
+    for (let i = 0; i < src.length; i++) dst[i] = src[i];
+    return dst;
+  };
   const CAM = ['x', 'y', 'z', 'xz', 'zy'];
   // Medium state that draw() ADVANCES rather than reads. Medium.d() toggles
   // cpflik, rerolls elecr, counts down noelec and walks lilo/lightn -- all
@@ -249,6 +261,7 @@ async function boot() {
       if (!d) d = into.obj[i] = {};
       for (const f of FIELDS) d[f] = o[f];
       for (const f of OBJ_STATE) d[f] = o[f];
+      for (const f of OBJ_ARRAYS) if (o[f]) d[f] = copyInto(d[f], o[f]);
       // dist is a side effect of draw() and feeds the NEXT frame's depth
       // sort. The interpolated redraw would overwrite it with values derived
       // from blended positions, so snapshot it and put it back.
@@ -313,6 +326,7 @@ async function boot() {
       if (!o || !c) continue;
       for (const f of FIELDS) o[f] = c[f];
       for (const f of OBJ_STATE) o[f] = c[f];
+      for (const f of OBJ_ARRAYS) if (o[f] && c[f]) copyInto(o[f], c[f]);
       o.dist = c.dist;
     }
     for (const f of CAM) medium[f] = snapCurr.cam[f];

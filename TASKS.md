@@ -104,10 +104,10 @@ and it has returned a negative fixed cost). Measure fixed costs with `?prof=1`.
 ## Rendering / correctness
 
 - [ ] Audit the rest of `ContO`'s per-frame animation state for the bug fixed
-      in `fcnt`/`fix`: `electrify()` walks `elc`/`edl`/`edr` and the dust/spark
-      system walks `stg[]`, all driven from `d()` and none restored after an
-      interpolated redraw, so they run at display rate and can skip the frame
-      that ends them. Fix is to add them to `OBJ_STATE` in `web/main.js`.
+      in `fcnt`/`fix`/`stg`/`rtg`: `electrify()` still walks `elc`/`edl`/`edr`
+      from `d()` unrestored, so it runs at display rate and can skip the frame
+      that ends it. Fix is to add them to `OBJ_STATE`/`OBJ_ARRAYS` in
+      `web/main.js`.
 
 - [x] HUD vanished with `?interp=1` — `rd.begin()` clears the 2D overlay, and
       the interpolated redraw ran it after `simulate()` had drawn the HUD
