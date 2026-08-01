@@ -6,22 +6,27 @@ for the existing desktop patches and `web/README.md` for the CheerpJ path.
 
 ---
 
-## Step 0 — unblock before anything else
+## Source of truth
 
-**The decompiled sources and the decompiler both live in `/tmp` and will not
-survive a reboot.** Nothing below is possible without them.
+`java-src/` holds the decompiled Java for every class in `Game.jar`, committed
+to the repo. **This is the input to the entire port** — start there, not from
+the jar.
 
-```sh
-# procyon (currently only at /tmp/opencode/extracted/usr/share/java/procyon-decompiler.jar,
-# unpacked from procyon-decompiler_0.6.0-3_all.deb — reinstall or copy it somewhere permanent)
-mkdir -p /tmp/j && cd /tmp/j && unzip -oq /path/to/Game.jar
-java -jar procyon-decompiler.jar -o src /tmp/j/*.class
-```
+It is decompiled from the **patched** `Game.jar`, so all seven desktop patches
+in `AGENTS.md` are already present as readable source. Verified in this session:
+`Madness.java` and `GameSparker.java` both recompile cleanly with
+`javac -source 8 -target 8`, so procyon's output is trustworthy for this
+codebase.
 
-Persist the decompiled `src/` into the repo (suggested: `java-src/`). It is the
-input to the entire port. Verified in this session: `Madness.java` and
-`GameSparker.java` both decompile and recompile cleanly with
-`javac -source 8 -target 8`, so procyon output is trustworthy for this codebase.
+**45 of 47 files compile clean** with `javac -source 8 -target 8`. Two known
+procyon artifacts, and one missing file — all documented in
+`java-src/README.md`, along with regeneration steps:
+
+- `Lobby.java:2609` — bad label. On the drop list, ignore.
+- `ds/nfm/mod/ModSlayer.java:373` — unreachable statement. **In the keep set**
+  (MOD player / audio); needs a one-line fix.
+- `Globe.java` — absent. `Globe.class` is pathological for procyon (787MB RSS,
+  no output). Multiplayer UI, on the drop list.
 
 ---
 
@@ -216,6 +221,27 @@ Do **not** delegate the threading model, audio timing, the painter's-algorithm
 ordering constraint, or anything numeric: those fail silently, and a small model
 will return confident, plausible, wrong code that surfaces weeks later as "the
 handling feels off."
+
+### Calibrate before batching — mandatory
+
+Never fan out across many classes on an unvalidated prompt template. A
+systematic flaw (dropped `| 0`, reordered polygons, misread field semantics)
+replicated across 20 files costs far more to find and unpick than it saved.
+
+1. Pick **one representative class** with real numeric content — `Plane.java`
+   is ideal: int/float mixing, per-face lighting, and a `fillPolygon` call site.
+2. Delegate it alone.
+3. Verify against the Java: read the diff **and** run it through the
+   differential harness. Do not accept "it looks right."
+4. Catalogue every systematic error and fold each one into the prompt template
+   as an explicit rule.
+5. Repeat on a second class. Only batch once a class comes back clean with no
+   template changes.
+
+Re-verify at intervals during the batch too — quality is not guaranteed
+stationary across a long run. Restate the painter's-algorithm constraint in
+**every** prompt that touches rendering; it is the failure that passes tests and
+still draws cars through walls.
 
 ---
 
