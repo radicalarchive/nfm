@@ -10,6 +10,12 @@
     width: 800px; height: 450px;
     transform-origin: center center;
   }
+  /* Backing store is 2x (1600x900) while the CSS box stays 800x450, so the
+     GPU rasterizes at double resolution. Game space is still 800x450 -- the
+     vertex shader divides by u_size, so no coordinate anywhere changes and
+     there is ZERO extra CPU cost. This is the opposite of the CheerpJ 2x
+     patch, which cost ~95% of the frame budget because that was a CPU
+     software rasterizer. */
   #stage canvas { position: absolute; left: 0; top: 0; width: 800px; height: 450px; }
   /* The 2D overlay carries drawString/drawImage and must sit on top of the
      WebGL geometry — the HUD is always foreground. */
@@ -30,9 +36,10 @@
   <div id="log">booting…</div>
 <script type="module" src="./main.js"></script>
 <script type="module">
-  // Scale-to-fit. Render resolution stays 800x450 — this is a GPU-composited
-  // CSS transform, free per frame, and deliberately NOT a render-scale change
-  // (conflating the two is what made the CheerpJ build fill-bound).
+  // Scale-to-fit the 800x450 CSS box. This is a GPU-composited transform,
+  // free per frame, and independent of RENDER resolution (main.js sets the
+  // canvas backing store, default 2x). Conflating display size with render
+  // scale is what made the CheerpJ build fill-bound.
   const stage = document.getElementById('stage');
   const fit = () => {
     const s = Math.min(innerWidth / 800, innerHeight / 450);

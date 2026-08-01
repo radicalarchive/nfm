@@ -18,8 +18,8 @@ export function setFpath(p) {
 /**
  * Pick fpath by probing, so the same build works from either layout:
  *
- *   repo:   /js/index.html  with assets at /data, /stages   -> '../'
- *   deploy: /index.html     with assets at ./data, ./stages -> './'
+ *   repo:   /js/main.html  with assets at /data, /stages   -> '../'
+ *   deploy: /main.html     with assets at ./data, ./stages -> './'
  *
  * Java solved this by having Madness.main() validate the prefix and silently
  * reset it to "" on failure -- which, per web/README.md, produces a blank

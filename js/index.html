@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NFM web port — A/B tests</title>
+<style>
+  :root { color-scheme: dark; }
+  body {
+    margin: 0; padding: 2rem 1.5rem 4rem; background: #111; color: #ddd;
+    font: 15px/1.6 system-ui, sans-serif;
+  }
+  main { max-width: 46rem; margin: 0 auto; }
+  h1 { font-size: 1.4rem; margin: 0 0 .3rem; }
+  h2 { font-size: 1rem; margin: 2rem 0 .4rem; color: #9f9; font-weight: 600; }
+  p { margin: .4rem 0; }
+  p.lede { color: #999; margin-bottom: 1.2rem; }
+  .pair a { display: inline-block; margin-right: .7rem; }
+  a { color: #6cf; }
+  a:visited { color: #9ad; }
+  .done { color: #888; }
+  .done h2 { color: #7a7; }
+  hr { border: 0; border-top: 1px solid #333; margin: 2.5rem 0 1rem; }
+  table { border-collapse: collapse; margin: .8rem 0; font-size: 14px; }
+  th, td { text-align: left; padding: .2rem 1.2rem .2rem 0; }
+  th { color: #9f9; font-weight: 600; }
+  td.n { font: 13px ui-monospace, Menlo, Consolas, monospace; }
+  code, kbd {
+    font: 12px ui-monospace, Menlo, Consolas, monospace;
+    background: #222; border: 1px solid #333; border-radius: 3px; padding: 0 .3em;
+  }
+</style>
+</head>
+<body>
+<main>
+  <h1>Need for Madness — WebGL port</h1>
+  <p class="lede">
+    Round 3. Stage 1, seed 12345. Each link discards 3s of warmup, averages 3s,
+    then pauses with the result frozen. <kbd>R</kbd> reruns.
+    <a href="./main.html">Play with current defaults →</a>
+  </p>
+
+  <h2>Where the frame actually goes (measured, round 2)</h2>
+  <table>
+    <tr><th>Run</th><th>sim</th><th>draw</th><th>verts</th></tr>
+    <tr><td>1 car</td><td class="n">0.61 ms</td><td class="n">14.60 ms</td><td class="n">47,328</td></tr>
+    <tr><td>8 cars</td><td class="n">1.72 ms</td><td class="n">24.38 ms</td><td class="n">100,254</td></tr>
+  </table>
+  <p>
+    Physics is 2–7% of the tick. Drawing is everything else, and it tracks
+    vertex count almost exactly (~0.25 µs/vertex in both runs). Static stage
+    geometry is ~40k of those verts and is re-projected on the CPU every frame
+    even though it never moves; each car adds ~7.5k verts and ~1.4 ms.
+  </p>
+
+  <h2>The one open question — is it projection, or the batcher?</h2>
+  <p>
+    "Draw" is two costs stacked: the per-vertex projection in
+    <code>Plane.d()</code>, and the triangulation + vertex-buffer writes in
+    <code>graphics.js</code>. Only the first can move to a vertex shader, so
+    this decides whether that rewrite is worth doing.
+  </p>
+  <p>
+    B makes every draw call still happen — so all the projection maths is still
+    paid — but throws the geometry away instead of triangulating it.
+    <strong>The screen will be blank in B. That is expected</strong>; it's a
+    stopwatch, not a rendering mode. Just let the 6s run.
+  </p>
+  <p class="pair">
+    <a href="./main.html?players=8&amp;stats=1&amp;bench=3">A — normal, 8 cars</a>
+    <a href="./main.html?players=8&amp;raster=0&amp;stats=1&amp;bench=3">B — projection only (blank screen)</a>
+  </p>
+  <p>
+    If B is still ~20 ms, it's projection and the shader work pays off
+    ~4x. If B collapses to a few ms, the cost is in the batcher and the
+    shader would buy almost nothing — different fix entirely.
+  </p>
+
+  <hr>
+  <div class="done">
+    <h2>Settled — no need to retest</h2>
+    <p><strong>Physics is not the bottleneck.</strong> 0.6–1.7 ms/tick. The 10.3 ms figure in WORK.md was sim+draw measured as one.</p>
+    <p><strong>Resolution is nearly free on the CPU</strong> (res=1 24.1 ms vs res=2 24.1 ms); MSAA at 2x cost ~12% and is now off above 1x. GPU fill time is invisible to these timers, so this is a CPU statement only.</p>
+    <p><strong>fps is pinned to 18.9</strong> whenever interpolation is off — the game draws only on a tick. Don't compare builds by fps in that mode.</p>
+    <p><strong>Interpolation</strong> — the only route past 18.9 fps, but the car jitters and each interpolated frame costs a full ~17 ms CPU redraw. Off by default.</p>
+    <p><strong>Array pooling</strong> — no measurable difference. Dropped.</p>
+    <p><strong>Frame cap</strong> — moot, the machine never reaches 60.</p>
+  </div>
+
+  <p style="margin-top:2rem; color:#888">
+    Params: <kbd>?res=</kbd> <kbd>?textres=</kbd> <kbd>?aa=</kbd> <kbd>?raster=</kbd>
+    <kbd>?interp=</kbd> <kbd>?cam=</kbd> <kbd>?maxfps=</kbd> <kbd>?pool=</kbd>
+    <kbd>?stats=</kbd> <kbd>?bench=</kbd> <kbd>?warmup=</kbd>
+    <kbd>?players=</kbd> <kbd>?stage=</kbd> <kbd>?car=</kbd> <kbd>?seed=</kbd> <kbd>?tickms=</kbd>
+  </p>
+</main>
+</body>
+</html>

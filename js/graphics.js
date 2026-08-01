@@ -51,7 +51,7 @@ export class Graphics2D {
    * @param {number} width   game-space width  (800)
    * @param {number} height  game-space height (450)
    */
-  constructor(glCanvas, textCanvas, width = 800, height = 450) {
+  constructor(glCanvas, textCanvas, width = 800, height = 450, opts = {}) {
     this.width = width;
     this.height = height;
 
@@ -72,9 +72,14 @@ export class Graphics2D {
       return;
     }
 
+    // MSAA on top of a supersampled backing store is paying twice for the same
+    // edges: at res=2 the buffer is already 4x the pixels, and MSAA multiplies
+    // that again in bandwidth. There is no depth buffer and every triangle is
+    // drawn (painter's algorithm), so the scene is heavily overdrawn and this
+    // is bandwidth, not geometry. Default: MSAA only at res=1.
     const gl = glCanvas.getContext('webgl2', {
       alpha: false,
-      antialias: true,
+      antialias: opts.antialias !== false,
       depth: false,               // there is no depth buffer, by design
       preserveDrawingBuffer: false,
     });
@@ -105,6 +110,28 @@ export class Graphics2D {
 
     this.text = textCanvas.getContext('2d');
     this.textCanvas = textCanvas;
+    // The overlay's backing store may be larger than game space (2x by
+    // default). Scale its context so drawString/drawImage keep taking
+    // 800x450 coordinates like the Java does.
+    this.textScaleX = textCanvas.width / width;
+    this.textScaleY = textCanvas.height / height;
+
+    // DIAGNOSTIC (?raster=0): keep every draw call being *made* -- so the
+    // caller still pays for projection, culling and vertex math in Plane.d --
+    // but throw the geometry away instead of triangulating and buffering it.
+    // The difference against a normal run splits "draw" into the two costs
+    // that hide inside it: per-vertex projection (which a vertex shader could
+    // take over) and this rasteriser front-end (which it could not).
+    //
+    // The screen goes blank in this mode. That is the point; it is not a
+    // rendering path, it is a stopwatch.
+    if (opts.raster === false) {
+      const noop = () => {};
+      for (const m of ['fillPolygon', 'drawPolygon', 'drawLine', 'fillRect',
+                       'drawRect', 'fillOval', 'drawString', 'drawImage']) {
+        this[m] = noop;
+      }
+    }
   }
 
   // --- state ---------------------------------------------------------------
@@ -330,11 +357,21 @@ export class Graphics2D {
 
   // --- frame ---------------------------------------------------------------
 
-  /** Start a frame: drop last frame's geometry and clear the overlay. */
+  /**
+   * Start a frame: drop last frame's geometry and clear the overlay.
+   *
+   * The clearRect is a CPU-side cost proportional to the overlay's backing
+   * store, paid every frame whether or not anything was drawn on it. Sizing
+   * the overlay independently of the GL canvas (main.js `?textres=`) keeps it
+   * off the res curve.
+   */
   begin() {
     this.count = 0;
     this.a = 1;
+    // Clear in device space, then restore the game-space transform.
+    this.text.setTransform(1, 0, 0, 1, 0, 0);
     this.text.clearRect(0, 0, this.textCanvas.width, this.textCanvas.height);
+    this.text.setTransform(this.textScaleX || 1, 0, 0, this.textScaleY || 1, 0, 0);
     this.text.font = this.font;
   }
 
@@ -382,7 +419,7 @@ function isConvex(xs, ys, n) {
 /** No-op 2D context for headless tests; text is not exercised there. */
 function nullContext2D() {
   return {
-    clearRect() {}, fillText() {}, drawImage() {}, font: '',
+    clearRect() {}, fillText() {}, drawImage() {}, setTransform() {}, font: '',
     measureText: () => ({ width: 0, actualBoundingBoxAscent: 0, actualBoundingBoxDescent: 0 }),
   };
 }

@@ -1,0 +1,72 @@
+A.A
+
+BENCHMARK  3.0s window, 3s warmup discarded  --  PAUSED, press R to rerun
+  18.6 fps avg   18.6 tick/s   worst frame 67ms
+  sim 23.98 ms/tick   draw 0.00 ms/frame   -> 45% of one core
+  72054 verts   buffer 1600x900   res=2 textres=1 aa=0 interp=0 players=7 stage=1 pool=0
+
+A.B
+
+BENCHMARK  3.0s window, 3s warmup discarded  --  PAUSED, press R to rerun
+  18.9 fps avg   18.9 tick/s   worst frame 83ms
+  sim 26.65 ms/tick   draw 0.00 ms/frame   -> 50% of one core
+  87630 verts   buffer 1600x900   res=2 textres=2 aa=1 interp=0 players=7 stage=1 pool=0
+
+B.A
+
+BENCHMARK  3.0s window, 3s warmup discarded  --  PAUSED, press R to rerun
+  18.6 fps avg   18.9 tick/s   worst frame 116ms
+  sim 24.14 ms/tick   draw 0.00 ms/frame   -> 46% of one core
+  87630 verts   buffer 800x450   res=1 textres=1 aa=1 interp=0 players=7 stage=1 pool=0
+
+B.B
+
+
+BENCHMARK  3.0s window, 3s warmup discarded  --  PAUSED, press R to rerun
+  18.9 fps avg   18.9 tick/s   worst frame 83ms
+  sim 23.53 ms/tick   draw 0.00 ms/frame   -> 44% of one core
+  82353 verts   buffer 1200x675   res=1.5 textres=1 aa=0 interp=0 players=7 stage=1 pool=0
+
+B.C
+
+BENCHMARK  3.0s window, 3s warmup discarded  --  PAUSED, press R to rerun
+  18.6 fps avg   18.9 tick/s   worst frame 100ms
+  sim 26.89 ms/tick   draw 0.00 ms/frame   -> 51% of one core
+  84042 verts   buffer 1600x900   res=2 textres=1 aa=1 interp=0 players=7 stage=1 pool=0
+
+B.D
+
+
+BENCHMARK  3.0s window, 3s warmup discarded  --  PAUSED, press R to rerun
+  18.9 fps avg   18.9 tick/s   worst frame 84ms
+  sim 24.09 ms/tick   draw 0.00 ms/frame   -> 46% of one core
+  82353 verts   buffer 1600x900   res=2 textres=1 aa=0 interp=0 players=7 stage=1 pool=0
+
+C.A
+
+BENCHMARK  3.0s window, 3s warmup discarded  --  PAUSED, press R to rerun
+  18.9 fps avg   18.9 tick/s   worst frame 67ms
+  sim 13.32 ms/tick   draw 0.00 ms/frame   -> 25% of one core
+  47328 verts   buffer 1600x900   res=2 textres=1 aa=0 interp=0 players=1 stage=1 pool=0
+
+C.B
+
+
+BENCHMARK  3.0s window, 3s warmup discarded  --  PAUSED, press R to rerun
+  18.9 fps avg   18.9 tick/s   worst frame 67ms
+  sim 22.12 ms/tick   draw 0.00 ms/frame   -> 42% of one core
+  92895 verts   buffer 1600x900   res=2 textres=1 aa=0 interp=0 players=8 stage=1 pool=0
+
+D.A
+
+BENCHMARK  3.0s window, 3s warmup discarded  --  PAUSED, press R to rerun
+  18.9 fps avg   18.9 tick/s   worst frame 83ms
+  sim 24.25 ms/tick   draw 0.00 ms/frame   -> 46% of one core
+  82353 verts   buffer 1600x900   res=2 textres=1 aa=0 interp=0 players=7 stage=1 pool=0
+
+D.B
+
+BENCHMARK  3.0s window, 3s warmup discarded  --  PAUSED, press R to rerun
+  28.4 fps avg   18.8 tick/s   worst frame 134ms
+  sim 21.35 ms/tick   draw 17.19 ms/frame   -> 89% of one core
+  89880 verts   buffer 1600x900   res=2 textres=1 aa=0 interp=1 cam=derive players=7 stage=1 pool=0
