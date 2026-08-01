@@ -73,16 +73,36 @@ main.html?stats=1&bench=3          # 3s warmup, 3s average, then freezes
 ```
 
 ## Measuring performance — read this before optimising
-- **Physics is not the bottleneck.** 0.6–1.7 ms/tick. Drawing is 15–25 ms.
-- Time `draw()` and `simulate()` separately. `GameSparker.tick()` is the two of
-  them in sequence; timing it as a unit charges everything to "sim".
-- With `interp=0` the game draws only on a tick, so **fps is pinned at 18.9 by
-  construction** — it cannot show a rendering difference. Use the ms figures.
-- `?raster=0` no-ops the emit calls while leaving projection running, to split
-  draw into its two halves.
-- Node microbenchmarks are fine for ratios, wrong for absolutes: a different
-  JIT, and `drawString`/`drawImage` are already no-ops through the null 2D
-  context, so they flatter the batcher.
+
+Every wrong conclusion in this project's history came from a measurement
+artifact, not from a wrong theory. In order of how much time each one cost:
+
+- **fps cannot show a rendering difference.** With `interp=0` the game draws
+  only on a tick, so fps is pinned at 18.9 by construction. Use the ms figures.
+  An A/B compared by fps in this mode is measuring nothing.
+- **Normalise by scene weight.** Draw cost swings ~60% with where the car is.
+  Compare `ns/vert submitted`, never `ms/frame`, or you will conclude that
+  removing work made the frame slower — which has happened here.
+- **Diagnostic stubs must still count.** `?geom=0` counts its input even though
+  it emits nothing; a stub that reports a zero scene cannot be normalised
+  against a normal run.
+- **Time `draw()` and `simulate()` separately.** `GameSparker.tick()` is the
+  two in sequence; timing it as a unit charges everything to "sim".
+- **Projected ≠ submitted ≠ emitted.** `Plane.d` transforms 12–20 vertices per
+  face before culling decides whether to submit any (1.44x), and the batcher
+  fans polygons into triangles (~4x). The benchmark reports all three; the
+  projected count is the one a vertex shader would address.
+- **Nothing counts the even-odd scanline fill**, whose cost is proportional to
+  polygon AREA. A scene with checkpoint glyphs on it costs more with no counter
+  changing.
+- **Node is exact for scene shape, not for time.** Face and vertex counts
+  reproduce the browser to within 0.1%, so get ratios and counts under node
+  with no browser round trip. Absolute timings need a real browser: node's JIT
+  differs and its null 2D context already no-ops the overlay.
+
+Stubs: `?overlay=0` (Canvas2D), `?geom=0` (batcher), `?raster=0` (both).
+Counters in the benchmark line: objects drawn/considered, faces, projected and
+submitted vertices.
 
 ## The one invariant that must not break
 There is **no depth buffer**. Occlusion is submission order and nothing else.

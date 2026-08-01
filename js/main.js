@@ -56,9 +56,14 @@ async function boot() {
   glCanvas.height = Math.round(450 * res);
   textCanvas.width = Math.round(800 * textRes);
   textCanvas.height = Math.round(450 * textRes);
+  // Diagnostic stubs; see the block in graphics.js. `raster=0` is both of the
+  // other two at once, kept because the first round of measurements used it.
   const RASTER = params.get('raster') !== '0';
+  const GEOMETRY = params.get('geom') !== '0';
+  const OVERLAY = params.get('overlay') !== '0';
   const rd = new Graphics2D(glCanvas, textCanvas, 800, 450,
-                            { antialias: AA, raster: RASTER });
+                            { antialias: AA, raster: RASTER,
+                              geometry: GEOMETRY, overlay: OVERLAY });
 
   log(`assets at ${base} -- loading models.zip...`);
   const zip = await readZip('data/models.zip');
@@ -161,6 +166,7 @@ async function boot() {
   let benchStart = 0;          // set on the first frame past warmup
   let benchDone = false;
   const bench = { frames: 0, ticks: 0, simMs: 0, drawMs: 0, verts: 0,
+                  inputVerts: 0, objCalls: 0, objDrawn: 0, faceCalls: 0,
                   worstFrame: 0, lastFrameAt: 0 };
 
   // ---- interpolation ------------------------------------------------------
@@ -270,6 +276,8 @@ async function boot() {
     + `${INTERPOLATE ? ` cam=${REDERIVE_CAM ? 'derive' : 'blend'}` : ''}`
     + ` players=${players} stage=${stage} pool=${POOLING ? 1 : 0}`
     + `${RASTER ? '' : ' raster=0'}`
+    + `${GEOMETRY ? '' : ' geom=0'}`
+    + `${OVERLAY ? '' : ' overlay=0'}`
     + `${MAX_FPS ? ` maxfps=${MAX_FPS}` : ''}`;
 
   /**
@@ -286,17 +294,31 @@ async function boot() {
     // Share of one core: ms of CPU spent per 1000ms of wall clock.
     const core = ((bench.simMs + bench.drawMs) / elapsed) * 100;
     const buf = rd.gl ? `${rd.gl.drawingBufferWidth}x${rd.gl.drawingBufferHeight}` : '';
+    const f = Math.max(1, bench.frames);
+    const inPerFrame = bench.inputVerts / f;
     return [
       `BENCHMARK  ${(elapsed / 1000).toFixed(1)}s window, ${WARMUP_MS / 1000}s warmup discarded  --  PAUSED, press R to rerun`,
       `  ${fps.toFixed(1)} fps avg   ${tps.toFixed(1)} tick/s   worst frame ${bench.worstFrame.toFixed(0)}ms`,
       `  sim ${perTick.toFixed(2)} ms/tick   draw ${perFrame.toFixed(2)} ms/frame   -> ${core.toFixed(0)}% of one core`,
-      `  ${bench.verts} verts   buffer ${buf}   ${config()}`,
+      // ns per submitted vertex is the ONLY figure comparable across runs:
+      // scene weight swings ~60% with where the car is, which is larger than
+      // any difference being measured here.
+      `  ${(perFrame / Math.max(1, inPerFrame) * 1e6).toFixed(0)} ns/vert submitted`
+        + `   (${Math.round(inPerFrame)} submitted, ${bench.verts} emitted)`,
+      `  per frame: ${Math.round(bench.objDrawn / f)} objs drawn`
+        + ` of ${Math.round(bench.objCalls / f)},`
+        + ` ${Math.round(bench.faceCalls / f)} faces,`
+        + ` ${Math.round(inPerFrame)} verts`
+        + `   -> ${(perFrame / Math.max(1, bench.objDrawn / f) * 1000).toFixed(1)} us/obj,`
+        + ` ${(perFrame / Math.max(1, bench.faceCalls / f) * 1e6).toFixed(0)} ns/face`,
+      `  buffer ${buf}   ${config()}`,
     ].join('\n');
   };
 
   const restartBench = () => {
     bench.frames = 0; bench.ticks = 0; bench.simMs = 0; bench.drawMs = 0;
-    bench.verts = 0; bench.worstFrame = 0;
+    bench.verts = 0; bench.inputVerts = 0; bench.worstFrame = 0;
+    bench.objCalls = 0; bench.objDrawn = 0; bench.faceCalls = 0;
     benchStart = 0;
     benchDone = false;
     // No second warmup -- it is measured from boot, and by now everything is
@@ -385,6 +407,10 @@ async function boot() {
         if (rendered) {
           bench.frames++;
           bench.verts = Math.max(bench.verts, rd.vertexCount);
+          bench.inputVerts += rd.inputVerts;
+          bench.objCalls += rd.objCalls;
+          bench.objDrawn += rd.objDrawn;
+          bench.faceCalls += rd.faceCalls;
           const gap = now - bench.lastFrameAt;
           if (gap > bench.worstFrame) bench.worstFrame = gap;
           bench.lastFrameAt = now;
@@ -406,7 +432,7 @@ async function boot() {
       const fps = (frames * 1000) / dt;
       const tps = (ticks * 1000) / dt;
       const buf = rd.gl ? `${rd.gl.drawingBufferWidth}x${rd.gl.drawingBufferHeight}` : '';
-      let line = `${fps.toFixed(0)} fps  ${tps.toFixed(1)} tick/s  ${rd.vertexCount} verts  ${buf}  `
+      let line = `${fps.toFixed(0)} fps  ${tps.toFixed(1)} tick/s  ${rd.inputVerts} verts  ${buf}  `
         + `spd=${array3[0].speed.toFixed(1)}`;
       if (BENCH_MS > 0) {
         line += benchStart === 0

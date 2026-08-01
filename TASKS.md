@@ -34,36 +34,42 @@ Status key: `[x]` done · `[~]` in progress · `[ ]` not started · `[!]` blocke
 
 ## Performance
 
-Measured, 8 cars, stage 1, res=2 — see `WORK.md` for the full numbers:
+Measured on the target machine, stage 1, res=2. `simulate()` is 0.6–2.5 ms/tick
+(2–7%); **drawing is everything else.** Draw breaks down as:
 
-| | cost | share |
+| layer | share | isolate with |
 |---|---|---|
-| `simulate()` | 0.6–1.7 ms/tick | 2–7% |
-| `draw()` | 15–25 ms/frame | the rest |
+| Canvas2D overlay (HUD text/images) | 1.8% | `?overlay=0` |
+| geometry batching (triangulation, vertex writes) | 19% | `?geom=0` |
+| projection + traversal (`Plane.d`) | 81% | `?raster=0` |
 
-Draw tracks vertex count at ~0.25 µs/vert. ~40k of the ~100k verts are static
-stage geometry, re-projected on the CPU every frame because the camera moves.
+Cost model from two runs: `draw ≈ 9.8ms fixed + 1.01us per PROJECTED vertex`.
+Projected is not submitted — `Plane.d` transforms 12–20 vertices per face before
+culling decides whether to submit any, so 14,799 are projected to submit 10,263.
 
-- [ ] **Split the browser's draw cost between geometry batching and the 2D
-      overlay.** `?raster=0` currently stubs both, so the ~11.5 ms it removes
-      in-browser is unattributed. Node says the batcher is only ~24% of draw,
-      but node's null 2D context already no-ops `drawString`/`drawImage`, so
-      the two disagree for a reason. Needs a stub that separates them. ~10 LOC,
-      and it decides whether triangulation work is worth anything.
-- [ ] **GPU-side projection.** `Plane.d()` does `rot`/`xs`/`ys` per vertex on
-      the CPU every frame; this is the confirmed majority of draw in both
-      measurements. Worth ~2x on its own, and it is what would make
-      interpolation affordable — per-object transforms as uniforms means
+- [~] **Account for the ~9.8 ms fixed term.** It scales with nothing, and node
+      shows only 1.4 ms fixed on the identical scene. Two candidates: the
+      even-odd scanline fill, whose cost is proportional to polygon AREA and
+      which no counter tracks; or the fit itself, since two points 1.7x apart
+      extrapolate an intercept badly. Settle this BEFORE the shader rewrite —
+      if it is real it may be a smaller change for a similar win, and if it is
+      an artifact the shader payoff is larger than currently estimated.
+- [ ] **GPU-side projection.** The only term that provably scales, and the
+      majority of draw. Budget ~2–3x on draw, not 5x. It is also what would
+      make interpolation affordable: per-object transforms as uniforms means
       interpolating costs a lerp instead of a full CPU redraw.
-      The `TASKS.md` note that used to live here claimed the painter's sort
-      blocks this because it consumes `ContO.dist`. It does not: `dist` is
-      per-OBJECT (126 of them), not per-vertex, and can stay CPU-side
-      untouched while only the vertex transform moves. Still a large change —
-      several hundred lines across `graphics.js` and `Plane.js`.
-- [ ] Cache polygon triangulation topology at load instead of re-deriving
-      convexity and ear-clipping per frame. Blocked on the split above; may be
-      worth nothing.
-- [x] ~~Widen array pooling~~ — measured no difference in gameplay. Dropped.
+      The old note claiming the painter's sort blocks this was wrong: `dist` is
+      per-OBJECT (126 of them), not per-vertex, and stays CPU-side untouched
+      while only the vertex transform moves. Still several hundred lines across
+      `graphics.js` and `Plane.js`.
+- [ ] Cache polygon triangulation topology at load rather than re-deriving
+      convexity and ear-clipping per frame. Worth at most the 19% above.
+- [x] ~~Widen array pooling~~ — **pooling is a 30% PESSIMISATION**
+      (10.96 → 14.27 ms, node, identical scene). The earlier "1.13x" figure and
+      the in-game A/B that showed no difference were both wrong; the A/B
+      compared fps, which is pinned at 18.9. Leave `?pool=` off.
+- [x] Packed vertex colour (uint32, 12 bytes/vertex). ~3%, pixel-identical.
+- [x] MSAA off above res=1 (~12%); overlay no longer scales with `?res=`.
 
 ## Rendering / correctness
 

@@ -53,7 +53,47 @@
     even though it never moves; each car adds ~7.5k verts and ~1.4 ms.
   </p>
 
-  <h2>The one open question — is it projection, or the batcher?</h2>
+  <h2>Round 3b — splitting the 11.5 ms that <code>?raster=0</code> removed</h2>
+  <p>
+    Last round showed draw is ~half projection, ~half "everything else". But
+    <code>raster=0</code> stubs two unrelated things at once: geometry
+    batching (triangulation, vertex writes) and the Canvas2D overlay
+    (<code>fillText</code>, <code>drawImage</code> for the HUD). Node says the
+    batcher is only ~26% of draw — but node's null 2D context already no-ops
+    the overlay, so node cannot see that half at all. Hence four runs.
+  </p>
+  <p>
+    <strong>B loses the HUD, C and D go blank.</strong> Expected — stopwatches,
+    not rendering modes.
+  </p>
+  <p class="pair">
+    <a href="./main.html?players=8&amp;stats=1&amp;bench=3">A — normal</a>
+    <a href="./main.html?players=8&amp;overlay=0&amp;stats=1&amp;bench=3">B — no overlay</a>
+    <a href="./main.html?players=8&amp;geom=0&amp;stats=1&amp;bench=3">C — no geometry</a>
+    <a href="./main.html?players=8&amp;raster=0&amp;stats=1&amp;bench=3">D — projection only</a>
+  </p>
+  <p>
+    <strong>Compare the <code>ns/vert submitted</code> line, not
+    <code>ms/frame</code>.</strong> Your first run of this came back with the
+    stubbed configs <em>slower</em> than the normal one, which is impossible —
+    the cause was that scene weight swings by ~60% depending on where the car
+    is and what's on screen, and that swamps the differences being measured.
+    The benchmark now counts polygon vertices <em>submitted</em> (counted even
+    when emitting is stubbed, which it wasn't before — C and D reported a scene
+    of zero) and normalises by it.
+  </p>
+  <p>
+    From the four <code>ns/vert</code> figures: overlay = A−B, geometry = A−C,
+    projection = D. If A−B is the big one, the fix is the HUD overlay and is
+    cheap; if A−C is, it's triangulation; if D dominates both, it's the shader
+    rewrite and nothing else will help much.
+  </p>
+  <p>
+    Still worth keeping the runs similar: same stage, and either drive all four
+    the same way or — easier — don't touch the keys at all in any of them.
+  </p>
+
+  <h2>Round 3 — is it projection, or the batcher? (answered: both, ~50/50)</h2>
   <p>
     "Draw" is two costs stacked: the per-vertex projection in
     <code>Plane.d()</code>, and the triangulation + vertex-buffer writes in
@@ -88,7 +128,7 @@
   </div>
 
   <p style="margin-top:2rem; color:#888">
-    Params: <kbd>?res=</kbd> <kbd>?textres=</kbd> <kbd>?aa=</kbd> <kbd>?raster=</kbd>
+    Params: <kbd>?res=</kbd> <kbd>?textres=</kbd> <kbd>?aa=</kbd> <kbd>?raster=</kbd> <kbd>?geom=</kbd> <kbd>?overlay=</kbd>
     <kbd>?interp=</kbd> <kbd>?cam=</kbd> <kbd>?maxfps=</kbd> <kbd>?pool=</kbd>
     <kbd>?stats=</kbd> <kbd>?bench=</kbd> <kbd>?warmup=</kbd>
     <kbd>?players=</kbd> <kbd>?stage=</kbd> <kbd>?car=</kbd> <kbd>?seed=</kbd> <kbd>?tickms=</kbd>

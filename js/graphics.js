@@ -64,6 +64,21 @@ export class Graphics2D {
     // float view, the packed colour through the uint view.
     this._alloc(INITIAL_VERTS);
     this.count = 0;               // vertices written this frame
+    this.inputVerts = 0;          // polygon vertices SUBMITTED this frame --
+                                  // counted even when emitting is stubbed out,
+                                  // so diagnostic runs stay comparable
+    // Scene-shape counters, incremented by ContO.d and Plane.d. Draw cost does
+    // NOT track vertex count across sessions, so these exist to say whether it
+    // tracks objects or faces instead -- which decides whether a vertex shader
+    // is the right fix or an irrelevant one.
+    this.objCalls = 0;            // ContO.d entered
+    this.objDrawn = 0;            // ...and passed the visibility test
+    this.faceCalls = 0;           // Plane.d entered
+    this.projVerts = 0;           // vertices PROJECTED (sum of Plane.n), which
+                                  // is the work a vertex shader would take on.
+                                  // Much larger than inputVerts: a face pays to
+                                  // project 12-20 vertices before culling can
+                                  // decide whether to submit any of them.
 
     // Current graphics state, mirroring Graphics2D's mutable state.
     // r/g/b/a stay 0..1 floats because drawString and clearRect read them;
@@ -74,22 +89,41 @@ export class Graphics2D {
     this.lineWidth = 1;
     this.font = '12px sans-serif';
 
-    // DIAGNOSTIC (?raster=0): keep every draw call being *made* -- so the
-    // caller still pays for projection, culling and vertex math in Plane.d --
-    // but throw the geometry away instead of triangulating and buffering it.
-    // The difference against a normal run splits "draw" into the two costs
-    // that hide inside it: per-vertex projection (which a vertex shader could
-    // take over) and this rasteriser front-end (which it could not).
+    // DIAGNOSTIC STUBS. Every draw call is still *made*, so the caller keeps
+    // paying for projection, culling and vertex math in Plane.d; only the
+    // work behind the call disappears. What is left, timed, isolates a layer.
     //
-    // The screen goes blank in this mode. That is the point; it is not a
-    // rendering path, it is a stopwatch. Installed BEFORE the headless
-    // early-return so the same split can be measured under node.
-    if (opts.raster === false) {
-      const noop = () => {};
-      for (const m of ['fillPolygon', 'drawPolygon', 'drawLine', 'fillRect',
-                       'drawRect', 'fillOval', 'drawString', 'drawImage']) {
-        this[m] = noop;
-      }
+    // Three separable costs hide inside "draw":
+    //
+    //   projection   Plane.d's per-vertex rot/xs/ys      -> a vertex shader
+    //                                                       could take this
+    //   geometry     triangulation + vertex buffer       -> stays on the CPU
+    //   overlay      Canvas2D fillText / drawImage       -> unrelated to both
+    //
+    // `?raster=0` kills the last two together, which is how the first
+    // measurement was taken -- and why its 11.5ms was unattributable. `geom`
+    // and `overlay` separate them. Note that under node the overlay is
+    // ALREADY a no-op via nullContext2D, so node and browser disagree about
+    // what `raster=0` removes; that discrepancy is the reason this exists.
+    //
+    // The screen goes blank or loses its HUD in these modes. That is the
+    // point; they are stopwatches, not rendering paths. Installed BEFORE the
+    // headless early-return so the same split is measurable under node.
+    // The geometry stubs still COUNT their input. Vertex count is the only
+    // proxy for how heavy a scene was, and a run that reports zero cannot be
+    // compared against a normal one -- which is exactly how the first attempt
+    // at this measurement produced "removing work made drawing slower".
+    const noop = () => {};
+    const countPoly = (xs, ys, n) => { this.inputVerts += n; };
+    const GEOMETRY = ['drawLine', 'fillRect', 'drawRect', 'fillOval'];
+    const OVERLAY = ['drawString', 'drawImage'];
+    if (opts.raster === false || opts.geometry === false) {
+      for (const m of GEOMETRY) this[m] = noop;
+      this.fillPolygon = countPoly;
+      this.drawPolygon = countPoly;
+    }
+    if (opts.raster === false || opts.overlay === false) {
+      for (const m of OVERLAY) this[m] = noop;
     }
 
     // Headless mode (glCanvas === null) builds vertex data with no GL context,
@@ -226,6 +260,7 @@ export class Graphics2D {
    * in place, so submission order -- and therefore depth -- is unchanged.
    */
   fillPolygon(xs, ys, n) {
+    this.inputVerts += n;
     if (n < 3) return;
     if (n === 3 || isConvex(xs, ys, n)) {
       for (let i = 1; i + 1 < n; i++) {
@@ -315,6 +350,7 @@ export class Graphics2D {
 
   /** drawPolygon(xs, ys, n): closed 1px outline, expanded to quads. */
   drawPolygon(xs, ys, n) {
+    this.inputVerts += n;
     for (let i = 0; i < n; i++) {
       const j = (i + 1) % n;
       this._segment(xs[i], ys[i], xs[j], ys[j]);
@@ -406,6 +442,11 @@ export class Graphics2D {
    */
   begin() {
     this.count = 0;
+    this.inputVerts = 0;
+    this.objCalls = 0;
+    this.objDrawn = 0;
+    this.faceCalls = 0;
+    this.projVerts = 0;
     this.a = 1;
     this._pack();
     // Clear in device space, then restore the game-space transform.

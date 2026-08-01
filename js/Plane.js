@@ -189,6 +189,9 @@ export class Plane {
    * (g, x, y, z, cxz, xy, zy, wxRot, wzRot, farAway, objDist).
    */
   d(graphics2D, n, n2, n3, cxz, n4, n5, n6, n7, b, n8) {
+    ++graphics2D.faceCalls;   // scene-shape counter; see graphics.js
+    graphics2D.projVerts += this.n;   // vertices this face will project, drawn
+                                      // or not -- the real projection workload
     if (this.master === 1) {
       if (this.av > 1500 && !this.m.crs) this.n = 12;
       else this.n = 20;
