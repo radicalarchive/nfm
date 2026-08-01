@@ -257,6 +257,7 @@ export class XtGraphics {
     this.dustskid = new Array(3).fill(null);
     this.scrapeClips = new Array(4).fill(null);
     this.mutes = false;
+    this.snd = null;      // web/audio.js, attached by main.js
     this.intertrack = null;
     this.strack = null;
     this.loadedt = false;
@@ -386,10 +387,110 @@ export class XtGraphics {
   }
 
   // --- sound hooks ---
-  crash(_a, _n) {}
-  gscrape(_n, _n2, _n3) {}
-  scrape(_n, _n2, _n3) {}
-  skid(_n, _n2) {}
+  // --- sound -----------------------------------------------------------
+  //
+  // Ported from xtGraphics.java:9289-9430. java.applet.AudioClip's contract is
+  // "play() fires a one-shot, stop() cuts it", which web/audio.js reproduces,
+  // so these bodies are the Java's unchanged -- including the rotation
+  // counters that stop the same sample repeating back to back, and the bfXXX
+  // debounce counters the tick decrements.
+  //
+  // `snd` is null until main.js attaches it; every call site tolerates that,
+  // so a missing or undecodable sounds.zip costs sound and nothing else.
+
+  /** One-shot by name; silent if audio is unavailable. */
+  _snd(name) {
+    if (this.snd && !this.mutes) this.snd.play(name);
+  }
+
+  crash(a, n) {
+    if (this.bfcrash !== 0) return;
+    if (n === 0) {
+      if (Math.abs(a) > 25.0 && Math.abs(a) < 170.0) {
+        this._snd(`lowcrash${this.crshturn + 1}`);
+        this.bfcrash = 2;
+      }
+      if (Math.abs(a) >= 170.0) {
+        this._snd(`crash${this.crshturn + 1}`);
+        this.bfcrash = 2;
+      }
+      if (Math.abs(a) > 25.0) {
+        if (this.crashup) --this.crshturn;
+        else ++this.crshturn;
+        if (this.crshturn === -1) this.crshturn = 2;
+        if (this.crshturn === 3) this.crshturn = 0;
+      }
+    }
+    if (n === -1) {
+      if (Math.abs(a) > 25.0 && Math.abs(a) < 170.0) {
+        this._snd('lowcrash3');
+        this.bfcrash = 2;
+      }
+      if (Math.abs(a) > 170.0) {
+        this._snd('crash3');
+        this.bfcrash = 2;
+      }
+    }
+    if (n === 1) {
+      this._snd('tires');
+      this.bfcrash = 3;
+    }
+  }
+
+  skid(n, n2) {
+    if (this.bfcrash === 0 && this.bfskid === 0 && n2 > 150.0) {
+      if (n === 0) {
+        this._snd(`skid${this.skflg + 1}`);
+        if (this.skidup) --this.skflg;
+        else ++this.skflg;
+        if (this.skflg === 3) this.skflg = 0;
+        if (this.skflg === -1) this.skflg = 2;
+      } else {
+        this._snd(`dustskid${this.dskflg + 1}`);
+        if (this.skidup) --this.dskflg;
+        else ++this.dskflg;
+        if (this.dskflg === 3) this.dskflg = 0;
+        if (this.dskflg === -1) this.dskflg = 2;
+      }
+      this.bfskid = 5;
+    }
+  }
+
+  scrape(n, n2, n3) {
+    if (this.bfscrape === 0 && Math.sqrt(n * n + n2 * n2 + n3 * n3) / 10.0 > 10.0) {
+      let n4 = 0;
+      if (this.m.random() > this.m.random()) n4 = 1;
+      if (n4 === 0) {
+        this.sturn1 = 0;
+        ++this.sturn0;
+        if (this.sturn0 === 3) { n4 = 1; this.sturn1 = 1; this.sturn0 = 0; }
+      } else {
+        this.sturn0 = 0;
+        ++this.sturn1;
+        if (this.sturn1 === 3) { n4 = 0; this.sturn0 = 1; this.sturn1 = 0; }
+      }
+      this._snd(`scrape${n4 + 1}`);
+      this.bfscrape = 5;
+    }
+  }
+
+  gscrape(n, n2, n3) {
+    if ((this.bfsc1 === 0 || this.bfsc2 === 0)
+        && Math.sqrt(n * n + n2 * n2 + n3 * n3) / 10.0 > 15.0) {
+      // scrape[2] and scrape[3] are two separate clips of scrape3.wav in the
+      // Java, so a fresh scrape can cut the previous one while the other keeps
+      // playing. Two distinct keys over the same buffer preserve that.
+      if (this.bfsc1 === 0) {
+        if (this.snd && !this.mutes) { this.snd.stop('scrape3'); this.snd.play('scrape3'); }
+        this.bfsc1 = 12;
+        this.bfsc2 = 6;
+      } else {
+        if (this.snd && !this.mutes) { this.snd.stop('scrape3b'); this.snd.play('scrape3b'); }
+        this.bfsc2 = 12;
+        this.bfsc1 = 6;
+      }
+    }
+  }
 
   // --- stubs ---
   snap(_stage) {}

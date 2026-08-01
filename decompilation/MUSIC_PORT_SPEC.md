@@ -1,0 +1,112 @@
+# MUSIC_PORT_SPEC.md — delegating the ibxm tracker port
+
+A bounded job spec for `agy -p`, in the shape `decompilation/agy_tmp` already
+uses. Read `PORT_SPEC.md` §"Using a subagent" and §"Calibrate before batching"
+first — they are binding, and the calibration procedure is not optional.
+
+## What this is
+
+The game's soundtrack is a MOD/XM tracker module (`ds.nfm.mod`) played by a
+decompiled copy of **ibxm**, a small Java playback library. Sound *effects* are
+already done (`web/audio.js`); this is only the music.
+
+```
+decompilation/java-src/ibxm/   2,494 lines over 11 files
+  IBXM.java        the mixer/sequencer: the entry point
+  Module.java      the parsed module: patterns, instruments, order
+  Channel.java     per-channel state; volume/panning/portamento/vibrato
+  Instrument.java  Envelope.java  Sample.java  Pattern.java  Note.java
+  Data.java        byte-level reader over the module file
+  GlobalVol.java
+```
+
+Target: `web/ibxm/*.js` plus `web/music.js` wiring it to an `AudioWorklet`.
+
+## Why this is a good delegation candidate
+
+It is the one part of the port that is genuinely self-contained:
+
+- **No renderer contact.** It never touches `Graphics2D`, so the
+  painter's-algorithm constraint — the rule that silently breaks things and is
+  hard to test for — cannot be violated here.
+- **No game state.** It reads a module file and writes audio samples. It does
+  not share `Medium`, `ContO` or any of the mutable world.
+- **Objectively verifiable.** Rendered audio can be compared sample-for-sample
+  against the Java. That is a far stronger oracle than "the handling feels
+  off", which is the failure mode `PORT_SPEC.md` warns about.
+
+## Why it is still not trivial
+
+- ibxm mixes in **fixed-point integer arithmetic**. §2b applies throughout:
+  every int operation wraps at 32 bits, the addition as well as the multiply.
+  A wrap that is dropped produces a click or a detuned note, not an exception.
+- `Data.java` reads **unsigned** bytes and little-endian shorts out of a byte
+  array. Java's `byte` is signed; the sign-extension rules in
+  `web/TRANSPILE_SPEC.md` §1 decide whether a sample plays or screams.
+- Sample interpolation and envelope math mix int and float. Java `float` is not
+  JS `number`: `fr()` at each binary operation, per §1.
+
+## The verification oracle — insist on this
+
+Unlike the rest of the port, this one can be checked exactly, so there is no
+excuse for "it sounds right":
+
+1. Write a Java probe (`web/tools/IbxmProbe.java`, `package tools;` — see
+   `WORK.md`) that loads `music/ds.nfm.mod` through the **real** ibxm classes
+   out of `java/Game.jar` by reflection, renders **N seconds** of PCM at a
+   fixed sample rate, and writes raw signed 16-bit LE to stdout.
+2. Do the same in JS with the port.
+3. Diff as **exact integers**. They must match sample-for-sample. Any
+   divergence is a port bug: find it, do not tolerate it.
+
+Run the probe more than once before believing a mismatch — `WORK.md` records
+that `Medium.random()` bottoms out in unseeded `Math.random()`. ibxm should be
+fully deterministic; if it is not, find out why before writing any JS.
+
+## Bounding the job
+
+`PORT_SPEC.md` is explicit: **calibrate before batching**. Do not hand over all
+eleven files at once.
+
+1. **`Data.java` first** (small, pure, all the sign-extension traps). Verify
+   against a probe. Catalogue every systematic error into the prompt.
+2. **`Sample.java` + `Envelope.java`** next — the interpolation and envelope
+   math, where int/float mixing lives.
+3. Only then the rest, and re-verify partway through; `PORT_SPEC.md` notes
+   quality is not stationary across a long run.
+
+Ceiling: if step 1 comes back needing prompt changes, that is expected. If step
+2 does as well, stop delegating and do it directly.
+
+## Wiring, which is NOT the subagent's job
+
+Do this yourself afterwards. It is small and it is where the browser-specific
+judgement lives:
+
+- an `AudioWorkletProcessor` pulling from the port's mixer into a ring buffer;
+- the same autoplay-gesture unlock `web/audio.js` already does;
+- `checkPoints.trackname` / `trackvol` are parsed from the stage file already
+  (`GameSparker.loadstage`) and select the track and its volume.
+
+## Non-negotiables for the prompt
+
+Restate these verbatim; they are the ones that have actually been violated:
+
+- **§2c: never weaken a test to make it pass.** `WORK.md` records delegated
+  jobs editing tests green *twice*, and `CarDefine.loadcar` being silently
+  stubbed to `return -1` while the report claimed only networking was dropped.
+  Diff against an independent artifact; do not trust a green suite or a
+  "gaps: none" report.
+- **Transpile line by line.** Keep procyon's local names. Do not restructure,
+  rename, or fix apparent bugs — §3, preserve the game's own bugs verbatim.
+- **Touch nothing outside `web/ibxm/`, `web/tools/`, and its own tests.**
+- Run jobs **one at a time**: the `agy` quota is shared across `claude-*` and
+  `gpt-oss` (gemini is a separate pool), and five parallel jobs exhausted it
+  and killed all five mid-flight.
+
+## Honest estimate
+
+The port itself is a day of agent time with careful verification. The wiring is
+an hour. The risk is not the size, it is that a fixed-point error sounds
+*plausible* — which is exactly the failure `PORT_SPEC.md` says not to delegate
+without an exact oracle. Here there is one, so use it.

@@ -19,6 +19,7 @@ import { XtGraphics } from './XtGraphics.js';
 import { objArray, setSeed, setPooling } from './java.js';
 import { readZip, readText, detectFpath } from './vfs.js';
 import { loadHudImages } from './images.js';
+import { Audio } from './audio.js';
 
 const log = (msg) => {
   console.log(msg);
@@ -141,8 +142,15 @@ async function boot() {
     console.warn('HUD images unavailable, drawing vector HUD only:', e);
   }
 
+  // Sound. Non-fatal: the race runs silently if sounds.zip is missing or the
+  // browser has no Web Audio. The context starts suspended, so it is unlocked
+  // on the first key press below.
+  const snd = new Audio();
+  xt.snd = snd;
+  snd.load().catch((e) => console.warn('sound unavailable:', e));
+
   log(`stage "${checkPoints.name}"  objects=${gs.nob}  checkpoints=${checkPoints.nsp}  laps=${checkPoints.nlaps}`);
-  installInput(gs.u[0]);
+  installInput(gs.u[0], snd);
 
   let backdropMs = 0;
   if (PROFILE) {
@@ -550,7 +558,7 @@ async function boot() {
 }
 
 /** Keyboard -> Control, matching GameSparker.keyDown/keyUp. */
-function installInput(u) {
+function installInput(u, snd) {
   const set = (e, v) => {
     switch (e.code) {
       case 'ArrowUp':    case 'KeyW': u.up = v; break;
@@ -565,7 +573,10 @@ function installInput(u) {
     e.preventDefault();
     return true;
   };
-  addEventListener('keydown', (e) => set(e, true));
+  addEventListener('keydown', (e) => {
+    if (snd) snd.unlock();     // AudioContext needs a gesture before it runs
+    set(e, true);
+  });
   addEventListener('keyup', (e) => set(e, false));
 }
 

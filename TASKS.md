@@ -129,8 +129,13 @@ and it has returned a negative fixed cost). Measure fixed costs with `?prof=1`.
 
 ## Deferred by earlier decision
 
-- [ ] Audio — ring buffer + AudioWorklet + the `ibxm`/`ds.nfm.mod` tracker.
-      `XtGraphics.crash/scrape/gscrape/skid` are named no-op stubs ready for it.
+- [x] Sound effects — `web/audio.js` decodes sounds.zip and plays one-shots;
+      `crash`/`skid`/`scrape`/`gscrape` ported from the Java, rotation counters
+      and debounce included. Non-fatal if the zip or Web Audio is missing.
+- [ ] Music — the `ibxm`/`ds.nfm.mod` tracker. Spec for delegating it is in
+      `decompilation/MUSIC_PORT_SPEC.md`; it is self-contained and, unusually,
+      has an exact oracle (render N seconds of PCM in Java and in JS and diff
+      as integers).
 - [ ] Menus, car select, stage select — the other ~9600 lines of `xtGraphics`.
       Genuine brute work; the one part of this port that would suit a subagent.
       **Follow `decompilation/PORT_SPEC.md`'s "Calibrate before batching" procedure** — one
