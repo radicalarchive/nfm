@@ -174,3 +174,40 @@ test('stat() executes for 60 ticks without throwing and emits HUD geometry', asy
   assert.ok(hudVerts > noHudVerts, `Expected HUD to emit extra vertices (hud: ${hudVerts}, noHud: ${noHudVerts})`);
 });
 
+
+test('a moving car transfers momentum to a parked one', async () => {
+  // Regression for the collision threshold being computed with Math.imul.
+  // `CarDefine.comprad` is a float[] (formula7 is 0.4), and Math.imul
+  // truncates its operands, so the narrow-phase threshold collapsed to 0 for
+  // any pair summing below 1 -- every car in the default field. Cars drove
+  // through each other with no contact at all.
+  //
+  // The two cars must NOT be identical in speed: colide() picks a dominant
+  // car by |power * speed * moment|, and on an exact tie neither dominates
+  // and no contact is evaluated. That is the Java's behaviour, not a bug, and
+  // it is why this test drives one car into a stationary one.
+  const w = await buildWorld({ players: 2 });
+  w.xt.fase = 0;
+
+  const target = w.array2[1];
+  target.x = w.array2[0].x;
+  target.z = w.array2[0].z + 260;      // parked directly ahead
+  const startX = target.x, startZ = target.z;
+
+  w.gs.u[0].up = true;                 // car 1 is given no input whatsoever
+
+  for (let t = 0; t < 40; t++) {
+    for (let a = 0; a < 2; a++) {
+      for (let b = 0; b < 2; b++) {
+        if (a !== b) w.array3[a].colide(w.array2[a], w.array3[b], w.array2[b]);
+      }
+    }
+    for (let a = 0; a < 2; a++) {
+      w.array3[a].drive(w.gs.u[a], w.array2[a], w.trackers, w.checkPoints);
+    }
+  }
+
+  const moved = Math.hypot(target.x - startX, target.z - startZ);
+  assert.ok(moved > 100, `parked car should be knocked forward, moved ${moved}`);
+  assert.ok(w.array3[1].speed > 0, 'parked car should pick up speed from the hit');
+});

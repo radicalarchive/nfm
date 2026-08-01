@@ -2119,7 +2119,13 @@ export class Mad {
       }
       for (let j = 0; j < 4; ++j) {
         for (let k = 0; k < 4; ++k) {
-          if (this.rpy(array[j], array4[k], array2[j], array5[k], array3[j], array6[k]) < Math.imul(n3 + n4, this.cd.comprad[mad.cn] + this.cd.comprad[this.cn])) {
+          // NOT Math.imul: `comprad` is a float[] (0.4 .. 1.5), so this is an
+          // int * float multiply in the Java and stays float. Math.imul
+          // truncates both operands, which turned the whole threshold into 0
+          // for any pair whose comprad sum is below 1 -- formula7 is 0.4, so
+          // the default field never collided at all and cars drove through
+          // each other.
+          if (this.rpy(array[j], array4[k], array2[j], array5[k], array3[j], array6[k]) < fr(i32(n3 + n4) * fr(this.cd.comprad[mad.cn] + this.cd.comprad[this.cn]))) {
             if (Math.abs(fr(this.scx[j] * this.cd.moment[this.cn])) > Math.abs(fr(mad.scx[k] * this.cd.moment[mad.cn]))) {
               let n6 = fr(mad.scx[k] * this.cd.revpush[this.cn]);
               if (n6 > 300.0) {
