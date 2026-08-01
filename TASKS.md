@@ -103,11 +103,17 @@ and it has returned a negative fixed cost). Measure fixed costs with `?prof=1`.
 
 ## Rendering / correctness
 
-- [ ] Audit the rest of `ContO`'s per-frame animation state for the bug fixed
-      in `fcnt`/`fix`/`stg`/`rtg`: `electrify()` still walks `elc`/`edl`/`edr`
-      from `d()` unrestored, so it runs at display rate and can skip the frame
-      that ends it. Fix is to add them to `OBJ_STATE`/`OBJ_ARRAYS` in
-      `web/main.js`.
+- [ ] **Stop patching per-effect state field by field — mark the pass instead.**
+      Every effect advances its own counter from inside `ContO.d()`/`Medium.d()`,
+      so re-running `draw()` for an interpolated frame steps all of them, and
+      each one has been fixed only once it visibly broke (repair sparkle,
+      landing dust; `electrify()`'s `elc`/`edl`/`edr` is still unfixed). Thread
+      an `interpolating` flag through the redraw and guard the advances at
+      source — `if (!m.interpolating) ++this.fcnt` — so a missed effect is a
+      one-line fix where the mutation is, not a field forgotten in
+      `OBJ_STATE`/`MED_STATE` in another file. The stronger version is to not
+      re-execute `draw()` at all: keep the tick's vertex buffer and re-project
+      it, which removes the class outright.
 
 - [x] HUD vanished with `?interp=1` — `rd.begin()` clears the 2D overlay, and
       the interpolated redraw ran it after `simulate()` had drawn the HUD
@@ -141,6 +147,11 @@ and it has returned a negative fixed cost). Measure fixed costs with `?prof=1`.
       absent Web Audio costs sound and nothing else.
 - [x] `crash` / `skid` / `scrape` / `gscrape` ported from xtGraphics.java
       (9289-9430), rotation counters and `bfXXX` debounce included.
+- [ ] **A sound effect plays once per race, then never again** — the same
+      `playsounds()` gap below: `bfcrash` is set to 2 on the first crash and
+      nothing decrements it, so every later crash is suppressed. Fixed by the
+      item immediately below; listed separately because it presents as an audio
+      bug rather than a missing method.
 - [ ] **`playsounds()` — port it FIRST, everything below depends on it.**
       `xtGraphics.java:9081`, ~200 lines, called once per tick from
       `GameSparker.java:1705`. It decrements `bfcrash` / `bfskid` /
