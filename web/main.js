@@ -314,6 +314,10 @@ async function boot() {
   let lastFpsAt = last;
 
   let simMs = 0, drawMs = 0, nextFrameAt = 0;
+  // Vertices the last tick's simulate() emitted (HUD bars, checkpoint arrow),
+  // replayed onto interpolated frames. They update at tick rate, which is the
+  // rate they were drawn at anyway.
+  let hudVerts = null;
 
   const config = () =>
     `res=${res} textres=${textRes} aa=${AA ? 1 : 0} interp=${INTERPOLATE ? 1 : 0}`
@@ -432,7 +436,14 @@ async function boot() {
       const t0 = performance.now();
       gs.draw(rd, medium, xt, array2, array3);
       const t1 = performance.now();
+      // Everything simulate() emits lands after the scene, on top: the HUD's
+      // damage and power bars, and the checkpoint arrow. Keep those vertices
+      // so an interpolated frame can put them back -- it redraws the scene
+      // into a fresh batch and would otherwise drop them, which showed up as
+      // the meters reading zero and the arrow disappearing.
+      const hudStart = rd.vertexCount;
       gs.simulate(rd, medium, trackers, checkPoints, xt, record, array2, array3);
+      hudVerts = rd.snapshotFrom(hudStart);
       fSim += performance.now() - t1;
       fDraw += t1 - t0;
       acc -= TICK_MS;
@@ -449,6 +460,7 @@ async function boot() {
       // not part of the geometry being re-projected here.
       rd.begin(true);
       gs.draw(rd, medium, xt, array2, array3);
+      rd.replay(hudVerts);       // HUD last, so it stays on top
       restoreCurr();
       fDraw += performance.now() - t1;
     }

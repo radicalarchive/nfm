@@ -579,6 +579,30 @@ export class Graphics2D {
     return this.count;
   }
 
+  // --- replay ---------------------------------------------------------------
+  //
+  // The HUD's vector parts (damage/power bars, the checkpoint arrow) are
+  // emitted from simulate(), i.e. once per TICK, and land after the scene so
+  // they sit on top. An interpolated frame redraws the scene into a fresh
+  // batch and would drop them. Rather than re-run stat() -- which is part of
+  // the simulation and has side effects -- snapshot the vertices it produced
+  // and re-append them, which preserves both their content and their position
+  // in submission order.
+
+  /** Copy the raw vertex words from `from` to the current end. */
+  snapshotFrom(from) {
+    return this.u32.slice(from * WORDS_PER_VERT, this.count * WORDS_PER_VERT);
+  }
+
+  /** Append previously snapshotted vertex words. */
+  replay(words) {
+    if (!words || !words.length) return;
+    const n = words.length / WORDS_PER_VERT;
+    while (this.count + n > this.capacity) this._alloc(this.capacity * 2);
+    this.u32.set(words, this.count * WORDS_PER_VERT);
+    this.count += n;
+  }
+
   // --- introspection --------------------------------------------------------
   // Read access to the batch for tests and debugging. These exist so nothing
   // outside this file has to know the vertex layout; reaching into the typed
