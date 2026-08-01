@@ -129,13 +129,36 @@ and it has returned a negative fixed cost). Measure fixed costs with `?prof=1`.
 
 ## Deferred by earlier decision
 
-- [x] Sound effects — `web/audio.js` decodes sounds.zip and plays one-shots;
-      `crash`/`skid`/`scrape`/`gscrape` ported from the Java, rotation counters
-      and debounce included. Non-fatal if the zip or Web Audio is missing.
-- [ ] Music — the `ibxm`/`ds.nfm.mod` tracker. Spec for delegating it is in
-      `decompilation/MUSIC_PORT_SPEC.md`; it is self-contained and, unusually,
-      has an exact oracle (render N seconds of PCM in Java and in JS and diff
-      as integers).
+### Audio — next session
+
+- [x] Backend: `web/audio.js` decodes sounds.zip into AudioBuffers and plays
+      one-shots. Autoplay-gesture unlock on first key press; missing zip or
+      absent Web Audio costs sound and nothing else.
+- [x] `crash` / `skid` / `scrape` / `gscrape` ported from xtGraphics.java
+      (9289-9430), rotation counters and `bfXXX` debounce included.
+- [ ] **`playsounds()` — port it FIRST, everything below depends on it.**
+      `xtGraphics.java:9081`, ~200 lines, called once per tick from
+      `GameSparker.java:1705`. It decrements `bfcrash` / `bfskid` /
+      `bfscrape` / `bfsc1` / `bfsc2` (`:9207-9221`), and **nothing in the port
+      decrements them today**. So the first skid sets `bfskid = 5` and every
+      later one is suppressed forever — currently you hear at most one crash,
+      one skid and one scrape per session. This is why the game sounds nearly
+      silent, and it is a small fix with a large effect.
+- [ ] **Engine sound.** `playsounds()` drives `engs[][]` via `checkopen()`:
+      the numbered samples in sounds.zip (`00.wav`-`44.wav`, gear x rev index,
+      plus `air0`-`air5`) are continuously switched loops, not one-shots. Needs
+      a looping/crossfading clip type in `web/audio.js` — `AudioClip.loop()`
+      in the Java, which the current one-shot backend does not implement.
+- [ ] Remaining one-shots that exist in sounds.zip and are decoded but never
+      triggered: `checkpoint`, `wasted`, `firewasted`, `carfixed`, `powerup`,
+      and the `one`/`two`/`three`/`go` countdown. Their call sites are inside
+      `playsounds()` and the race-state code.
+- [ ] **Music — the `ibxm`/`ds.nfm.mod` tracker.** Delegation spec written:
+      `decompilation/MUSIC_PORT_SPEC.md`. Self-contained (no renderer contact,
+      no shared game state) and, unusually for this port, it has an exact
+      oracle — render N seconds of PCM through the real classes by reflection
+      and diff against the JS as integers. Bounded as calibrate-before-batching
+      requires; the AudioWorklet wiring stays with a human.
 - [ ] Menus, car select, stage select — the other ~9600 lines of `xtGraphics`.
       Genuine brute work; the one part of this port that would suit a subagent.
       **Follow `decompilation/PORT_SPEC.md`'s "Calibrate before batching" procedure** — one
