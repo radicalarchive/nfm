@@ -1,0 +1,9 @@
+{
+  "name": "nfm-js",
+  "private": true,
+  "type": "module",
+  "description": "Native browser port of Need for Madness. See ../PORT_SPEC.md",
+  "scripts": {
+    "test": "node --test"
+  }
+}

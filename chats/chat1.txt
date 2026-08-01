@@ -1,0 +1,1764 @@
+╭─── Claude Code v2.1.220 ─────────────────────────────────────────────────────╮
+│                                                    │ Tips for getting        │
+│                 Welcome back Evon!                 │ started                 │
+│                                                    │ Run /init to create a … │
+│                       ▐▛███▜▌                      │ ─────────────────────── │
+│                      ▝▜█████▛▘                     │ What's new              │
+│                        ▘▘ ▝▝                       │ Bug fixes and reliabil… │
+│  Opus 5 · Claude Pro · evan_claude@widloski.com's  │ Added Claude Opus 5 (`… │
+│  Organization                                      │ Added `sandbox.network… │
+│                     ~/games/nfm                    │ /release-notes for more │
+╰──────────────────────────────────────────────────────────────────────────────╯
+
+
+❯ /login                                                                        
+  ⎿  Login successful
+
+❯ @AGENTS.md                                                                    
+                                                                                
+  this is an old freeware Java game which I would like to get running in the    
+  browser with CheerpJ.  what do you think?                                     
+  ⎿  Read AGENTS.md (82 lines)
+
+● I'll look at the actual jar first so the assessment is grounded rather than
+  generic.
+
+  Ran 10 shell commands (ctrl+o to expand)
+
+● Fetch(https://cheerpj.com/docs/guides/limitations)
+  ⎿  Received 0 bytes (404 Not Found)
+
+● Fetch(https://cheerpj.com/docs/getting-started/Java-app)
+  ⎿  Received 134KB (200 OK)
+
+● Web Search("CheerpJ 4 limitations audio javax.sound networking sockets
+            filesystem /files/ IndexedDB")
+  ⎿  Did 1 search in 7s
+
+  Ran 4 shell commands (ctrl+o to expand)
+
+● I dug through the jar before answering. Short version: this is a 
+  better-than-average CheerpJ candidate, and the cheapest way to find out is to 
+  just try the existing jar unmodified — probably 30 minutes of work.
+
+  Why it's a good fit
+
+  - Pure AWT, no native anything. 52 classes, all major version 50 (Java 6).
+  Rendering is java.awt.Graphics2D primitives — drawString, drawLine, fillRect,
+  fillPolygon, drawImage. No LWJGL, no Java3D, no JNI. CheerpJ 4.3 runs
+  unmodified jars and implements AWT/Swing onto a canvas, so there's nothing
+  structurally in the way.
+  - It's already a static-asset app. One jar plus data/, stages/, music/ —
+  that's a static web host, no server.
+  - Madness.fpath is a gift. It's a single static String, built from argv in
+  main(), prefixed onto all 117 file accesses in the codebase. That means you
+  control read/write root from JS (cheerpjRunMain args) without a new bytecode
+  patch — which matters, because /app/ is read-only HTTP and saves have to land
+  in /files/ (IndexedDB).
+  - Your existing patches carry over cleanly. The runFinalizersOnExit NOP and
+  the keyDown/keyUp null guard are still wanted; the bitDepth fix becomes moot
+  but harmless.
+
+  Real risks, roughly in order
+
+  1. Performance — the actual unknown. This is a software 3D renderer pushing
+  per-frame Java2D calls with antialiasing on. CheerpJ is fast but not free.
+  Note your 2× buffer patch (1600×900) quadruples per-frame fill cost — in the
+  browser I'd make that a toggle and start at 800×450.
+  2. Fullscreen is dead as written. gofullscreen() uses
+  GraphicsDevice.setDisplayMode / setFullScreenWindow. Needs neutering and
+  replacement with a JS canvas-fullscreen + cheerpjCreateDisplay sizing. Your
+  patches #6/#7 (auto-fill, slider default) are the right hooks to build on.
+  3. Runtime.exec (5 sites) and Desktop.browse (4 sites). From
+  advopen/openurl/checknupdate — plus string constants for data/adv.bat and
+  data/madapp.jar. These don't exist in a browser. The danger isn't that they
+  fail, it's that one fires during startup and hangs or throws before the menu
+  draws.
+  4. Networking is gone. Socket, DatagramSocket, InetAddress across
+  Lobby/Login/UDPMistro/udpServe/update. Browsers give no raw TCP/UDP (CheerpJ's
+  only escape hatch is a Tailscale WebSocket proxy). Since radicalplay.com has
+  been dead for a decade, the goal is just making sure nothing blocks on a
+  socket at load.
+  5. Audio. javax.sound.sampled Clip/SourceDataLine plus the ibxm/ds.nfm.mod MOD
+  player — mixing happens in Java. CheerpJ supports audio, but browser autoplay
+  policy needs a user gesture first, and Java-side mixing is a stutter risk.
+  6. CarMaker/StageMaker are the shakiest. They lean on FileDialog, PopupMenu,
+  TextField/TextArea, JOptionPane. I'd treat the racing game as the deliverable
+  and the editors as stretch.
+
+  What I'd do next
+
+  Skip the planning and get a signal: serve the directory statically, point
+  cheerpjRunMain("Madness", "/app/Game.jar", ...) at the current jar, and watch
+  where it stops. That one experiment answers perf, audio, and startup-hang
+  questions better than any amount of further static analysis — and every
+  failure it surfaces is a concrete patch in the same ASM workflow you already
+  have.
+
+  Want me to set that up? I'd add a web/ dir with the loader page and a small
+  static-server script, leaving Game.jar and the desktop path untouched.
+
+  Sources: CheerpJ getting started
+  (https://cheerpj.com/docs/getting-started/Java-app), Networking
+  (https://cheerpj.com/docs/guides/Networking), Filesystem support
+  (https://cheerpj.com/docs/explanation/File-System-support.html), Compatibility
+  (https://cheerpj.com/compatibility/)
+
+✻ Baked for 3m 23s
+
+❯ ok create web/ dir.  I'll run the webserver.                                  
+                                                                                
+  before that answer this:  will it make sense to just leave the decompiled     
+  source here isntead of redecompiling with the tool whenever modifications are 
+  made, or is the curent approach correct?                                      
+
+● Good question — let me check a couple of things before answering, and verify
+  the CheerpJ loader details while I'm at it.
+
+  Listed 1 directory (ctrl+o to expand)
+
+● Fetch(https://cheerpj.com/docs/reference/cheerpjRunMain)
+  ⎿  Received 125.1KB (200 OK)
+
+  Read 1 file (ctrl+o to expand)
+
+● Fetch(https://cheerpj.com/docs/getting-started)
+  ⎿  Received 118.1KB (200 OK)
+  Ran 1 shell command (ctrl+o to expand)
+
+● Fetch(https://cheerpj.com/docs/getting-started/Java-app.html)
+  ⎿  Received 134KB (200 OK)
+
+  Listed 1 directory, ran 4 shell commands (ctrl+o to expand)
+
+● Both classes round-trip cleanly — that answers your question with real
+  evidence. Now the web/ dir.
+
+● Write(web/index.html)
+  ⎿  Wrote 91 lines to web/index.html
+       1 <!doctype html>
+       3 <head>
+       4 <meta charset="utf-8">
+       5 <meta name="viewport" content="width=device-width, initial-scale
+       6 <title>Need for Madness — CheerpJ</title>
+       7 <script src="https://cjrtnc.leaningtech.com/4.3/loader.js"></scr
+       8 <style>
+       9   html, body { margin: 0; height: 100%; background: #000; color:
+          #ddd;
+         o, monospace; }
+     … +103 lines (ctrl+o to expand)
+
+● Write(web/README.md)
+  ⎿  Wrote 80 lines to web/README.md
+       1 # web/ — CheerpJ browser port (first smoke test)
+       3 Goal of this directory is narrow: find out how far the **existin
+         g, unmodified**
+       4 `Game.jar` gets in a browser. Nothing here patches the game; the
+       5 (`./start.sh`) is untouched.
+       6 
+       8 
+       9 Serve the **repository root**, not this directory — CheerpJ maps
+          `/app/` to the
+         /data/...`:
+     … +102 lines (ctrl+o to expand)
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● web/ is created — serve the repo root and open http://localhost:8000/web/.
+  Details and the tunable knobs are in web/README.md.
+
+  On the decompiled source
+
+  I tested it rather than guessing, and the answer is stronger than I expected:
+
+  procyon Madness.class      → javac -source 8 -target 8   → clean (0 errors)
+  procyon GameSparker.class  → javac -source 8 -target 8   → clean (0 errors)
+
+  That's the patched GameSparker, ASM-generated bytecode and all. Both classes
+  survive a full decompile→recompile round trip.
+
+  So: your current approach was correct, and is now the wrong one going forward.
+
+  It was correct because ASM-on-pristine-bytecode is deterministic and sidesteps
+  decompiler-fidelity risk — a reasonable default when you have no source and
+  are making three surgical edits. But the browser port changes the arithmetic.
+  The edits ahead of you are no longer surgical: neuter gofullscreen(), delete
+  the checknupdate() call, stub Runtime.exec/Desktop.browse, rework sizing to
+  come from cheerpjCreateDisplay instead of DisplayMode. Expressing those as
+  byte-offset pokes and ASM InsnList splices is a lot of pain for edits that are
+  five lines of Java each — and offset-based patches like Madness.class offset
+  6461 silently rot the moment anything above them shifts.
+
+  What I'd do:
+
+  1. Move the build inputs into the repo now.
+  /tmp/opencode/{orig,build,Patcher.java} still exists, but it's in /tmp —
+  Debian clears that on boot. The build documented in AGENTS.md is currently one
+  reboot away from unreproducible. That's the actual bug here, independent of
+  the source question.
+  2. Promote Madness.java and GameSparker.java to real source, decompiled from
+  the patched classes so your seven existing patches carry over as readable
+  code, then compiled by javac as a normal build step. Retire Patcher.java and
+  the byte-offset patches with it.
+  3. Leave the other 50 classes as opaque binaries. Don't decompile what you
+  don't edit — no round-trip risk you don't need, and xtGraphics at 151KB is
+  exactly where a decompiler is most likely to produce something subtly wrong.
+  4. Keep a full decompile as read-only reference, regenerated on demand and
+  marked non-authoritative. It's greppable and it earns its keep — reading
+  checknupdate() and main() above took seconds and turned up both the fpath
+  lever the web page now uses and the fact that a successful update check
+  overwrites Game.jar.
+
+  The one rule that matters: one authority per class. Never let an ASM patch and
+  a source edit touch the same file, or you'll have two sources of truth that
+  drift.
+
+  I'd want one verification before committing to this — recompile both classes,
+  repack, and confirm the game still runs identically on the desktop. Want me to
+  do that switch, or run the browser smoke test first and let the results shape
+  which edits you need?
+
+✻ Brewed for 5m 47s
+
+❯ I did the cheerp test and it just sits at the cheerp loading screen with this 
+  in the log                                                                    
+                                                                                
+  ```                                                                           
+  [  0.0s] fpath="/app/"  jar=/app/Game.jar  display=930x586                    
+  [  0.0s] cheerpjInit…                                                         
+  [  1.0s] runtime ready                                                        
+  [  1.0s] cheerpjRunMain("Madness", "/app/Game.jar", "/app/")…                 
+  [  6.0s] main() returned 1                                                    
+  ```                                                                           
+                                                                                
+  ill let you decide what to do next, but answer this first: do you think this  
+  game is simple enough that a JS/wasm port is feasible?  I could do sequential 
+  tests as a human                                                              
+
+● Let me measure the actual JDK surface before answering — that's what
+  determines port difficulty.
+
+  Ran 3 shell commands (ctrl+o to expand)
+
+● Update(web/index.html)
+  ⎿  Added 15 lines
+      59  window.addEventListener("error", e => log("JS error: " + e.mess
+          age, "err"));
+      60  window.addEventListener("unhandledrejection", e => log("unhandl
+          ed rejection: " + e.reason, "err"));
+      61  
+      62 +// CheerpJ reports uncaught Java exceptions (and System.err) to
+         + the browser                                                   
+      63 +// console, not to us — mirror it here so a stack trace is visi
+         +ble without                                                    
+      64 +// devtools open. `main() returned 1` with nothing else means t
+         +he trace went                                                  
+      65 +// past this hook; open devtools and check there too.          
+      66 +for (const level of ["log", "info", "warn", "error"]) {        
+      67 +  const orig = console[level].bind(console);                   
+      68 +  console[level] = (...a) => {                                 
+      69 +    orig(...a);                                                
+      70 +    try {                                                      
+      71 +      const s = a.map(x => (x && x.stack) || String(x)).join(" 
+         +");                                                            
+      72 +      if (s.trim()) log(level + ": " + s, level === "error" ? "
+         +err" : level === "warn" ? "warn" : null);                      
+      73 +    } catch (_) { /* never let logging break the game */ }     
+      74 +  };                                                           
+      75 +}                                                              
+      76 +                                                               
+      77  (async function () {
+      78    try {
+      79      log("fpath=" + JSON.stringify(PATH) + "  jar=" + JAR + "  d
+          isplay=" + W + "x" + H);
+
+● Update(web/index.html)
+  ⎿  Added 1 line, removed 1 line
+      10                 font: 13px/1.5 ui-monospace, SFMono-Regular, Men
+          lo, monospace; }
+      11    body { display: flex; flex-direction: column; }
+      12    #display { flex: 1 1 auto; min-height: 0; }
+      13 -  #log { flex: 0 0 auto; max-height: 9em; overflow-y: auto; pad
+         -ding: 4px 8px;                                                 
+      13 +  #log { flex: 0 0 auto; max-height: 16em; overflow-y: auto; pa
+         +dding: 4px 8px;                                                
+      14           border-top: 1px solid #333; background: #111; white-sp
+          ace: pre-wrap; }
+      15    #log .err  { color: #ff6b6b; }
+      16    #log .warn { color: #ffd166; }
+
+● Updated web/index.html to mirror the browser console into the log strip —
+  CheerpJ reports uncaught Java exceptions there, which is why you got a bare
+  returned 1. Reload and paste what appears; also worth one run with ?path=
+  (empty) as a second data point.
+
+  My prediction before you do: main() runs in this order —
+
+  Madness.applet.init();          // asset loading — this is your 5 seconds
+  Madness.applet.start();
+  Madness.myDevice =
+  GraphicsEnvironment.getLocalGraphicsEnvironment().getDefaultScreenDevice();
+  Madness.defdisp = Madness.myDevice.getDisplayMode();
+  checknupdate(36);
+
+  The 5-second gap strongly suggests init() got through loading
+  images.zip/models.zip — meaning /app/ reads work and fpath survived. That puts
+  the throw in the last three lines, and getDefaultScreenDevice() /
+  getDisplayMode() is the natural suspect: there's no real screen device.
+  Neither is wrapped in a try/catch. checknupdate is less likely — its network
+  calls are all inside try. If I'm right, the fix is a two-line guard, which is
+  precisely the edit that's miserable in ASM and trivial in source.
+
+  Is a JS/wasm port feasible?
+
+  I measured the surface rather than eyeballing it. 314 distinct JDK methods
+  across the whole game. The split is what matters:
+
+  - Rendering: 42 methods, and they're nearly all one-liners in Canvas2D.
+  fillPolygon → path + fill, drawString → fillText, setComposite(AlphaComposite)
+  → globalAlpha, drawImage → drawImage. This is the encouraging number, and
+  it's unusually small because the game was written for Java 6 AWT and never
+  grew past it.
+  - ~400KB of core bytecode — xtGraphics (151KB), GameSparker (61KB), ContO
+  (40KB), Mad (34KB), Medium (32KB), Control (24KB), Plane (18KB). Dense 3D math
+  and game logic. This is the discouraging number.
+
+  So: feasible, not simple. The specific hazard is that a transcription error in
+  that 400KB — a sign flip in a rotation, an off-by-one in a polygon index —
+  doesn't crash. It makes the handling subtly wrong, and no test suite you can
+  write will catch it. Which is why your offer to do sequential human testing
+  genuinely changes my answer: that failure mode is only catchable by a person
+  driving the car and saying "this feels wrong." With you in the loop, a staged
+  port is tractable in a way it otherwise isn't.
+
+  Three routes, ranked:
+
+  1. CheerpJ + targeted Java patches (current). Cheapest by far — we're one bug
+  in. Costs: ~20MB runtime download, weak control over fullscreen and input,
+  debugging through two layers.
+  2. TeaVM + a Graphics2D→Canvas shim. The one I'd reach for if CheerpJ
+  disappoints. TeaVM AOT-compiles bytecode to JS/wasm but ships no AWT —
+  normally fatal, but here you'd shim
+  Graphics2D/Color/Font/FontMetrics/Image/MediaTracker and let TeaVM compile the
+  400KB of game logic untouched. You never hand-port the dangerous part. Real 
+  caveat: it isn't only Graphics2D — you'd also need file I/O,
+  javax.sound.sampled (17 methods), threads, and java.util.zip (10 methods, for
+  images.zip/models.zip). That's where an estimate can double. Worth a one-day
+  spike before committing, not a decision to make on paper.
+  3. Full hand/LLM port to JS. Most control, most risk. Justified only if you
+  want a maintainable JS codebase as the goal in itself — a legitimate want, but
+  a different project from "get this running in a browser."
+
+  Whichever route: cut the dead weight first. Globe (235KB), Lobby (114KB),
+  Login (43KB), the three UDP classes and update all target servers that died
+  with radicalplay.com. CarMaker (117KB) and StageMaker (131KB) are editors.
+  That's ~640KB of 1.27MB gone before you write a line — and it shrinks route 2
+  and 3 by half.
+
+  My recommendation: finish route 1, since one stack trace probably unblocks it.
+  Keep route 2 as the fallback and spike it only if CheerpJ's frame rate or
+  download size turns out to be unacceptable.
+
+✻ Crunched for 3m 54s
+
+※ recap: Goal is getting this Java game running in the browser via CheerpJ; it currently dies at startup with exit code 1. I added console mirroring to web/index.html, so reload the page and paste the Java stack trace that now appears. (disable recaps in /config)
+
+❯ one sentence answer:  wouldnt all that logic be mostly a direct transcription 
+  line-by-line to equivalent javascript?  how would you introduce e.g. a sign   
+  error?                                                                        
+
+● Fair — a hand-typed sign flip isn't the real risk; the actual hazard is silent
+  Java/JS semantic divergence, above all that Java's int math truncates on /
+  and wraps at 32 bits while JS gives you doubles, so every division, >>, and
+  overflow in that 3D math is a place the transcription is line-for-line correct
+  and numerically wrong (|0 and Math.trunc fix it, but only where you remember
+  them).
+
+✻ Cooked for 6s
+
+● Background command "Check whether documented build inputs still exist"
+completed (exit code 0)
+
+  Searched for 1 pattern (ctrl+o to expand)
+
+❯ does the 3D math not use floats:  one sentence                                
+  Ran 1 shell command (ctrl+o to expand)
+
+● It's mixed, and that's the problem: the geometry is float/double as you'd
+  expect, but integer arithmetic still outnumbers it roughly 2:1 in the core
+  classes (ContO 658 int vs 402 float, Medium 810 vs 260, xtGraphics 933 vs 484)
+  — much of it array indexing and loop counters that transcribe fine, but
+  interleaved with idiv/ishr on coordinates and fixed-point-ish scaling that
+  don't.
+
+  Also worth noting for a port: Java float is 32-bit and JS has only 64-bit
+  doubles, so even the float half isn't bit-identical unless you round through
+  Math.fround — divergence there is gradual drift rather than a hard break,
+  which matters for physics that integrates over frames.
+
+  (The background job that just finished was the stale find for procyon from
+  earlier — nothing new; the decompiler is at
+  /tmp/opencode/extracted/usr/share/java/procyon-decompiler.jar, still in
+  volatile /tmp alongside the .deb it came from.)
+
+✻ Baked for 32s
+
+❯ here is the cheerp log                                                        
+                                                                                
+  ```                                                                           
+   CHEERPJ COMMUNITY EDITION - FOR PERSONAL AND NON-BUSINESS USE ONLY           
+  Any other use requires a license: https://cheerpj.com/docs/licensing          
+  [  0.4s] cheerpjRunMain("Madness", "/app/Game.jar", "/app/")…                 
+  [  4.9s] log: Error: Could not find or load main class Madness                
+  [  5.0s] main() returned 1                                                    
+  ```                                                                           
+
+● Let me test the actual server rather than guess.
+
+  Ran 3 shell commands (ctrl+o to expand)
+
+● Two things just fell out of that, and together they explain the failure.
+
+● Write(web/serve.py)
+  ⎿  Wrote 104 lines to web/serve.py
+      1 #!/usr/bin/env python3
+      2 """Static file server with HTTP Range support, for the CheerpJ pa
+      3 
+      4 `python3 -m http.server` does NOT implement Range requests -- it 
+        ignores the
+        .jar with
+      6 range requests and cannot parse the archive when a full body come
+        s back where
+      8 
+      9     Error: Could not find or load main class Madness
+     … +104 lines (ctrl+o to expand)
+
+  Ran 2 shell commands (ctrl+o to expand)
+
+● Verified working — 206 responses, correct Content-Range, suffix ranges resolve
+  to the zip EOCD (PK\x05\x06), and a mid-file chunk md5-matches the real file
+  byte for byte. Updating the README:
+
+● Update(web/README.md)
+  ⎿  Added 15 lines, removed 5 lines
+       6  
+       7  ## Running
+       8  
+       9 -Serve the **repository root**, not this directory — CheerpJ map
+         -s `/app/` to the                                               
+      10 -web server root, and the page asks for `/app/Game.jar` and `/ap
+         -p/data/...`:                                                   
+      11 -                                                               
+       9  ```sh
+      13 -cd /home/evan/games/nfm                                        
+      14 -python3 -m http.server 8000                                    
+      10 +python3 web/serve.py        # serves the repo root on :8000    
+      11  ```
+      12  
+      13  Then open <http://localhost:8000/web/>.
+      14  
+      15 +**Do not use `python3 -m http.server`.** It has no HTTP Range s
+         +upport — it                                                    
+      16 +ignores the header and returns 200 with the whole body. CheerpJ
+         + reads jars with                                               
+      17 +range requests, and a full body where it expects a 206 leaves i
+         +t unable to parse                                              
+      18 +the archive, which surfaces as the misleading:                 
+      19 +                                                               
+      20 +```                                                            
+      21 +Error: Could not find or load main class Madness               
+      22 +```                                                            
+      23 +                                                               
+      24 +`serve.py` is `SimpleHTTPRequestHandler` plus Range handling (a
+         +nd `no-store`, so                                              
+      25 +a rebuilt jar is never cached). It serves the **repository root
+         +** regardless of                                               
+      26 +where it's invoked from, because CheerpJ maps `/app/` to the we
+         +b server root and                                              
+      27 +the page asks for `/app/Game.jar` and `/app/data/...`.         
+      28 +                                                               
+      29  The log strip along the bottom reports each stage. Add `?quiet=
+          1` to hide it.
+      30  
+      31  ## Knobs
+
+● That error is a red herring — the class is fine, the jar never got read
+  properly.
+
+  Cause: you're serving with python -m http.server (I can see the process).
+  Python's SimpleHTTPRequestHandler has zero Range support — I checked the
+  stdlib source directly, 'Range' in inspect.getsource(...) → False. It ignores
+  the header and returns 200 with the entire body. CheerpJ reads jars via range
+  requests; when a full body comes back where it expected a 206, it can't locate
+  the zip central directory, and the failure surfaces as "could not find or
+  load main class" rather than anything about the transport. The 4.5s beforehand
+  was it fetching and failing to make sense of the archive.
+
+  Fix: web/serve.py, which I wrote and verified end-to-end:
+
+  pkill -f 'http.server'      # stop the current one
+  python3 web/serve.py        # repo root on :8000, regardless of cwd
+
+  It's SimpleHTTPRequestHandler plus proper Range handling. Confirmed against
+  the real jar: 206 Partial Content, correct Content-Range, suffix ranges
+  (bytes=-22) landing on the zip EOCD marker PK\x05\x06, byte range 0-3 giving
+  PK\x03\x04, and a mid-file chunk md5-identical to dd from the file. It also
+  sends Cache-Control: no-store so a rebuilt jar never serves stale.
+
+  Reload http://localhost:8000/web/ and paste what you get. My earlier
+  prediction about getDefaultScreenDevice() is untested — the game never
+  actually started, so that hypothesis is still pending, not disproven.
+
+  One caveat on the first line of your log: CheerpJ's Community Edition is
+  personal/non-business use only. Fine for this, but it's a licensing constraint
+  on the CheerpJ route that route 2 (TeaVM, Apache 2.0) wouldn't have — worth
+  weighing if this ever goes anywhere public.
+
+✻ Brewed for 2m 1s
+
+※ recap: Goal is getting this Java game running in the browser via CheerpJ; the jar failed to load because Python's http.server lacks HTTP Range support. Next: stop that server, run python3 web/serve.py instead, reload localhost:8000/web/, and paste the log. (disable recaps in /config)
+
+❯ the cheerp performance is bad, or there is a hardcoded framerate that isnt    
+  aligning.  even the menus are slow.                                           
+                                                                                
+  you think its a bug or just bad performance? (~4fps)                          
+
+● Let me look at the actual frame loop before speculating.
+
+  Ran 3 shell commands (ctrl+o to expand)
+
+● Bad performance, not a mistuned constant — and the loop tells us how much of
+  each.
+
+  GameSparker.run() ends with an adaptive pacer:
+
+  long millis = Math.round(a) - (time3 - time2);   // budget minus actual frame 
+  time
+  if (millis < n4) millis = n4;                    // n4 = 15 in-race, 30 in 
+  menus
+  Thread.sleep(millis);
+
+  a is a feedback-controlled budget: every 10 frames it nudges ±3.5ms to hold 10
+  frames ≈ 400ms, and floors at 5.0. So on a machine too slow to keep up, a
+  bottoms out and the sleep clamps to the floor — meaning the pacing logic can 
+  only ever add 30ms per menu frame. A 33fps ceiling, not a 4fps one. Your 250ms
+  frames are ~220ms of real work plus that floor. The constants aren't the
+  problem; something genuinely costs 220ms.
+
+  The prime suspect is our own patch #4. The offscreen buffer is
+  createImage(1600, 900) with rd.scale(2,2) and antialiasing on, and paint()
+  then does a scaled 10-arg drawImage of that full 1600×900 buffer every frame.
+  That's 4× the fill area plus a per-frame scaled blit — cheap on a desktop JVM
+  with a hardware-backed VolatileImage, potentially brutal in CheerpJ where it's
+  canvas operations.
+
+  The one-minute A/B that settles it: run the pristine jar, which is still
+  sitting there untouched.
+
+  http://localhost:8000/web/?jar=/app/Game.jar.bak
+
+  Game.jar.bak is the original 800×450 build. It won't run on your desktop Java
+  19 — but it will run here, because CheerpJ is a Java 8 runtime and
+  System.runFinalizersOnExit still exists there. So it's a clean baseline: same
+  CheerpJ, same everything, minus the 2× buffer. If the menus jump to ~30fps,
+  the patch is the cost and the fix is a browser build at 1×. If it's still
+  ~4fps, CheerpJ's Java2D is simply too slow for this renderer and route 2
+  (TeaVM + a canvas shim, where you control the blit path) gets much more
+  attractive.
+
+  If CheerpJ objects to the .bak extension, cp Game.jar.bak web/baseline.jar and
+  use ?jar=/app/web/baseline.jar.
+
+  Worth trying ?w=800&h=450 alongside it — that shrinks the final canvas scale
+  independently, which separates "the buffer is too big" from "the display scale
+  is too big."
+
+  One thing I can't rule out from static reading: AWT repaint() is asynchronous,
+  so if CheerpJ's EDT is the bottleneck, the paint cost never enters time3 - 
+  time2 and the controller tunes against game-thread time while the display lags
+  behind — your "hardcoded framerate isn't aligning" instinct. A devtools
+  Performance capture would show that as time parked in canvas calls off the
+  game thread. The A/B above is still the right first move either way.
+
+✻ Cogitated for 1m 18s
+
+❯ I get this with the baseline                                                  
+                                                                                
+  ```                                                                           
+   CHEERPJ COMMUNITY EDITION - FOR PERSONAL AND NON-BUSINESS USE ONLY           
+  Any other use requires a license: https://cheerpj.com/docs/licensing          
+  [  0.3s] cheerpjRunMain("Madness", "/app/web/baseline.jar", "/app/")…         
+  [  7.0s] log: Exception in thread "Thread-0"                                  
+  [  7.0s] log: java.lang.UnsupportedOperationException                         
+  [  7.0s] log:     at java.lang.Runtime.runFinalizersOnExit(Unknown Source)    
+  [  7.0s] log:     at java.lang.System.runFinalizersOnExit(Unknown Source)     
+  [  7.0s] log:     at Madness.main(Unknown Source)                             
+  [  7.0s] main() returned 0                                                    
+  ```                                                                           
+
+● Good catch — I was wrong that CheerpJ would tolerate runFinalizersOnExit; it
+  implements it as a throw. So that baseline is unusable. Let me build a proper
+  one — and since we established both classes round-trip, I'll do it in source
+  rather than ASM.
+
+  Ran 5 shell commands (ctrl+o to expand)
+
+● Baseline built and verified on the desktop (exit 124, no exceptions — the
+  AGENTS.md pass criterion).
+
+  Listed 1 directory (ctrl+o to expand)
+● Update(web/README.md)
+  ⎿  Added 31 lines
+      28  
+      29  The log strip along the bottom reports each stage. Add `?quiet=
+          1` to hide it.
+      30  
+      31 +## baseline.jar — the 1× A/B build                             
+      32 +                                                               
+      33 +`web/baseline.jar` (generated, gitignored) is `Game.jar` with *
+         +*only** patch #4                                               
+      34 +reverted — the 2× offscreen buffer. Everything else, including 
+         +the                                                            
+      35 +`runFinalizersOnExit` NOP, is intact.                          
+      36 +                                                               
+      37 +```                                                            
+      38 +http://localhost:8000/web/?jar=/app/web/baseline.jar           
+      39 +```                                                            
+      40 +                                                               
+      41 +Compare against the normal `http://localhost:8000/web/`. The di
+         +fference is                                                    
+      42 +purely `createImage(1600,900)` + `rd.scale(2,2)` + 1600×900 bli
+         +t source rects                                                 
+      43 +versus 800×450 throughout, so a frame-rate gap between the two 
+         +is the 2× patch's                                              
+      44 +cost under CheerpJ and nothing else.                           
+      45 +                                                               
+      46 +Do **not** use `Game.jar.bak` as a baseline: CheerpJ implements
+      47 +`System.runFinalizersOnExit` as a throw, so the unpatched origi
+         +nal dies in                                                    
+      48 +`main()` before the applet is ever constructed.                
+      49 +                                                               
+      50 +Rebuilding it (from the decompiled-source workflow, not ASM):  
+      51 +                                                               
+      52 +```sh                                                          
+      53 +# 1x variant of the patched GameSparker                        
+      54 +sed -e 's/this\.offImage = this\.createImage(1600, 900);/this.o
+         +ffImage = this.createImage(800, 450);/' \                      
+      55 +    -e 's/(this\.rd = (Graphics2D)this\.offImage\.getGraphics()
+         +)\.scale(2\.0, 2\.0);/this.rd = (Graphics2D)this.offImage.getGr
+         +aphics();/' \                                                  
+      56 +    -e 's/, 0, 0, 1600, 900, this);/, 0, 0, 800, 450, this);/' 
+         +\                                                              
+      57 +    GameSparker.java > GameSparker1x.java                      
+      58 +javac -source 8 -target 8 -cp <unpacked-jar> -d out GameSparker
+         +1x.java                                                        
+      59 +cp Game.jar web/baseline.jar && (cd out && zip -q ../web/baseli
+         +ne.jar 'GameSparker.class' 'GameSparker$1.class')              
+      60 +```                                                            
+      61 +                                                               
+      62  ## Knobs
+      63  
+      64  Query-string parameters, so alternatives can be tried without e
+          diting files:
+
+● Correction on my part: CheerpJ implements runFinalizersOnExit as a throw, so
+  the pristine jar can't serve as a baseline. I built a proper one instead.
+
+  web/baseline.jar is the current Game.jar with only patch #4 reverted —
+  createImage(800, 450), no rd.scale(2,2), and all four paint() blits sourcing
+  0,0,800,450. Every other patch, including the runFinalizersOnExit NOP, is
+  intact. So it isolates the 2× buffer and nothing else.
+
+  http://localhost:8000/web/?jar=/app/web/baseline.jar
+
+  Compare against plain http://localhost:8000/web/. If the menus jump, the 2×
+  buffer is your 220ms; if they stay at ~4fps, CheerpJ's Java2D can't drive this
+  renderer at any resolution and route 2 becomes the serious option.
+
+  Verified before handing it over: compiles clean, and timeout 10 java -jar 
+  web/baseline.jar manar gives exit 124 with no exceptions — the AGENTS.md pass
+  criterion. It's gitignored as a generated artifact; the rebuild recipe is in
+  web/README.md.
+
+  Worth noting how that got built, because it's the recommendation from earlier
+  proving itself: decompiled GameSparker.java, three sed substitutions, javac,
+  re-zip. The equivalent in ASM would have been six InsnList splices against ldc
+  constants and a MethodInsnNode removal. The source workflow is now doing real
+  work, not just theory — I'd fold it into AGENTS.md properly once the perf
+  question is settled.
+
+✻ Cogitated for 1m 35s
+
+※ recap: We're getting Need for Madness running in the browser via CheerpJ, and menus are stuck at ~4fps. I built web/baseline.jar to test whether the 2x offscreen buffer is the cause. Next: load http://localhost:8000/web/?jar=/app/web/baseline.jar and compare framerate. (disable recaps in /config)
+
+❯ that improved things significantly, its about 75% of 2x buffer desktop        
+  performance, still a bit slower than comfortable though.  concise answer      
+
+● That's a good result — it means CheerpJ's tax is ~25%, not the problem. The 2×
+  buffer was ~95% of it.
+
+  Next lever, cheapest first:
+
+  1. Antialiasing off. 39 KEY_ANTIALIASING sites, 24 set VALUE_ANTIALIAS_ON. On
+  canvas-backed Java2D this is the dominant per-primitive cost, and the game
+  already has an anti field in Madness plus an in-game toggle — so try the
+  existing setting before patching anything.
+  2. Madness.anti / the in-race quality autotuner. medium.adjstfade() already
+  degrades detail under load, but only in the race branch — menus have no such
+  fallback, which is why they felt worst.
+  3. A 1.5× buffer if you want some of the crispness back — cost scales with
+  area, so 1.5× is 2.25× fill rather than 4×.
+
+  I'd try the in-game antialiasing toggle first; it's zero work and tells you
+  whether it's worth patching the defaults.
+
+✻ Crunched for 12s
+
+❯ that is already with smoothing an AA off.                                     
+
+● Then that 25% is the runtime tax itself, and there's no tuning left in the
+  renderer. Two cheap things still worth isolating before you accept it:
+
+  1. The final blit scale. Even at 1×, paint() does a scaled 10-arg drawImage
+  from the 800×450 buffer to the window every frame. Drag the in-game size
+  slider down to 1:1 (or load ?w=800&h=450) — if fps jumps, the cost is canvas
+  rescaling, and patches #6/#7 forcing reqmult = 1.0f are what put you there.
+  That'd argue for a browser build that defaults to unscaled and lets CSS
+  stretch the canvas instead, which is free.
+  2. The sleep floor. n4 is 30ms in menus, 15ms in-race — a hard 33fps ceiling
+  in menus regardless of how fast rendering gets. Now that frames are cheap,
+  dropping it is a one-constant change in the source build.
+
+  If neither moves it, you're at CheerpJ's floor and the choice is accept ~75%
+  or go to route 2 — where drawing straight to the canvas eliminates the
+  offscreen buffer and the blit entirely, which is precisely the cost you're now
+  paying.
+
+✻ Churned for 17s
+
+❯ with the slider down, its near-native performance                             
+
+● That confirms it: the scaled blit is the whole remaining gap. Let me read
+  paint() to see exactly what drives the scale.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● apmult = 1.0f + n3 * reqmult — so reqmult = 0 gives a 1:1 blit, and patch #7
+  is what forced you off it. Let me build a proper browser jar.
+
+  Ran 3 shell commands (ctrl+o to expand)
+
+● Write(web/index.html)
+  ⎿  Added 42 lines, removed 18 lines
+       9    html, body { margin: 0; height: 100%; background: #000; color
+          : #ddd;
+      10                 font: 13px/1.5 ui-monospace, SFMono-Regular, Men
+          lo, monospace; }
+      11    body { display: flex; flex-direction: column; }
+      12 -  #display { flex: 1 1 auto; min-height: 0; }                  
+      12 +  #stage { flex: 1 1 auto; min-height: 0; position: relative; o
+         +verflow: hidden; }                                             
+      13 +  #display { position: absolute; top: 0; left: 0; transform-ori
+         +gin: top left; }                                               
+      14    #log { flex: 0 0 auto; max-height: 16em; overflow-y: auto; pa
+          dding: 4px 8px;
+      15           border-top: 1px solid #333; background: #111; white-sp
+          ace: pre-wrap; }
+      16    #log .err  { color: #ff6b6b; }
+     ...
+      20  </style>
+      21  </head>
+      22  <body>
+      22 -<div id="display"></div>                                       
+      23 +<div id="stage"><div id="display"></div></div>                 
+      24  <div id="log"></div>
+      25  
+      26  <script>
+      27  // ------------------------------------------------------------
+          ---------------
+      28  // Need for Madness under CheerpJ.
+      29  //
+      29 -// Serve the REPOSITORY ROOT (not this directory) and open /web
+         -/. CheerpJ maps                                                
+      30 -// /app/ to the web server root, so /app/Game.jar and /app/data
+         -/... resolve to                                                
+      31 -// the real files only if the root is what's being served.     
+      30 +// Serve the REPOSITORY ROOT with `python3 web/serve.py` (NOT  
+      31 +// `python3 -m http.server`, which has no Range support) and op
+         +en /web/.                                                      
+      32  //
+      33 -// Tunables via query string, so alternatives can be tried with
+         -out editing:                                                   
+      34 -//   ?path=/app/   value for Madness.fpath, the prefix on every
+         - file access.                                                  
+      35 -//                 Pass ?path= (empty) to fall back to CWD-rela
+         -tive paths.                                                    
+      36 -//   ?w=930&h=586  CheerpJ display size. 930x586 is the native 
+         -frame size.                                                    
+      37 -//   ?jar=/app/Game.jar                                        
+      38 -//   ?quiet=1      hide the log strip                          
+      33 +// Defaults target web/nfm.jar, the browser build: 1x offscreen
+         + buffer and                                                    
+      34 +// reqmult=0, so the game blits 800x450 at exactly 1:1. That co
+         +mbination                                                      
+      35 +// measured near-native; a 2x buffer cost ~95% of the frame bud
+         +get under                                                      
+      36 +// CheerpJ and a scaled blit cost most of the rest. Game.jar re
+         +mains the                                                      
+      37 +// desktop artifact and is unchanged.                          
+      38 +//                                                             
+      39 +// Query string:                                               
+      40 +//   ?jar=/app/Game.jar   what to run (default /app/web/nfm.jar
+         +)                                                              
+      41 +//   ?path=/app/          value for Madness.fpath, the file-acc
+         +ess prefix                                                     
+      42 +//   ?w=800&h=450         Java-side display size; keep at the n
+         +ative 800x450                                                  
+      43 +//                        unless testing, since anything else r
+         +eintroduces                                                    
+      44 +//                        scaling in Java rather than on the GP
+         +U                                                              
+      45 +//   ?fit=1               CSS-scale the canvas up to fill the w
+         +indow. Free                                                    
+      46 +//                        (GPU composited) but UNVERIFIED for i
+         +nput: CheerpJ                                                  
+      47 +//                        may not map mouse coords through the 
+         +transform, so                                                  
+      48 +//                        if clicks land in the wrong place, th
+         +is is why.                                                     
+      49 +//   ?quiet=1             hide the log strip                   
+      50  // ------------------------------------------------------------
+          ---------------
+      51  
+      52  const q = new URLSearchParams(location.search);
+      53  const PATH = q.has("path") ? q.get("path") : "/app/";
+      43 -const JAR  = q.get("jar") || "/app/Game.jar";                  
+      44 -const W    = parseInt(q.get("w") || "930", 10);                
+      45 -const H    = parseInt(q.get("h") || "586", 10);                
+      54 +const JAR  = q.get("jar") || "/app/web/nfm.jar";               
+      55 +const W    = parseInt(q.get("w") || "800", 10);                
+      56 +const H    = parseInt(q.get("h") || "450", 10);                
+      57 +const FIT  = q.get("fit") === "1";                             
+      58  
+      59  const logEl = document.getElementById("log");
+      60 +const dispEl = document.getElementById("display");             
+      61  if (q.get("quiet") === "1") logEl.classList.add("hidden");
+      62  
+      63  const t0 = performance.now();
+     ...
+      74  
+      75  // CheerpJ reports uncaught Java exceptions (and System.err) to
+           the browser
+      76  // console, not to us — mirror it here so a stack trace is visi
+          ble without
+      64 -// devtools open. `main() returned 1` with nothing else means t
+         -he trace went                                                  
+      65 -// past this hook; open devtools and check there too.          
+      77 +// devtools open.                                              
+      78  for (const level of ["log", "info", "warn", "error"]) {
+      79    const orig = console[level].bind(console);
+      80    console[level] = (...a) => {
+     ...
+       86    };
+       87  }
+       88  
+       89 +// Scale the whole display element on the GPU rather than aski
+          +ng Java2D to                                                  
+       90 +// rescale every frame. Costs nothing per frame; the game stil
+          +l renders 1:1.                                                
+       91 +function fit() {                                              
+       92 +  if (!FIT) return;                                           
+       93 +  const stage = document.getElementById("stage");             
+       94 +  const s = Math.min(stage.clientWidth / W, stage.clientHeight
+          + / H);                                                        
+       95 +  dispEl.style.transform = "scale(" + s + ")";                
+       96 +  dispEl.style.left = Math.max(0, (stage.clientWidth - W * s) 
+          +/ 2) + "px";                                                  
+       97 +}                                                             
+       98 +window.addEventListener("resize", fit);                       
+       99 +                                                              
+      100  (async function () {
+      101    try {
+       79 -    log("fpath=" + JSON.stringify(PATH) + "  jar=" + JAR + "  
+          -display=" + W + "x" + H);                                     
+      102 +    log("fpath=" + JSON.stringify(PATH) + "  jar=" + JAR + "  
+          +display=" + W + "x" + H + (FIT ? "  fit=on" : ""));           
+      103  
+      104      log("cheerpjInit…");
+      105      await cheerpjInit();
+      106      log("runtime ready", "ok");
+      107  
+       85 -    cheerpjCreateDisplay(W, H, document.getElementById("displa
+          -y"));                                                         
+      108 +    cheerpjCreateDisplay(W, H, dispEl);                       
+      109 +    fit();                                                    
+      110  
+      111      // Madness.main() joins argv into the static `fpath`, whic
+           h prefixes all
+      112      // ~117 file accesses in the game. It then sanity-checks t
+           he prefix with
+
+  Listed 1 directory (ctrl+o to expand)
+
+● Update(web/README.md)
+  ⎿  Added 22 lines
+      28  
+      29  The log strip along the bottom reports each stage. Add `?quiet=
+          1` to hide it.
+      30  
+      31 +## nfm.jar — the browser build (what the page runs by default) 
+      32 +                                                               
+      33 +`web/nfm.jar` (generated, gitignored) is `Game.jar` with the tw
+         +o desktop                                                      
+      34 +display patches reverted, because both are expensive under Chee
+         +rpJ:                                                           
+      35 +                                                               
+      36 +| Patch | Desktop | Browser build |                            
+      37 +| --- | --- | --- |                                            
+      38 +| #4 2× offscreen buffer | `createImage(1600,900)` + `rd.scale(
+         +2,2)` | `createImage(800,450)`, no scale |                     
+      39 +| #7 slider defaults to max | `reqmult = 1.0f` | `reqmult = 0.0
+         +f` |                                                           
+      40 +                                                               
+      41 +Measured on CheerpJ, menus first: the 2× buffer cost ~95% of th
+         +e frame budget                                                 
+      42 +(~4fps → near the desktop figure), and the scaled blit cost mos
+         +t of what was                                                  
+      43 +left. With both reverted, `apmult = 1.0f + n3 * reqmult` collap
+         +ses to `1.0f`,                                                 
+      44 +`paint()` blits 800×450 → 800×450, and it runs at near-native s
+         +peed.                                                          
+      45 +                                                               
+      46 +To get a large picture back, scale on the GPU instead of in Jav
+         +a2D: `?fit=1`                                                  
+      47 +CSS-transforms the canvas. **Unverified for input** — CheerpJ m
+         +ay not map mouse                                               
+      48 +coordinates through a CSS transform. If clicks land in the wron
+         +g place, that's                                                
+      49 +the cause, and the fix is to scale via CheerpJ's own display si
+         +ze instead.                                                    
+      50 +                                                               
+      51 +`Game.jar` is untouched and remains the desktop artifact.      
+      52 +                                                               
+      53  ## baseline.jar — the 1× A/B build
+      54  
+      55  `web/baseline.jar` (generated, gitignored) is `Game.jar` with *
+          *only** patch #4
+
+● Built web/nfm.jar — the browser build — and made it the page default.
+
+  It's Game.jar with the two desktop display patches reverted, since both turn
+  out to be expensive under CheerpJ:
+
+  ┌────────────────┬────────────────────────────┬──────────────────────────┐
+  │     Patch      │          Desktop           │      Browser build       │
+  ├────────────────┼────────────────────────────┼──────────────────────────┤
+  │ #4 2×          │ createImage(1600,900) +    │ createImage(800,450), no │
+  │ offscreen      │ rd.scale(2,2)              │  scale                   │
+  │ buffer         │                            │                          │
+  ├────────────────┼────────────────────────────┼──────────────────────────┤
+  │ #7 slider      │                            │                          │
+  │ defaults to    │ reqmult = 1.0f             │ reqmult = 0.0f           │
+  │ max            │                            │                          │
+  └────────────────┴────────────────────────────┴──────────────────────────┘
+
+  With reqmult = 0, apmult = 1.0f + n3 * reqmult collapses to exactly 1.0f, so
+  paint() blits 800×450 → 800×450 and the canvas hits its 1:1 fast path — the
+  state you just measured at near-native. It's the default now rather than
+  something you have to reach for with the slider. Verified on the desktop too:
+  exit 124, no exceptions.
+
+  Just reload http://localhost:8000/web/.
+
+  For a bigger picture without giving the speed back, add ?fit=1 — it
+  CSS-transforms the canvas so the GPU does the scaling instead of Java2D, which
+  is free per frame. One caveat I could not verify from here: CheerpJ may not
+  map mouse coordinates through a CSS transform, so if clicks start landing in
+  the wrong place, that's why. Drop the flag and it's back to a 1:1 window.
+
+  Game.jar is untouched and still the desktop artifact. Both generated jars are
+  gitignored, with rebuild recipes in web/README.md.
+
+  Worth noting what the perf work actually established: CheerpJ's own overhead
+  is ~25%, which is fine. Everything else was our desktop patches being wrong
+  for this target — the 2× buffer alone was ~95% of the problem. That's an
+  argument for keeping the browser and desktop builds as two variants of one
+  source tree, which is now cheap to do. If you want, I can restructure it that
+  way properly — a small build script emitting both from the decompiled sources,
+  replacing the ASM patcher and the stale /tmp/opencode paths in AGENTS.md.
+
+✻ Churned for 2m 1s
+
+※ recap: Goal: get Need for Madness running in the browser via CheerpJ. The browser build (web/nfm.jar, 1x buffer, unscaled blit) now runs at near-native speed and is the page default. Next: reload http://localhost:8000/web/ and try ?fit=1 to check mouse input still maps correctly.
+
+❯ the game window has always been in the top left corner seemingly at the       
+  native resolution.                                                            
+                                                                                
+  after the change, its still in the top left but the window seems slightly     
+  small and the bottom of the window is cut off                                 
+                                                                                
+  @/tmp/out2.png                                                                
+
+  Read 1 file (ctrl+o to expand)
+
+● That screenshot is very informative — I made a sizing error. Let me look at
+  what's actually happening.
+
+  The AWT Frame is inside the CheerpJ display (you can see its title bar), and
+  Madness.main() does frame.setMinimumSize(930, 586) + setExtendedState(6)
+  (MAXIMIZED_BOTH). I sized the display to 800×450, which is smaller than the
+  frame's own minimum — so the frame is clipped on the right (STAGE MAKER is cut
+  off) and the bottom.
+
+  I conflated two independent things: reqmult = 0 controls the 1:1 blit, and
+  that's what bought the speed. The display size is unrelated — apmult stays
+  1.0f no matter how big the window is. So the display should be large, with the
+  game sitting 1:1 and letterboxed in black, exactly like the desktop at
+  "Original".
+
+● Update(web/index.html)
+  ⎿  Added 12 lines, removed 2 lines
+      49  //   ?quiet=1             hide the log strip
+      50  // ------------------------------------------------------------
+          ---------------
+      51  
+      52 +// Madness.main() does frame.setMinimumSize(930, 586) and setEx
+         +tendedState(6),                                                
+      53 +// so the CheerpJ display must be at least that or the AWT fram
+         +e is clipped.                                                  
+      54 +// This is independent of render scale: reqmult=0 pins apmult t
+         +o 1.0f, so the                                                 
+      55 +// game blits 1:1 and letterboxes in black at any display size.
+      56 +const MIN_W = 930, MIN_H = 586;                                
+      57 +                                                               
+      58  const q = new URLSearchParams(location.search);
+      59  const PATH = q.has("path") ? q.get("path") : "/app/";
+      60  const JAR  = q.get("jar") || "/app/web/nfm.jar";
+      55 -const W    = parseInt(q.get("w") || "800", 10);                
+      56 -const H    = parseInt(q.get("h") || "450", 10);                
+      61  const FIT  = q.get("fit") === "1";
+      62  
+      63 +const stageEl = document.getElementById("stage");              
+      64 +// Without fit: fill the viewport, game sits 1:1 in the middle.
+      65 +// With fit: minimum frame size, CSS-scaled up to fill the view
+         +port.                                                          
+      66 +const W = parseInt(q.get("w") || (FIT ? MIN_W : Math.max(MIN_W,
+         + stageEl.clientWidth)), 10);                                   
+      67 +const H = parseInt(q.get("h") || (FIT ? MIN_H : Math.max(MIN_H,
+         + stageEl.clientHeight)), 10);                                  
+      68 +                                                               
+      69  const logEl = document.getElementById("log");
+      70  const dispEl = document.getElementById("display");
+      71  if (q.get("quiet") === "1") logEl.classList.add("hidden");
+
+● Update(web/index.html)
+  ⎿  Added 12 lines, removed 1 line
+      71  if (q.get("quiet") === "1") logEl.classList.add("hidden");
+      72  
+      73  const t0 = performance.now();
+      74 +let lastMsg = null, lastEl = null, repeat = 0;                 
+      75  function log(msg, cls) {
+      76 +  // paint() allocates `new Font("Arial", 1, 11)` per frame whi
+         +le the settings                                                
+      77 +  // bar is up, and CheerpJ logs a font remap for each one. Col
+         +lapse repeats                                                  
+      78 +  // instead of letting them bury everything else.             
+      79 +  if (msg === lastMsg && lastEl) {                             
+      80 +    lastEl.textContent = lastEl.dataset.base + "  (×" + (++repe
+         +at + 1) + ")";                                                 
+      81 +    return;                                                    
+      82 +  }                                                            
+      83 +  lastMsg = msg; repeat = 0;                                   
+      84    const el = document.createElement("div");
+      85    if (cls) el.className = cls;
+      77 -  el.textContent = "[" + ((performance.now() - t0) / 1000).toFi
+         -xed(1).padStart(5) + "s] " + msg;                              
+      86 +  el.dataset.base = "[" + ((performance.now() - t0) / 1000).toF
+         +ixed(1).padStart(5) + "s] " + msg;                             
+      87 +  el.textContent = el.dataset.base;                            
+      88    logEl.appendChild(el);
+      89 +  lastEl = el;                                                 
+      90    logEl.scrollTop = logEl.scrollHeight;
+      91  }
+      92  
+
+● Update(web/index.html)
+  ⎿  Added 2 lines, removed 3 lines
+      111  // rescale every frame. Costs nothing per frame; the game stil
+           l renders 1:1.
+      112  function fit() {
+      113    if (!FIT) return;
+      114 -  const stage = document.getElementById("stage");             
+      115 -  const s = Math.min(stage.clientWidth / W, stage.clientHeight
+          - / H);                                                        
+      114 +  const s = Math.min(stageEl.clientWidth / W, stageEl.clientHe
+          +ight / H);                                                    
+      115    dispEl.style.transform = "scale(" + s + ")";
+      117 -  dispEl.style.left = Math.max(0, (stage.clientWidth - W * s) 
+          -/ 2) + "px";                                                  
+      116 +  dispEl.style.left = Math.max(0, (stageEl.clientWidth - W * s
+          +) / 2) + "px";                                                
+      117  }
+      118  window.addEventListener("resize", fit);
+      119  
+● Update(web/index.html)
+  ⎿  Added 8 lines, removed 7 lines
+      39  // Query string:
+      40  //   ?jar=/app/Game.jar   what to run (default /app/web/nfm.jar
+          )
+      41  //   ?path=/app/          value for Madness.fpath, the file-acc
+          ess prefix
+      42 -//   ?w=800&h=450         Java-side display size; keep at the n
+         -ative 800x450                                                  
+      43 -//                        unless testing, since anything else r
+         -eintroduces                                                    
+      44 -//                        scaling in Java rather than on the GP
+         -U                                                              
+      45 -//   ?fit=1               CSS-scale the canvas up to fill the w
+         -indow. Free                                                    
+      46 -//                        (GPU composited) but UNVERIFIED for i
+         -nput: CheerpJ                                                  
+      47 -//                        may not map mouse coords through the 
+         -transform, so                                                  
+      48 -//                        if clicks land in the wrong place, th
+         -is is why.                                                     
+      42 +//   ?w=&h=               CheerpJ display size. Defaults to the
+         + viewport (min                                                 
+      43 +//                        930x586, the AWT frame's own minimum)
+         +. This does NOT                                                
+      44 +//                        affect render scale — reqmult=0 keeps
+         + the blit 1:1 at                                               
+      45 +//                        any size; a bigger display just means
+         + more black.                                                   
+      46 +//   ?fit=1               Use a 930x586 display and CSS-scale i
+         +t up to fill the                                               
+      47 +//                        window. Free (GPU composited) but UNV
+         +ERIFIED for                                                    
+      48 +//                        input: CheerpJ may not map mouse coor
+         +ds through the                                                 
+      49 +//                        transform, so if clicks land wrong, t
+         +his is why.                                                    
+      50  //   ?quiet=1             hide the log strip
+      51  // ------------------------------------------------------------
+          ---------------
+      52  
+
+  Ran 2 shell commands (ctrl+o to expand)
+
+● Update(web/README.md)
+  ⎿  Added 19 lines, removed 4 lines
+      43  left. With both reverted, `apmult = 1.0f + n3 * reqmult` collap
+          ses to `1.0f`,
+      44  `paint()` blits 800×450 → 800×450, and it runs at near-native s
+          peed.
+      45  
+      46 -To get a large picture back, scale on the GPU instead of in Jav
+         -a2D: `?fit=1`                                                  
+      47 -CSS-transforms the canvas. **Unverified for input** — CheerpJ m
+         -ay not map mouse                                               
+      48 -coordinates through a CSS transform. If clicks land in the wron
+         -g place, that's                                                
+      49 -the cause, and the fix is to scale via CheerpJ's own display si
+         -ze instead.                                                    
+      46 +### Display size is not render scale                           
+      47  
+      48 +These are independent, and conflating them clips the frame:    
+      49 +                                                               
+      50 +- **Render scale** is `reqmult`. At 0, `apmult` is pinned to `1
+         +.0f` and the                                                   
+      51 +  game always blits 800×450 → 800×450, whatever the window size
+         +.                                                              
+      52 +- **Display size** is what `cheerpjCreateDisplay` gets. `Madnes
+         +s.main()` calls                                                
+      53 +  `frame.setMinimumSize(930, 586)` and `setExtendedState(6)` (M
+         +AXIMIZED_BOTH),                                                
+      54 +  so anything smaller than 930×586 clips the AWT frame — the `S
+         +TAGE MAKER`                                                    
+      55 +  button disappears off the right and the bottom edge is cut.  
+      56 +                                                               
+      57 +The page therefore defaults the display to the **viewport size*
+         +* (floor                                                       
+      58 +930×586). The game renders 1:1 in the middle, letterboxed in bl
+         +ack — the same                                                 
+      59 +as the desktop with the size slider at "Original".             
+      60 +                                                               
+      61 +To fill the screen without giving the speed back, use `?fit=1`:
+         + a 930×586                                                     
+      62 +display, CSS-transformed to fit. GPU-composited, free per frame
+         +.                                                              
+      63 +**Unverified for input** — CheerpJ may not map mouse coordinate
+         +s through a CSS                                                
+      64 +transform. If clicks land in the wrong place, that's the cause.
+      65 +                                                               
+      66  `Game.jar` is untouched and remains the desktop artifact.
+      67  
+      68  ## baseline.jar — the 1× A/B build
+
+● Fixed. My error: I sized the CheerpJ display to 800×450, but that's the render
+  size, not the window size — and main() sets a 930×586 frame minimum, so the
+  frame got clipped exactly as you saw.
+
+  The two are independent. reqmult = 0 pins apmult to 1.0f, so the blit stays
+  1:1 at any display size; a larger display just means more black around it.
+  Nothing about a bigger window costs you the performance you just gained.
+
+  So the page now defaults the display to your viewport size, floored at
+  930×586. Reload — the frame should be intact, with the game 1:1 and
+  letterboxed, the same as the desktop with the slider at "Original".
+
+  Also fixed the log spam in your screenshot: paint() allocates new 
+  Font("Arial", 1, 11) every frame while the settings bar is showing, and
+  CheerpJ logs a font remap for each. The log now collapses consecutive
+  duplicates into a (×N) counter. (Those stop on their own once the settings bar
+  times out after ~100 frames, but that per-frame Font allocation is worth
+  revisiting if the toolbar ever costs measurable time.)
+
+  If the letterboxed 800×450 feels too small on your monitor, try ?fit=1 —
+  930×586 display, CSS-scaled to fill. Still the same 1:1 Java blit, with the
+  GPU doing the stretch for free. The open question there remains mouse
+  coordinate mapping through the CSS transform; you'll know within a click or
+  two.
+
+✻ Cooked for 1m 48s
+
+❯ ok the scaling is correct now, but I mightve been wrong earlier about         
+  performance.  its OK when the car is alone on the screen but it gets bad when 
+  theres lots of polygons visible.  I guess thats a bigger problem?  one        
+  sentence                                                                      
+
+● Yes, bigger — it means you're fill/primitive-bound in CheerpJ's Java2D, not
+  paying a fixed overhead, so it degrades exactly when the game needs the frames
+  most and no display-side tuning will touch it; the fix is either the game's
+  own detail reduction (medium.adjstfade, which already runs in-race) or route
+  2, where you'd draw polygons straight to the canvas instead of through an
+  emulated Graphics2D.
+
+✻ Baked for 5s
+
+❯ how much work would the TeaVM route actually be?  have a free subagent (`agy  
+  -p XXX`) which can do lots of labor if given proper instruction (gemini 3.5   
+  flash)                                                                        
+
+● Before estimating, there's a gate that could make the whole question moot.
+
+  Does TeaVM even fix your bottleneck? CheerpJ's Java2D is almost certainly
+  already backed by an HTML canvas. If your polygon-heavy frames are bound by
+  canvas rasterization, TeaVM hands you the exact same rasterizer and you'd
+  spend weeks to gain very little. TeaVM only wins if the time is going into
+  CheerpJ's per-call Java2D→JS glue rather than the fill itself.
+
+  That's measurable in five minutes: devtools Performance profile during a heavy
+  race scene, then read the bottom-up view.
+
+  - Time dominated by CanvasRenderingContext2D.fill / rasterization → TeaVM 
+  won't help. You need fewer or cheaper primitives: the game's own
+  medium.adjstfade detail reduction, or a WebGL renderer.
+  - Time dominated by CheerpJ internals, JS glue, or Graphics2D dispatch → TeaVM
+  is the right call and the estimate below applies.
+
+  Do that before anything else. It's the difference between a 5-minute answer
+  and a 4-week detour.
+
+  If the profile says go: the actual work
+
+  Piece: Spike: TeaVM compiles the core classes at all
+  Estimate: 1–2 days
+  Risk: Decision gate
+  ────────────────────────────────────────
+  Piece: Graphics2D/Color/Font/FontMetrics/Image/MediaTracker → canvas
+  Estimate: 2–4 days
+  Risk: Low — 42 methods, direct mappings
+  ────────────────────────────────────────
+  Piece: Mini-AWT: Applet/Component/Frame + key/mouse events
+  Estimate: 2–3 days
+  Risk: Low
+  ────────────────────────────────────────
+  Piece: Virtual FS over fetch + IndexedDB (41 java.io methods)
+  Estimate: 2–3 days
+  Risk: Medium
+  ────────────────────────────────────────
+  Piece: java.util.zip for images.zip/models.zip/sounds.zip
+  Estimate: 1–2 days
+  Risk: Low — DecompressionStream exists
+  ────────────────────────────────────────
+  Piece: javax.sound.sampled → WebAudio, incl. the ibxm MOD mixer
+  Estimate: 3–5 days
+  Risk: High variance
+  ────────────────────────────────────────
+  Piece: Threads: the game loop is a Thread + Thread.sleep
+  Estimate: 1–3 days
+  Risk: High — TeaVM's JS backend does green threads, the WASM backend is
+  weaker;
+   if this fails the loop needs restructuring
+  ────────────────────────────────────────
+  Piece: Integration and debugging
+  Estimate: 1–2 weeks
+  Risk: The real cost
+
+  ~3–4 weeks focused, 6+ part-time. The -116 AWT methods you'd otherwise owe are
+  avoidable by dropping CarMaker, StageMaker, Lobby, Login, Globe and the UDP
+  classes — that's also ~640KB of the 1.27MB gone.
+
+  The thing that makes this tractable at all: you never hand-port the 400KB of
+  3D math. TeaVM compiles it, so the int-truncation and 32-bit-wrap hazards I
+  flagged simply don't arise.
+
+  Where a cheap agent helps, and where it will hurt you
+
+  Good delegation — mechanical, verifiable, bounded:
+  - Generating shim stubs from a method list (I have the exact 314-method
+  inventory in api.txt, so the spec can be precise rather than "write an AWT")
+  - The canvas mapping for the 42 drawing methods, one method per task
+  - VFS and zip boilerplate
+  - Bulk-deleting the dead multiplayer/editor classes and fixing the resulting
+  compile errors
+
+  Do not delegate: the threading model, audio timing, or anything touching
+  numeric behavior. Those fail silently and a cheap model will produce
+  confident, plausible, wrong code — and you'd find it weeks later as "the
+  handling feels off."
+
+  The pattern that works: I write tight specs with exact signatures and expected
+  semantics, agy fills them in, I review before it lands. Want me to run the
+  profile-interpretation step first, or start drafting the spike spec? I'd want
+  the profile either way — tell me what the bottom-up view shows and I'll tell
+  you which route you're actually on.
+
+✻ Crunched for 52s
+
+❯ and you really think a line-by-line transpilation to JS/WASM/webgl cant be    
+  done in a few hours automatically by an LLM with self-tests?  two sentence    
+
+● Honestly, the mechanical transpilation probably can be done in a few hours —
+  that part is exactly what LLMs are good at, and int-truncation bugs are
+  catchable by differential testing against the JVM if you build that harness.
+  What can't be automated in hours is the part where there's no oracle: WebGL
+  isn't a transpilation of Java2D but a different rasterization model
+  (z-ordering, per-polygon state, no drawString), and "the physics feels wrong"
+  has no self-test — which is why my estimate was weeks of integration, not
+  weeks of translation.
+
+✻ Brewed for 7s
+
+❯ isnt the "physics" going to be transpiled directly, and just the 2D renderer  
+  replaced by webgl?  so there would be graphics errors, but physics errors     
+  have to do with transpilation errors                                          
+
+● You're right, and that reframes it correctly — let me check the one thing that
+  determines whether the cut is clean.
+
+  Ran 2 shell commands (ctrl+o to expand)
+
+● Verified, and it cuts both ways.
+
+  The bad news for a clean split: there is no renderer layer. Plane.java and
+  ContO.java interleave projection, per-face lighting, fog blending, colour
+  clamping and the fillPolygon call in a single pass — setColor(new 
+  Color(r,g,b)); fillPolygon(xs, ys, n); sits directly after the fog math in the
+  same method. You can't lift "the renderer" out as a module.
+
+  But that doesn't matter, because your framing suggests the better boundary
+  anyway: don't replace the renderer, reimplement Graphics2D. Transpile
+  Plane/ContO/Medium verbatim, and make fillPolygon append a triangle fan to a
+  WebGL vertex buffer instead of rasterizing. The lighting and fog math — the
+  part that's easy to get subtly wrong — transpiles untouched and stays
+  diff-testable against the JVM.
+
+  So yes, I was conflating two things, and my estimate was too conservative on
+  that axis. Physics errors are transpilation errors, and those do have an
+  oracle: seed the RNG identically, drive a scripted input sequence, dump state
+  per tick from both, compare. That's a harness, not a research project.
+
+  The one real hazard I'd flag, which is neither physics nor transpilation: this
+  renderer is painter's algorithm — occlusion comes purely from submission
+  order, there's no depth buffer. Naive WebGL batching reorders by state and
+  would silently scramble depth. The fix is straightforward once you know to
+  look for it — put colour in a vertex attribute so every polygon goes into one
+  buffer in original order, one draw call — but batch-by-material, the obvious
+  optimization, is exactly wrong here and would produce cars drawn through
+  walls. Text and drawImage stay on a 2D canvas overlay.
+
+  Revised: the transpile plus diff-harness is plausibly hours-to-days automated.
+  The WebGL Graphics2D is a few hundred lines with one non-obvious constraint.
+  My "weeks" figure was mostly audio, VFS, threading, and the editors — which is
+  a scope question, not a difficulty one, and you can defer all of it by
+  shipping the racing game alone.
+
+✻ Sautéed for 1m 14s
+
+❯ so how much is the whole core game estimate time, dropping editor,            
+  networking.  need audio for sure.  one sentence                               
+
+● Roughly 1–2 focused days to get racing on screen (transpile the core classes,
+  the WebGL Graphics2D, plus the diff-harness), with audio realistically
+  doubling that to 3–4 days — javax.sound.sampled streaming plus the ibxm MOD
+  mixer over WebAudio is the one piece with no oracle, no shortcut, and a real
+  chance of eating a day on timing alone.
+
+✻ Baked for 4s
+
+❯ why is audio so complicated?  that seems easy to just play sounds at certain  
+  times.  one sentence                                                          
+
+● Because it isn't fire-and-forget clips: the engine sound is a continuously
+  pitch-shifted stream the game pushes PCM into via SourceDataLine (31 refs),
+  and ibxm/ds.nfm.mod is a software MOD tracker synthesizing music
+  sample-by-sample — so you're not scheduling sounds, you're reimplementing a
+  pull-based audio callback in WebAudio where buffer underruns turn into audible
+  clicks.
+
+✻ Brewed for 7s
+
+❯ and why cant that be transpiled line-by-line?  one sentence                   
+
+● It can — the MOD synthesis and µ-law decoding are pure sample math that
+  transpiles like any other logic; what doesn't transpile is the boundary,
+  because SourceDataLine.write() is a blocking push from the game thread and
+  WebAudio is a pull-based callback on the audio thread, so that one seam has to
+  be rewritten as a ring buffer rather than translated.
+
+✻ Brewed for 3s
+
+❯ and that one boundary aspect soaks up multiple days?  think.  one sentence    
+
+● No — honestly that's a few hours (a ring buffer plus an AudioWorklet, and with
+  TeaVM's green threads there's no real cross-thread sync to get wrong), so my
+  3–4 day figure was padding against unfamiliarity rather than identified work;
+  the defensible estimate is closer to 2 days for the whole core game including 
+  audio, with the residual risk being how many small AWT/IO surprises surface
+  once it actually runs.
+
+✻ Churned for 7s
+
+❯ could you make the spec file for implementation in another session, with      
+  concise summary bullets of my user questions and a 2 line section about using 
+  a subagent like gemini through agy.                                           
+                                                                                
+  should I let you just call out to the subagent commandline or is an MCP       
+  integration to agy necessary?                                                 
+● agy via Bash is fine — MCP isn't necessary. It's a one-shot prompt CLI, so I
+  can call agy -p "$(cat spec.md)" directly, pass large specs as files, and read
+  its output back from disk. MCP would only earn its keep if you needed
+  multi-turn stateful sessions, structured tool schemas, or concurrent agent
+  management. The practical costs of the Bash route are permission prompts
+  (allowlist agy in settings to avoid them) and no streaming visibility — I see
+  output only when it exits. Either way I have to verify what it produces;
+  neither transport changes that.
+
+  Now the spec:
+
+● Write(PORT_SPEC.md)
+  ⎿  Wrote 243 lines to PORT_SPEC.md
+      1 # PORT_SPEC.md — Need for Madness → JS + WebGL
+      2 
+      3 Handoff spec for implementing a native browser port in a fresh se
+      4 Everything here was measured against this repo, not assumed. See 
+        `AGENTS.md`
+      5 for the existing desktop patches and `web/README.md` for the Chee
+        rpJ path.
+      7 ---
+      8 
+      9 ## Step 0 — unblock before anything else
+     … +321 lines (ctrl+o to expand)
+
+● PORT_SPEC.md written at the repo root — self-contained enough for a cold
+  session, with every claim in it measured against this repo rather than
+  assumed.
+
+  The structure: Step 0 (unblock), measured facts, architecture, the
+  differential harness, phases, subagent guidance, and your decision record as
+  the closing section.
+
+  Two things in it I'd flag as load-bearing:
+
+  Step 0 is genuinely blocking. The decompiled sources and procyon itself
+  currently live only under /tmp/opencode/, which Debian clears on boot. A
+  future session has no inputs without them. The spec documents regeneration,
+  but I'd rather persist java-src/ into the repo properly — say the word and
+  I'll do it.
+
+  The painter's-algorithm warning is the one thing most likely to be ignored.
+  It's called out in a blockquote because it's the failure that looks like
+  success: batching polygons by material is the standard WebGL optimization, it
+  will pass every unit test, and it produces cars visible through walls.
+  Colour-as-vertex-attribute is both the correct and the fast answer. If a
+  subagent touches the renderer, that constraint needs restating in its prompt
+  every time.
+
+  I also recorded the estimate correction honestly — the 3–4 day audio figure
+  was padding, and the spec says so rather than quietly carrying it forward.
+
+  On agy: Bash is the right call, no MCP needed. If you want, I can add agy to
+  .claude/settings.json permissions so it runs without prompting each time —
+  that's a one-line change I'd want your OK on first, since it grants me
+  unattended invocation of it.
+
+✻ Cooked for 1m 39s
+
+❯ yes do these things.  agy permission I can just enable auto mode in the       
+  session                                                                       
+
+● Skipping the settings change then — auto mode covers it. Persisting the
+  sources:
+
+  Read 1 file, listed 1 directory, ran 6 shell commands (ctrl+o to expand)
+
+● While that runs (Globe.class is 235KB and slow), let me update the spec
+  section it affects:
+
+● Update(PORT_SPEC.md)
+  ⎿  Added 16 lines, removed 10 lines
+       6  
+       7  ---
+       8  
+       9 -## Step 0 — unblock before anything else                       
+       9 +## Source of truth                                             
+      10  
+      11 -**The decompiled sources and the decompiler both live in `/tmp`
+         - and will not                                                  
+      12 -survive a reboot.** Nothing below is possible without them.    
+      11 +`java-src/` holds the decompiled Java for every class in `Game.
+         +jar`, committed                                                
+      12 +to the repo. **This is the input to the entire port** — start t
+         +here, not from                                                 
+      13 +the jar.                                                       
+      14  
+      15 +It is decompiled from the **patched** `Game.jar`, so all seven 
+         +desktop patches                                                
+      16 +in `AGENTS.md` are already present as readable source. Verified
+         + in this session:                                              
+      17 +`Madness.java` and `GameSparker.java` both recompile cleanly wi
+         +th                                                             
+      18 +`javac -source 8 -target 8`, so procyon's output is trustworthy
+         + for this                                                      
+      19 +codebase.                                                      
+      20 +                                                               
+      21 +To regenerate (procyon is `apt install procyon-decompiler`; not
+         +e the classes                                                  
+      22 +must be listed explicitly, passing a directory fails):         
+      23 +                                                               
+      24  ```sh
+      15 -# procyon (currently only at /tmp/opencode/extracted/usr/share/
+         -java/procyon-decompiler.jar,                                   
+      16 -# unpacked from procyon-decompiler_0.6.0-3_all.deb — reinstall 
+         -or copy it somewhere permanent)                                
+      25  mkdir -p /tmp/j && cd /tmp/j && unzip -oq /path/to/Game.jar
+      18 -java -jar procyon-decompiler.jar -o src /tmp/j/*.class         
+      26 +java -jar /usr/share/java/procyon-decompiler.jar -o java-src $(
+         +find . -name '*.class' | sed 's|^\./||')                       
+      27  ```
+      28  
+      21 -Persist the decompiled `src/` into the repo (suggested: `java-s
+         -rc/`). It is the                                               
+      22 -input to the entire port. Verified in this session: `Madness.ja
+         -va` and                                                        
+      23 -`GameSparker.java` both decompile and recompile cleanly with   
+      24 -`javac -source 8 -target 8`, so procyon output is trustworthy f
+         -or this codebase.                                              
+      29 +Expect several minutes — `Globe.class` (235KB) and `xtGraphics.
+         +class` (151KB)                                                 
+      30 +dominate the runtime.                                          
+      31  
+      32  ---
+      33  
+
+  Ran 2 shell commands (ctrl+o to expand)
+
+● Globe.class is pathological (787MB RSS, 190% CPU, zero output). It's also on
+  the drop list — so I'll decompile everything else first and let it finish
+  separately rather than blocking the useful output on it.
+
+  Ran 2 shell commands (ctrl+o to expand)
+
+● Background command "Decompile all classes except Globe" failed with exit code
+144
+
+● Background command "Decompile all classes in background" failed with exit code
+144
+
+● Background command "Wait for decompile to finish" failed with exit code 144
+
+● My pkill -f procyon-decompiler matched the new job's own command line and
+  killed it — self-inflicted. Redoing without that:
+
+  Ran 5 shell commands (ctrl+o to expand)
+
+● Background command "Wait for non-Globe decompile to finish" failed with exit
+code 144
+
+● Decompile is running properly now. While it finishes — status on the two
+  things you approved:
+
+  agy permission — skipped, auto mode covers it.
+
+  java-src/ — in progress, with one wrinkle worth knowing about: Globe.class
+  (235KB) is pathological for procyon. It burned 787MB RSS at 190% CPU for over
+  a minute and produced a zero-byte file. Since Globe is on the drop list for
+  the port anyway, I've excluded it rather than letting it block the 51 classes
+  you actually need. I'll note the gap explicitly in the spec rather than
+  leaving a silently-missing file.
+
+  (The three failed background tasks above were self-inflicted: my pkill -f 
+  procyon-decompiler pattern matched the killing shell's own command line, so
+  each job killed itself. Fixed with a bracket pattern.)
+
+  I'll finish java-src/, verify what recompiles, and update PORT_SPEC.md with
+  the Globe caveat once the run completes.
+
+✻ Baked for 4m 44s
+
+❯ will the agent running the main spec do some small checks on the subagent to  
+  verify correctness and tweak the spec before doing huge batches?  one         
+  sentence answer                                                               
+
+● Not reliably — the spec currently says "verify every result" but never
+  mandates a calibration pass, so I should add an explicit gate: delegate one
+  representative class first, diff it against the Java, tune the prompt
+  template, and only then batch.
+
+✻ Sautéed for 6s
+
+● Background command "Wait for decompile to complete" completed (exit code 0)
+
+  Listed 1 directory, ran 1 shell command (ctrl+o to expand)
+
+❯ ok tweak the spec                                                             
+  Listed 1 directory, ran 3 shell commands (ctrl+o to expand)
+
+● 45 of 47 compile clean. Two procyon control-flow artifacts remain, both
+  trivially characterized. Recording all of it:
+
+● Write(java-src/README.md)
+  ⎿  Wrote 48 lines to java-src/README.md
+      1 # java-src/ — decompiled game source
+      2 
+        e browser port.
+      4 See `../PORT_SPEC.md`.
+      5 
+        patches in
+      7 `../AGENTS.md` are already present as readable source. This is re
+        ference and
+         is currently
+      9 compiled back into it.
+     … +54 lines (ctrl+o to expand)
+
+● Update(PORT_SPEC.md)
+  ⎿  Added 21 lines
+      223  will return confident, plausible, wrong code that surfaces wee
+           ks later as "the
+      224  handling feels off."
+      225  
+      226 +### Calibrate before batching — mandatory                     
+      227 +                                                              
+      228 +Never fan out across many classes on an unvalidated prompt tem
+          +plate. A                                                      
+      229 +systematic flaw (dropped `| 0`, reordered polygons, misread fi
+          +eld semantics)                                                
+      230 +replicated across 20 files costs far more to find and unpick t
+          +han it saved.                                                 
+      231 +                                                              
+      232 +1. Pick **one representative class** with real numeric content
+          + — `Plane.java`                                               
+      233 +   is ideal: int/float mixing, per-face lighting, and a `fillP
+          +olygon` call site.                                            
+      234 +2. Delegate it alone.                                         
+      235 +3. Verify against the Java: read the diff **and** run it throu
+          +gh the                                                        
+      236 +   differential harness. Do not accept "it looks right."      
+      237 +4. Catalogue every systematic error and fold each one into the
+          + prompt template                                              
+      238 +   as an explicit rule.                                       
+      239 +5. Repeat on a second class. Only batch once a class comes bac
+          +k clean with no                                               
+      240 +   template changes.                                          
+      241 +                                                              
+      242 +Re-verify at intervals during the batch too — quality is not g
+          +uaranteed                                                     
+      243 +stationary across a long run. Restate the painter's-algorithm 
+          +constraint in                                                 
+      244 +**every** prompt that touches rendering; it is the failure tha
+          +t passes tests and                                            
+      245 +still draws cars through walls.                               
+      246 +                                                              
+      247  ---
+      248  
+      249  ## Decision record — questions asked and answers reached
+
+● Update(PORT_SPEC.md)
+  ⎿  Added 8 lines, removed 9 lines
+      18  `javac -source 8 -target 8`, so procyon's output is trustworthy
+           for this
+      19  codebase.
+      20  
+      21 -To regenerate (procyon is `apt install procyon-decompiler`; not
+         -e the classes                                                  
+      22 -must be listed explicitly, passing a directory fails):         
+      21 +**45 of 47 files compile clean** with `javac -source 8 -target 
+         +8`. Two known                                                  
+      22 +procyon artifacts, and one missing file — all documented in    
+      23 +`java-src/README.md`, along with regeneration steps:           
+      24  
+      24 -```sh                                                          
+      25 -mkdir -p /tmp/j && cd /tmp/j && unzip -oq /path/to/Game.jar    
+      26 -java -jar /usr/share/java/procyon-decompiler.jar -o java-src $(
+         -find . -name '*.class' | sed 's|^\./||')                       
+      27 -```                                                            
+      25 +- `Lobby.java:2609` — bad label. On the drop list, ignore.     
+      26 +- `ds/nfm/mod/ModSlayer.java:373` — unreachable statement. **In
+         + the keep set**                                                
+      27 +  (MOD player / audio); needs a one-line fix.                  
+      28 +- `Globe.java` — absent. `Globe.class` is pathological for proc
+         +yon (787MB RSS,                                                
+      29 +  no output). Multiplayer UI, on the drop list.                
+      30  
+      29 -Expect several minutes — `Globe.class` (235KB) and `xtGraphics.
+         -class` (151KB)                                                 
+      30 -dominate the runtime.                                          
+      31 -                                                               
+      31  ---
+      32  
+      33  ## Goal
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Both done.
+
+  java-src/ — 47 files, 2.8MB, decompiled from the patched jar so all seven
+  desktop patches are present as readable source. Verified rather than assumed:
+  45 of 47 compile clean under javac -source 8 -target 8. The three
+  imperfections are documented in java-src/README.md rather than left as
+  landmines:
+
+  ┌────────────────────────────────────────┬────────────────────────────────┐
+  │                 Issue                  │             Impact             │
+  ├────────────────────────────────────────┼────────────────────────────────┤
+  │ Lobby.java:2609 bad label              │ None — drop list               │
+  ├────────────────────────────────────────┼────────────────────────────────┤
+  │ ds/nfm/mod/ModSlayer.java:373          │ Real — MOD player is in the    │
+  │ unreachable statement                  │ audio keep-set; one-line fix   │
+  ├────────────────────────────────────────┼────────────────────────────────┤
+  │ Globe.java absent                      │ None — drop list, but the gap  │
+  │                                        │ is stated explicitly           │
+  └────────────────────────────────────────┴────────────────────────────────┘
+
+  I also removed procyon's duplicate Outer$N.java files; it emits anonymous
+  inner classes both inline and standalone, and the standalone copies don't
+  compile.
+
+  Spec tweaked with a mandatory calibration gate before any batch delegation:
+  one representative class first (Plane.java — int/float mixing, lighting math,
+  and a fillPolygon site all in one), verify it through the differential harness
+  rather than by reading, fold every systematic error into the prompt template,
+  then a second class, and only batch once one comes back clean with no
+  template changes. Plus re-verification during long runs, since quality isn't
+  stationary — and a standing rule to restate the painter's-algorithm constraint
+  in every rendering prompt.
+
+  The reasoning behind the gate: a systematic flaw replicated across 20 files
+  costs far more to unpick than the batch saved, and the failure modes here are
+  the silent kind.
+
+  Everything is untracked/modified but uncommitted — java-src/, PORT_SPEC.md,
+  and AGENTS.md are all yours to review before they land.
+
+✻ Worked for 3m 3s
