@@ -530,7 +530,16 @@ export class Graphics2D {
    * the overlay independently of the GL canvas (main.js `?textres=`) keeps it
    * off the res curve.
    */
-  begin() {
+  /**
+   * @param {boolean} keepOverlay leave the 2D overlay alone.
+   *
+   * The HUD is drawn from simulate(), not draw(), so it lands on the overlay
+   * once per TICK. An interpolated frame redraws only the geometry, and
+   * clearing the overlay for it wiped the HUD -- which is why the whole HUD
+   * vanished with ?interp=1. Interpolated redraws pass true; the overlay then
+   * holds the last tick's HUD, which is exactly the rate it updates at.
+   */
+  begin(keepOverlay = false) {
     this.count = 0;
     this.inputVerts = 0;
     this.objCalls = 0;
@@ -539,6 +548,7 @@ export class Graphics2D {
     this.projVerts = 0;
     this.a = 1;
     this._pack();
+    if (keepOverlay) return;
     // Clear in device space, then restore the game-space transform.
     this.text.setTransform(1, 0, 0, 1, 0, 0);
     this.text.clearRect(0, 0, this.textCanvas.width, this.textCanvas.height);

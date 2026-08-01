@@ -442,7 +442,9 @@ async function boot() {
     if (INTERPOLATE) {
       const t1 = performance.now();
       applyBlend(Math.min(1, acc / TICK_MS));
-      rd.begin();
+      // keepOverlay: the HUD was drawn on the overlay by simulate() and is
+      // not part of the geometry being re-projected here.
+      rd.begin(true);
       gs.draw(rd, medium, xt, array2, array3);
       restoreCurr();
       fDraw += performance.now() - t1;
