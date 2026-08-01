@@ -53,6 +53,78 @@
     even though it never moves; each car adds ~7.5k verts and ~1.4 ms.
   </p>
 
+  <h2>Round 6 — trapezoid fill (done, please confirm)</h2>
+  <p>
+    The concave/self-intersecting fill emitted one quad per pixel <em>row</em>;
+    it now cuts the polygon into trapezoids at every vertex y and every
+    edge-edge crossing, which is O(vertices) instead of O(height). Node:
+    <strong>40,041 → 25,455 verts/frame, 8.4% faster</strong>. Both fills are
+    exact even-odd, verified against a point-in-polygon truth.
+  </p>
+  <p>
+    Rendering is visually identical — 1.4% of pixels differ, all of them
+    sub-pixel edges on cloud and mountain boundaries, because trapezoids are
+    exact in continuous space rather than snapped to pixel rows.
+    <code>?fill=scan</code> restores the old path for comparison.
+  </p>
+  <p class="pair">
+    <a href="./main.html?players=8&amp;stats=1&amp;bench=10&amp;prof=1">A — trapezoid (new default)</a>
+    <a href="./main.html?players=8&amp;stats=1&amp;bench=10&amp;prof=1&amp;fill=scan">B — old scanline fill</a>
+  </p>
+  <p>Compare <code>ns/vert submitted</code> and the emitted vertex count. Also worth a look for anything visually wrong that a pixel diff wouldn't flag.</p>
+
+  <h2>Round 5 — measure the fixed cost instead of fitting it (answered: backdrop, 6.38 ms)</h2>
+  <p>
+    Round 4's fit was ill-conditioned: run B returned a <em>negative</em> fixed
+    cost (−3.44 ms) and a higher µs/vert than A while doing strictly less work.
+    Slope and intercept were trading off because scene weight doesn't vary
+    enough within one run. So the 7.68 ms isn't evidence either.
+  </p>
+  <p>
+    <code>?prof=1</code> now times <code>medium.d()</code> — the sky, ground and
+    terrain backdrop — separately from the object loop. That's the obvious
+    candidate for a cost that scales with nothing, and it's a direct
+    measurement rather than an extrapolation. The fit line also now reports its
+    x-range and R², so it's visible when it's meaningless.
+  </p>
+  <p class="pair">
+    <a href="./main.html?players=8&amp;stats=1&amp;bench=10&amp;prof=1">Profile backdrop vs objects, 10s</a>
+  </p>
+  <p>
+    Drive around as before. What settles it: if <code>backdrop</code> is several
+    ms, that's the fixed cost and it's a contained target. If it's under a
+    millisecond, there is no fixed cost worth chasing and projection is the
+    whole story.
+  </p>
+
+  <h2>Round 4 — does the fixed cost exist? (answered: fit was ill-conditioned)</h2>
+  <p>
+    Your two runs fit <code>draw ≈ 9.8 ms fixed + 1.01 µs × projected
+    vertex</code>. The slope is solid; the intercept is not — two points only
+    1.7× apart in scene weight extrapolate badly, and a few percent of noise
+    swings it by milliseconds. It also can't be checked against my node numbers,
+    since those are a different machine and V8 rather than SpiderMonkey.
+  </p>
+  <p>
+    So the benchmark now fits the line <em>within a single run</em>: scene
+    weight changes every frame as the camera moves, giving hundreds of points
+    across a wide range instead of two. The result prints as
+    <code>fit over N frames: … µs/projected vert + … ms fixed</code>.
+  </p>
+  <p>
+    <strong>One run, and please drive around during it</strong> — the wider the
+    range of scene weights, the better the fit. 10s gives ~190 points.
+  </p>
+  <p class="pair">
+    <a href="./main.html?players=8&amp;stats=1&amp;bench=10">Fit, 8 cars, 10s</a>
+    <a href="./main.html?players=8&amp;stats=1&amp;bench=10&amp;geom=0">Fit, geometry stubbed</a>
+  </p>
+  <p>
+    If the fixed term comes back near zero, there is nothing to chase and the
+    projection slope is the whole story. If it holds up at several ms, it is
+    real and worth finding before the shader rewrite.
+  </p>
+
   <h2>Round 3b — splitting the 11.5 ms that <code>?raster=0</code> removed</h2>
   <p>
     Last round showed draw is ~half projection, ~half "everything else". But
@@ -130,7 +202,7 @@
   <p style="margin-top:2rem; color:#888">
     Params: <kbd>?res=</kbd> <kbd>?textres=</kbd> <kbd>?aa=</kbd> <kbd>?raster=</kbd> <kbd>?geom=</kbd> <kbd>?overlay=</kbd>
     <kbd>?interp=</kbd> <kbd>?cam=</kbd> <kbd>?maxfps=</kbd> <kbd>?pool=</kbd>
-    <kbd>?stats=</kbd> <kbd>?bench=</kbd> <kbd>?warmup=</kbd>
+    <kbd>?stats=</kbd> <kbd>?bench=</kbd> <kbd>?prof=</kbd> <kbd>?fill=</kbd> <kbd>?warmup=</kbd>
     <kbd>?players=</kbd> <kbd>?stage=</kbd> <kbd>?car=</kbd> <kbd>?seed=</kbd> <kbd>?tickms=</kbd>
   </p>
 </main>

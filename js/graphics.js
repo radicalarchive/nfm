@@ -86,6 +86,9 @@ export class Graphics2D {
     // only when the colour changes rather than once per vertex.
     this.r = 0; this.g = 0; this.b = 0; this.a = 1;
     this.rgba = 0xff000000;
+    // Concave/self-intersecting fill strategy. Trapezoids by default;
+    // ?fill=scan restores the per-pixel-row scanline fill for comparison.
+    this._fillConcave = opts.fill === 'scan' ? this._fillEvenOdd : this._fillTrapezoid;
     this.lineWidth = 1;
     this.font = '12px sans-serif';
 
@@ -268,7 +271,7 @@ export class Graphics2D {
       }
       return;
     }
-    this._fillEvenOdd(xs, ys, n);
+    this._fillConcave(xs, ys, n);
   }
 
   /**
@@ -289,6 +292,93 @@ export class Graphics2D {
    * Vertically adjacent scanlines with identical spans are merged into one
    * quad, so a letter stroke costs a handful of triangles, not one per row.
    */
+  /**
+   * Even-odd fill of a concave or self-intersecting polygon, as TRAPEZOIDS.
+   *
+   * The scanline version below emits one quad per pixel ROW, so a polygon 20
+   * rows tall costs 20 quads regardless of how simple it is. This version cuts
+   * the polygon at every y where the set of crossing edges can change --
+   * vertex ys, plus the ys of any proper edge-edge intersection -- and emits
+   * one trapezoid per span per band. Cost becomes O(vertices), not O(height).
+   *
+   * Both are exact even-odd fills; this one is exact in continuous space
+   * rather than snapped to pixel rows, so edges land marginally differently.
+   *
+   * Self-intersection is not hypothetical here: the backdrop hands us quads
+   * ordered TL, TR, BL, BR -- bowties -- and java.awt fills those as an
+   * hourglass. That is why intersection ys must be events: between two events
+   * no two edges may cross, or the left-to-right pairing below is wrong.
+   *
+   * Submission order is preserved: every triangle for one polygon is emitted
+   * contiguously, in place, exactly as the scanline path did.
+   */
+  _fillTrapezoid(xs, ys, n) {
+    const H = this.height;
+    let ymin = Infinity, ymax = -Infinity;
+    for (let i = 0; i < n; i++) {
+      if (ys[i] < ymin) ymin = ys[i];
+      if (ys[i] > ymax) ymax = ys[i];
+    }
+    const top = ymin < 0 ? 0 : ymin;
+    const bot = ymax > H ? H : ymax;
+    if (bot - top <= 0) return;
+
+    const ev = this._evBuf || (this._evBuf = []);
+    ev.length = 0;
+    ev.push(top, bot);
+    for (let i = 0; i < n; i++) {
+      const y = ys[i];
+      if (y > top && y < bot) ev.push(y);
+    }
+    // Proper crossings. O(n^2), but n is 4..28 here and the alternative is a
+    // wrong pairing inside the band that contains the crossing.
+    for (let i = 0; i < n; i++) {
+      const ax = xs[i], ay = ys[i];
+      const bx = xs[(i + 1) % n], by = ys[(i + 1) % n];
+      for (let j = i + 1; j < n; j++) {
+        const cx = xs[j], cy = ys[j];
+        const dx = xs[(j + 1) % n], dy = ys[(j + 1) % n];
+        const den = (bx - ax) * (dy - cy) - (by - ay) * (dx - cx);
+        if (den === 0) continue;                 // parallel or degenerate
+        const t = ((cx - ax) * (dy - cy) - (cy - ay) * (dx - cx)) / den;
+        if (t <= 0 || t >= 1) continue;
+        const u = ((cx - ax) * (by - ay) - (cy - ay) * (bx - ax)) / den;
+        if (u <= 0 || u >= 1) continue;
+        const y = ay + t * (by - ay);
+        if (y > top && y < bot) ev.push(y);
+      }
+    }
+    ev.sort(ASC);
+
+    const span = this._spanBuf || (this._spanBuf = []);
+    for (let e = 0; e + 1 < ev.length; e++) {
+      const ya = ev[e], yb = ev[e + 1];
+      if (yb - ya < 1e-9) continue;              // duplicate event
+      const mid = (ya + yb) * 0.5;
+      span.length = 0;
+      for (let i = 0, j = n - 1; i < n; j = i++) {
+        const y1 = ys[j], y2 = ys[i];
+        // Half-open crossing test at the band midpoint. Every vertex y is an
+        // event, so an edge crossing the midpoint spans the whole band.
+        if ((y1 <= mid && y2 > mid) || (y2 <= mid && y1 > mid)) {
+          const x1 = xs[j];
+          const slope = (xs[i] - x1) / (y2 - y1);
+          span.push([x1 + (ya - y1) * slope, x1 + (yb - y1) * slope]);
+        }
+      }
+      if (span.length < 2) continue;
+      // No edges cross inside the band, so ordering by the top x is the same
+      // ordering as anywhere else in it; the bottom x breaks ties at a shared
+      // vertex.
+      span.sort(BY_X);
+      for (let k = 0; k + 1 < span.length; k += 2) {
+        const l = span[k], r = span[k + 1];
+        this._tri(l[0], ya, r[0], ya, r[1], yb);
+        this._tri(l[0], ya, r[1], yb, l[1], yb);
+      }
+    }
+  }
+
   _fillEvenOdd(xs, ys, n) {
     let ymin = Infinity;
     let ymax = -Infinity;
@@ -496,6 +586,9 @@ export class Graphics2D {
     return [c & 255, (c >>> 8) & 255, (c >>> 16) & 255, (c >>> 24) & 255];
   }
 }
+
+const ASC = (a, b) => a - b;
+const BY_X = (a, b) => (a[0] - b[0]) || (a[1] - b[1]);
 
 /** Round-and-clamp a 0..255 channel. Colours arrive as ints, alpha as float. */
 function clampByte(v) {

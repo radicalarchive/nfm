@@ -233,3 +233,83 @@ test('glyph fill is stable under camera motion', () => {
   assert.ok(worstJump < 0.02,
     `area jumped ${(worstJump * 100).toFixed(1)}% between adjacent camera offsets`);
 });
+
+// --- concave / self-intersecting fill ---------------------------------------
+//
+// The trapezoid fill replaced a per-pixel-row scanline fill. Both are exact
+// even-odd fills, so both are checked against a ground-truth point-in-polygon
+// test rather than against each other -- comparing the two implementations
+// would only prove they agree, not that either is right.
+
+/** Even-odd point-in-polygon, the rule java.awt.fillPolygon uses. */
+function insideEvenOdd(xs, ys, n, px, py) {
+  let inside = false;
+  for (let i = 0, j = n - 1; i < n; j = i++) {
+    if ((ys[i] > py) !== (ys[j] > py) &&
+        px < xs[j] + ((py - ys[j]) / (ys[i] - ys[j])) * (xs[i] - xs[j])) {
+      inside = !inside;
+    }
+  }
+  return inside;
+}
+
+/** Rasterise everything the batcher emitted onto a w*h pixel grid. */
+function rasterise(g, w, h) {
+  const grid = new Uint8Array(w * h);
+  for (let t = 0; t + 2 < g.vertexCount; t += 3) {
+    const [x0, y0] = g.vertexAt(t);
+    const [x1, y1] = g.vertexAt(t + 1);
+    const [x2, y2] = g.vertexAt(t + 2);
+    const det = (y1 - y2) * (x0 - x2) + (x2 - x1) * (y0 - y2);
+    if (det === 0) continue;
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const px = x + 0.5, py = y + 0.5;
+        const a = ((y1 - y2) * (px - x2) + (x2 - x1) * (py - y2)) / det;
+        const b = ((y2 - y0) * (px - x2) + (x0 - x2) * (py - y2)) / det;
+        if (a >= 0 && b >= 0 && a + b <= 1) grid[y * w + x] = 1;
+      }
+    }
+  }
+  return grid;
+}
+
+const FILL_CASES = {
+  // The backdrop hands fillPolygon quads ordered TL, TR, BL, BR. Those are
+  // self-intersecting, and java.awt fills them as an hourglass -- a triangle
+  // fan would fill the bounding quad instead, which is why this matters.
+  'bowtie quad': [[20, 60, 18, 20], [10, 8, 45, 45]],
+  'concave arrow': [[10, 40, 70, 40, 10], [10, 30, 10, 50, 50]],
+  // Checkpoint glyphs: an outer ring bridged to an inner counter and back.
+  'keyhole glyph': [[10, 60, 60, 10, 10, 20, 50, 50, 20, 10],
+                    [10, 10, 50, 50, 10, 20, 20, 40, 40, 20]],
+};
+
+for (const [name, [xs, ys]] of Object.entries(FILL_CASES)) {
+  test(`even-odd fill is exact: ${name}`, () => {
+    const W = 80, H = 60, n = xs.length;
+    const g = new Graphics2D(null, null, W, H);
+    g.begin();
+    g.fillPolygon(xs, ys, n);
+    const got = rasterise(g, W, H);
+    let wrong = 0;
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < W; x++) {
+        const want = insideEvenOdd(xs, ys, n, x + 0.5, y + 0.5) ? 1 : 0;
+        if (got[y * W + x] !== want) wrong++;
+      }
+    }
+    assert.equal(wrong, 0, `${wrong} pixels differ from the even-odd truth`);
+  });
+}
+
+test('the trapezoid fill emits far less than the scanline fill it replaced', () => {
+  const [xs, ys] = FILL_CASES['bowtie quad'];
+  const trap = new Graphics2D(null, null, 80, 60);
+  const scan = new Graphics2D(null, null, 80, 60, { fill: 'scan' });
+  trap.begin(); trap.fillPolygon(xs, ys, 4);
+  scan.begin(); scan.fillPolygon(xs, ys, 4);
+  // Trapezoids are O(vertices); the scanline fill was O(polygon height).
+  assert.ok(trap.vertexCount * 4 < scan.vertexCount,
+            `trap ${trap.vertexCount} vs scan ${scan.vertexCount}`);
+});

@@ -43,11 +43,23 @@ Measured on the target machine, stage 1, res=2. `simulate()` is 0.6–2.5 ms/tic
 | geometry batching (triangulation, vertex writes) | 19% | `?geom=0` |
 | projection + traversal (`Plane.d`) | 81% | `?raster=0` |
 
-Cost model from two runs: `draw ≈ 9.8ms fixed + 1.01us per PROJECTED vertex`.
-Projected is not submitted — `Plane.d` transforms 12–20 vertices per face before
-culling decides whether to submit any, so 14,799 are projected to submit 10,263.
+Cost model: `draw ≈ fixed + ~1.0–1.3us per PROJECTED vertex`. Projected is not
+submitted — `Plane.d` transforms 12–20 vertices per face before culling decides
+whether to submit any, so ~14,800 are projected to submit ~10,300. Do NOT trust
+a fitted intercept: the within-run regression is ill-conditioned (R² 0.07–0.29,
+and it has returned a negative fixed cost). Measure fixed costs with `?prof=1`.
 
-- [~] **Account for the ~9.8 ms fixed term.** It scales with nothing, and node
+- [x] **Account for the ~9.8 ms fixed term.** It was `medium.d()`, and most of
+      it was the O(height) scanline fill rather than the backdrop's geometry —
+      the trapezoid fill cut the backdrop 6.08 -> 3.83 ms on its own. What
+      remains of it (~3.8 ms of sky/ground bands, mountains, clouds) has no
+      single hotspot; further gains there mean fewer gradient bands (a visual
+      change) or moving the gradient to a fragment shader.
+- [x] **Trapezoid fill for concave/self-intersecting polygons.** One trapezoid
+      per span per band instead of one quad per pixel row. Emitted verts
+      57,069 -> 37,269 (-35%), normalised cost -12%. Exact even-odd, verified
+      against a point-in-polygon truth; `?fill=scan` restores the old path.
+- [ ] ~~Account for the fixed term~~ (superseded) It scales with nothing, and node
       shows only 1.4 ms fixed on the identical scene. Two candidates: the
       even-odd scanline fill, whose cost is proportional to polygon AREA and
       which no counter tracks; or the fit itself, since two points 1.7x apart
@@ -63,7 +75,8 @@ culling decides whether to submit any, so 14,799 are projected to submit 10,263.
       while only the vertex transform moves. Still several hundred lines across
       `graphics.js` and `Plane.js`.
 - [ ] Cache polygon triangulation topology at load rather than re-deriving
-      convexity and ear-clipping per frame. Worth at most the 19% above.
+      convexity per frame. Worth at most the batcher's ~13%, and the trapezoid
+      work already took the expensive part of it.
 - [x] ~~Widen array pooling~~ — **pooling is a 30% PESSIMISATION**
       (10.96 → 14.27 ms, node, identical scene). The earlier "1.13x" figure and
       the in-game A/B that showed no difference were both wrong; the A/B

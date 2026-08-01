@@ -58,12 +58,19 @@ async function boot() {
   textCanvas.height = Math.round(450 * textRes);
   // Diagnostic stubs; see the block in graphics.js. `raster=0` is both of the
   // other two at once, kept because the first round of measurements used it.
+  // ?prof=1: time medium.d() -- the backdrop -- separately from the object
+  // loop. This is the honest way to find a per-frame cost that scales with
+  // nothing: the within-run regression cannot separate slope from intercept
+  // when scene weight varies by too little, and returns a negative fixed cost
+  // when pushed.
+  const PROFILE = params.get('prof') === '1';
   const RASTER = params.get('raster') !== '0';
   const GEOMETRY = params.get('geom') !== '0';
   const OVERLAY = params.get('overlay') !== '0';
   const rd = new Graphics2D(glCanvas, textCanvas, 800, 450,
                             { antialias: AA, raster: RASTER,
-                              geometry: GEOMETRY, overlay: OVERLAY });
+                              geometry: GEOMETRY, overlay: OVERLAY,
+                              fill: params.get('fill') || 'trap' });
 
   log(`assets at ${base} -- loading models.zip...`);
   const zip = await readZip('data/models.zip');
@@ -123,6 +130,16 @@ async function boot() {
   log(`stage "${checkPoints.name}"  objects=${gs.nob}  checkpoints=${checkPoints.nsp}  laps=${checkPoints.nlaps}`);
   installInput(gs.u[0]);
 
+  let backdropMs = 0;
+  if (PROFILE) {
+    const inner = medium.d.bind(medium);
+    medium.d = (g) => {
+      const t = performance.now();
+      inner(g);
+      backdropMs += performance.now() - t;
+    };
+  }
+
   // ---- pacing -------------------------------------------------------------
   // The game's simulation rate is baked into its constants: every velocity,
   // acceleration and rotation step in Mad.drive() is per-TICK, not per-second.
@@ -167,7 +184,16 @@ async function boot() {
   let benchDone = false;
   const bench = { frames: 0, ticks: 0, simMs: 0, drawMs: 0, verts: 0,
                   inputVerts: 0, objCalls: 0, objDrawn: 0, faceCalls: 0,
-                  worstFrame: 0, lastFrameAt: 0 };
+                  worstFrame: 0, lastFrameAt: 0,
+                  // Least-squares of draw-ms against PROJECTED vertices, one
+                  // point per frame. Scene weight moves with the camera every
+                  // frame, so a single run yields hundreds of points across a
+                  // wide range -- vastly better leverage than comparing two
+                  // runs whose weights differ by 1.7x, where a few percent of
+                  // noise swings the intercept by milliseconds. The intercept
+                  // is the per-frame cost that scales with nothing.
+                  projVerts: 0, n: 0, sx: 0, sy: 0, sxy: 0, sxx: 0, syy: 0,
+                  xMin: Infinity, xMax: 0 };
 
   // ---- interpolation ------------------------------------------------------
   // Physics stays locked at 18.9Hz because every constant in Mad.drive() is
@@ -278,6 +304,7 @@ async function boot() {
     + `${RASTER ? '' : ' raster=0'}`
     + `${GEOMETRY ? '' : ' geom=0'}`
     + `${OVERLAY ? '' : ' overlay=0'}`
+    + ` fill=${params.get('fill') || 'trap'}`
     + `${MAX_FPS ? ` maxfps=${MAX_FPS}` : ''}`;
 
   /**
@@ -296,6 +323,19 @@ async function boot() {
     const buf = rd.gl ? `${rd.gl.drawingBufferWidth}x${rd.gl.drawingBufferHeight}` : '';
     const f = Math.max(1, bench.frames);
     const inPerFrame = bench.inputVerts / f;
+    // y = slope*x + intercept, x = projected verts, y = draw ms.
+    const den = bench.n * bench.sxx - bench.sx * bench.sx;
+    const slope = den === 0 ? 0 : (bench.n * bench.sxy - bench.sx * bench.sy) / den;
+    const intercept = bench.n === 0 ? 0 : (bench.sy - slope * bench.sx) / bench.n;
+    // Report the spread and R^2 too: an intercept fitted over a narrow range
+    // of x is meaningless, and a negative one is the tell.
+    const meanY = bench.sy / Math.max(1, bench.n);
+    const ssTot = bench.syy - bench.n * meanY * meanY;
+    const ssRes = bench.syy - intercept * bench.sy - slope * bench.sxy;
+    const r2 = ssTot > 0 ? 1 - ssRes / ssTot : 0;
+    const fit = `  fit over ${bench.n} frames: ${(slope * 1000).toFixed(3)} us/projected vert`
+      + ` + ${intercept.toFixed(2)} ms fixed`
+      + `   (x ${bench.xMin}..${bench.xMax}, R2 ${r2.toFixed(2)})`;
     return [
       `BENCHMARK  ${(elapsed / 1000).toFixed(1)}s window, ${WARMUP_MS / 1000}s warmup discarded  --  PAUSED, press R to rerun`,
       `  ${fps.toFixed(1)} fps avg   ${tps.toFixed(1)} tick/s   worst frame ${bench.worstFrame.toFixed(0)}ms`,
@@ -311,6 +351,9 @@ async function boot() {
         + ` ${Math.round(inPerFrame)} verts`
         + `   -> ${(perFrame / Math.max(1, bench.objDrawn / f) * 1000).toFixed(1)} us/obj,`
         + ` ${(perFrame / Math.max(1, bench.faceCalls / f) * 1e6).toFixed(0)} ns/face`,
+      fit,
+      ...(PROFILE ? [`  backdrop (medium.d) ${(backdropMs / f).toFixed(2)} ms/frame`
+        + `   -> objects ${(perFrame - backdropMs / f).toFixed(2)} ms/frame`] : []),
       `  buffer ${buf}   ${config()}`,
     ].join('\n');
   };
@@ -319,6 +362,10 @@ async function boot() {
     bench.frames = 0; bench.ticks = 0; bench.simMs = 0; bench.drawMs = 0;
     bench.verts = 0; bench.inputVerts = 0; bench.worstFrame = 0;
     bench.objCalls = 0; bench.objDrawn = 0; bench.faceCalls = 0;
+    backdropMs = 0;
+    bench.projVerts = 0; bench.n = 0; bench.sx = 0; bench.sy = 0;
+    bench.sxy = 0; bench.sxx = 0; bench.syy = 0;
+    bench.xMin = Infinity; bench.xMax = 0;
     benchStart = 0;
     benchDone = false;
     // No second warmup -- it is measured from boot, and by now everything is
@@ -399,7 +446,11 @@ async function boot() {
     // ---- benchmark accounting ---------------------------------------------
     if (BENCH_MS > 0) {
       if (benchStart === 0) {
-        if (now - bootAt >= WARMUP_MS) { benchStart = now; bench.lastFrameAt = now; }
+        if (now - bootAt >= WARMUP_MS) {
+          benchStart = now;
+          bench.lastFrameAt = now;
+          backdropMs = 0;      // discard whatever the warmup accumulated
+        }
       } else {
         bench.simMs += fSim;
         bench.drawMs += fDraw;
@@ -411,6 +462,12 @@ async function boot() {
           bench.objCalls += rd.objCalls;
           bench.objDrawn += rd.objDrawn;
           bench.faceCalls += rd.faceCalls;
+          bench.projVerts += rd.projVerts;
+          const x = rd.projVerts, y = fDraw;
+          bench.n++; bench.sx += x; bench.sy += y;
+          bench.sxy += x * y; bench.sxx += x * x; bench.syy += y * y;
+          if (x < bench.xMin) bench.xMin = x;
+          if (x > bench.xMax) bench.xMax = x;
           const gap = now - bench.lastFrameAt;
           if (gap > bench.worstFrame) bench.worstFrame = gap;
           bench.lastFrameAt = now;
