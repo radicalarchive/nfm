@@ -263,7 +263,7 @@ there is no backend of ours anywhere in this design.
 - [x] **Determinism groundwork** — done. Seeded sim/draw PRNG split (`java.js`),
       baked `trig.js` tables, and a test that two runs reach bit-identical
       state whatever they draw. Confirmed it fails with the split disabled.
-- [~] **Prototype built, one desync outstanding.** `netsync.js` (lockstep
+- [x] **Prototype works.** `netsync.js` (lockstep
       rules, 12 tests), `netpeer.js` (PeerJS transport), launcher UI, and
       `web/tools/netloop.mjs`, which runs two clients in separate processes
       through a lossy relay. **Syncs for ~1118 ticks (~60s of racing), then
