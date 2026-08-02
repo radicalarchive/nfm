@@ -211,3 +211,96 @@ test('a moving car transfers momentum to a parked one', async () => {
   assert.ok(moved > 100, `parked car should be knocked forward, moved ${moved}`);
   assert.ok(w.array3[1].speed > 0, 'parked car should pick up speed from the hit');
 });
+
+// Every effect in the game advances its own counter from inside draw() --
+// the repair sparkle, dust puffs, crash sparks, the electric ring's bolts,
+// the backdrop's lightning and checkpoint flicker. An interpolated frame
+// re-runs draw() ~3x per tick, so an unguarded effect animates at display
+// rate: the ring's electricity was rerolled every frame (a buzz instead of a
+// bolt), and the repair sparkle could skip the frame that clears `fix`. The
+// guard is `medium.interpolating`, checked at each mutation. This test fails
+// for any effect that forgets it, which is the point -- the old approach was
+// a list of field names in main.js that could only be as complete as the last
+// bug report.
+const EFFECT_FIELDS = ['fcnt', 'fix', 'ust', 'sprk_'];
+const EFFECT_ARRAYS = ['elc', 'edl', 'edr', 'elp', 'stg', 'rtg', 'sx', 'sy', 'sz',
+                       'scx', 'scz', 'osmag', 'rx', 'ry', 'rz', 'vrx', 'vry', 'vrz'];
+
+function effectState(w) {
+  const out = [];
+  for (let i = 0; i < w.gs.nob; i++) {
+    const o = w.array2[i];
+    if (!o) continue;
+    for (const f of EFFECT_FIELDS) out.push(`${i}.${f}=${o[f]}`);
+    for (const f of EFFECT_ARRAYS) out.push(`${i}.${f}=${o[f] ? Array.from(o[f]).join() : ''}`);
+    if (o.smag) for (let j = 0; j < o.smag.length; j++) out.push(`${i}.smag${j}=${Array.from(o.smag[j]).join()}`);
+  }
+  for (const f of ['cpflik', 'elecr', 'noelec', 'lilo', 'lightn']) out.push(`m.${f}=${w.medium[f]}`);
+  return out;
+}
+
+test('an interpolated draw advances no per-effect animation state', async () => {
+  const w = await buildWorld();
+  w.gs.u[0].up = true;
+  for (let t = 0; t < 40; t++) {
+    w.rd.begin();
+    w.gs.tick(w.rd, w.medium, w.trackers, w.checkPoints, w.xt, w.record, w.array2, w.array3);
+  }
+
+  // Arm the effects that a 40-tick clean lap does not necessarily produce, so
+  // the guarded paths are actually reached rather than skipped.
+  const car = w.array2[0];
+  car.fix = true;
+  car.fcnt = 1;
+  car.stg[0] = 1;
+  car.stg[1] = 4;
+  car.sprk_ = 1;
+  car.rcx = 400; car.rcy = 120; car.rcz = 400;
+  car.srx = car.x; car.sry = car.y; car.srz = car.z;
+  w.medium.lightn = 8;
+  w.medium.lton = true;
+
+  // One ordinary tick-rate draw, to let those settle into a drawable state.
+  w.rd.begin();
+  w.gs.draw(w.rd, w.medium, w.xt, w.array2, w.array3);
+
+  const before = effectState(w);
+  // main.js rewinds the PRNG cursor after each interpolated frame -- draw
+  // consumes randoms and a call that must return a value cannot be guarded
+  // away -- so every interpolated frame of a tick starts from the same one.
+  // Mirror that here or the two frames compared below are not the same frame.
+  const rewind = { rand: Int32Array.from(w.medium.rand), cntrn: w.medium.cntrn, trn: w.medium.trn };
+  w.medium.interpolating = true;
+  w.rd.begin();
+  w.gs.draw(w.rd, w.medium, w.xt, w.array2, w.array3);
+  const first = w.rd.snapshotFrom(0);
+  const after = effectState(w);
+  w.medium.interpolating = false;
+
+  const drift = before.filter((s, i) => s !== after[i]);
+  assert.deepStrictEqual(drift, [], `interpolated draw advanced: ${drift.join(' ')}`);
+
+  // And two interpolated frames of the same tick must draw the same picture.
+  // Guarding the counters is not enough on its own: electrify() and fixit()
+  // roll their shape straight from the PRNG, so they also have to cache it.
+  w.medium.rand.set(rewind.rand);
+  w.medium.cntrn = rewind.cntrn;
+  w.medium.trn = rewind.trn;
+  w.medium.interpolating = true;
+  w.rd.begin();
+  w.gs.draw(w.rd, w.medium, w.xt, w.array2, w.array3);
+  const second = w.rd.snapshotFrom(0);
+  w.medium.interpolating = false;
+  // Compared by hand rather than with deepStrictEqual: these are ~10^5-word
+  // typed arrays and the assertion library's diff of two of them is slower
+  // than the whole rest of the suite.
+  let diff = second.length === first.length ? -1 : 0;
+  if (diff === -1) {
+    for (let i = 0; i < first.length; i++) {
+      if (first[i] !== second[i]) { diff = i; break; }
+    }
+  }
+  assert.strictEqual(diff, -1, `two interpolated redraws of one tick differ:`
+    + ` ${first.length} vs ${second.length} words, first at ${diff}`
+    + ` (${first[diff]} vs ${second[diff]})`);
+});

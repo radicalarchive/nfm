@@ -1625,6 +1625,10 @@ export class ContO {
       graphics2D.setColor(r3, g3, b3);
       graphics2D.fillPolygon(array, array2, 8);
     }
+    // Tick-rate advance: an interpolated frame redraws this stage of the
+    // sparkle, it does not step to the next one. Stepping at display rate ran
+    // the sparkle ~3x fast and could skip the frame that clears `fix`.
+    if (this.m.interpolating) return;
     if (this.fcnt > 7) {
       this.fcnt = 0;
       this.fix = false;
@@ -1635,7 +1639,10 @@ export class ContO {
 
   electrify(graphics2D) {
     for (let i = 0; i < 4; ++i) {
-      if (this.elc[i] === 0) {
+      // The bolt's shape comes straight out of random(). It stays put across
+      // an interpolated frame because Medium.random() replays the tick's
+      // sequence, not because anything is cached here -- see Medium.random().
+      if (this.elc[i] === 0 && !this.m.interpolating) {
         this.edl[i] = trunc(fr(380.0 - fr(this.m.random() * 760.0)));
         this.edr[i] = trunc(fr(380.0 - fr(this.m.random() * 760.0)));
         this.elc[i] = 1;
@@ -1754,14 +1761,17 @@ export class ContO {
           graphics2D.drawPolygon(array4, array5, 8);
         }
       }
-      if (this.elc[i] > fr(this.m.random() * 60.0)) {
-        this.elc[i] = 0;
-      } else {
-        const elc = this.elc;
-        const n11 = i;
-        ++elc[n11];
+      if (!this.m.interpolating) {
+        if (this.elc[i] > fr(this.m.random() * 60.0)) {
+          this.elc[i] = 0;
+        } else {
+          const elc = this.elc;
+          const n11 = i;
+          ++elc[n11];
+        }
       }
     }
+    if (this.m.interpolating) return;
     if (!this.roted || this.xz !== 0) {
       this.xy += 11;
       if (this.xy > 360) {
@@ -1813,7 +1823,11 @@ export class ContO {
   }
 
   pdust(n, graphics2D, b) {
-    if (this.stg[n] === 1) {
+    // Stage 1 rolls the puff's colour, drift and lobe magnitudes and then
+    // moves it to stage 2 in the same call, so only a tick ever sees it. An
+    // interpolated frame must not re-roll it -- that shimmered the puff at
+    // display rate.
+    if (this.stg[n] === 1 && !this.m.interpolating) {
       let b2 = false;
       const array = intArray(3);
       if (this.t.ncx !== 0 || this.t.ncz !== 0) {
@@ -1892,10 +1906,14 @@ export class ContO {
         b3 = true;
       }
       if ((b3 && b) || (!b3 && !b)) {
-        const sx = this.sx;
-        sx[n] = i32(sx[n] + idiv(this.scx[n], this.stg[n] + 1));
-        const sz = this.sz;
-        sz[n] = i32(sz[n] + idiv(this.scz[n], this.stg[n] + 1));
+        // The drift is a per-tick step. Skipping it on an interpolated frame
+        // draws the puff where the tick left it, which is the point.
+        if (!this.m.interpolating) {
+          const sx = this.sx;
+          sx[n] = i32(sx[n] + idiv(this.scx[n], this.stg[n] + 1));
+          const sz = this.sz;
+          sz[n] = i32(sz[n] + idiv(this.scz[n], this.stg[n] + 1));
+        }
         array4[0] = trunc(this.sx[n] - this.smag[n][0] * 0.7071);
         array6[0] = trunc(this.sz[n] + this.smag[n][0] * 0.7071);
         array4[1] = this.sx[n];
@@ -1956,16 +1974,18 @@ export class ContO {
           graphics2D.setColor(r, g, b5);
           graphics2D.fillPolygon(array2, array3, 8);
         }
-        const smag = this.smag[n];
-        for (let n12 = 0; n12 < 8; ++n12) {
-          smag[n12] = fr(smag[n12] + 0.5 + 5.0 * this.m.random());
-        }
-        if (this.stg[n] === 10) {
-          this.stg[n] = 0;
-        } else {
-          const stg = this.stg;
-          const n13 = n;
-          ++stg[n13];
+        if (!this.m.interpolating) {
+          const smag = this.smag[n];
+          for (let n12 = 0; n12 < 8; ++n12) {
+            smag[n12] = fr(smag[n12] + 0.5 + 5.0 * this.m.random());
+          }
+          if (this.stg[n] === 10) {
+            this.stg[n] = 0;
+          } else {
+            const stg = this.stg;
+            const n13 = n;
+            ++stg[n13];
+          }
         }
       }
     }
@@ -2014,8 +2034,10 @@ export class ContO {
         if (n > 33) {
           n = 33;
         }
-        let n2 = 0;
-        for (let i = 0; i < 100; ++i) {
+        // Spawning is once per tick. Left unguarded, every interpolated frame
+        // seeded another n sparks from the same crash.
+        let n2 = this.m.interpolating ? n : 0;
+        for (let i = 0; i < 100 && n2 !== n; ++i) {
           if (this.rtg[i] === 0) {
             this.rtg[i] = 1;
             this.rbef[i] = b2;
@@ -2029,7 +2051,9 @@ export class ContO {
     }
     for (let j = 0; j < 100; ++j) {
       if (this.rtg[j] !== 0 && ((this.rbef[j] && b) || (!this.rbef[j] && !b))) {
-        if (this.rtg[j] === 1) {
+        // Same shape as pdust's stage 1: rolled once, on the tick that
+        // advances the spark off stage 1.
+        if (this.rtg[j] === 1 && !this.m.interpolating) {
           if (this.sprk_ < 5) {
             this.rx[j] = trunc(this.srx + 3 - fr(this.m.random() * 6.7));
             this.ry[j] = trunc(this.sry + 3 - fr(this.m.random() * 6.7));
@@ -2066,9 +2090,11 @@ export class ContO {
           }
         }
         // Compound assignment rewrites per §2: rx[n7] += (int)this.vrx[j], etc.
-        this.rx[j] = trunc(this.rx[j] + this.vrx[j]);
-        this.ry[j] = trunc(this.ry[j] + this.vry[j]);
-        this.rz[j] = trunc(this.rz[j] + this.vrz[j]);
+        if (!this.m.interpolating) {
+          this.rx[j] = trunc(this.rx[j] + this.vrx[j]);
+          this.ry[j] = trunc(this.ry[j] + this.vry[j]);
+          this.rz[j] = trunc(this.rz[j] + this.vrz[j]);
+        }
 
         const n10 = this.m.cx + trunc(fr(fr((this.rx[j] - this.m.x - this.m.cx) * this.m.cos(this.m.xz)) - fr((this.rz[j] - this.m.z - this.m.cz) * this.m.sin(this.m.xz))));
         const n11 = this.m.cz + trunc(fr(fr((this.rx[j] - this.m.x - this.m.cx) * this.m.sin(this.m.xz)) + fr((this.rz[j] - this.m.z - this.m.cz) * this.m.cos(this.m.xz))));
@@ -2110,15 +2136,17 @@ export class ContO {
           }
           graphics2D.setColor(r, g, b3);
           graphics2D.drawLine(xs, ys, xs2, ys2);
-          this.vrx[j] = fr(this.vrx[j] * 0.8);
-          this.vry[j] = fr(this.vry[j] * 0.8);
-          this.vrz[j] = fr(this.vrz[j] * 0.8);
-          if (this.rtg[j] === 3) {
-            this.rtg[j] = 0;
-          } else {
-            const rtg = this.rtg;
-            const n18 = j;
-            ++rtg[n18];
+          if (!this.m.interpolating) {
+            this.vrx[j] = fr(this.vrx[j] * 0.8);
+            this.vry[j] = fr(this.vry[j] * 0.8);
+            this.vrz[j] = fr(this.vrz[j] * 0.8);
+            if (this.rtg[j] === 3) {
+              this.rtg[j] = 0;
+            } else {
+              const rtg = this.rtg;
+              const n18 = j;
+              ++rtg[n18];
+            }
           }
         }
       }

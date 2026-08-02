@@ -112,6 +112,23 @@ export class Medium {
     this.lastcheck = false;
     this.elecr = 0.0;
     this.cpflik = false;
+    // Not in the Java. True while the browser shell is re-running draw() for
+    // an interpolated frame, which happens ~3x per tick. Every effect that
+    // advances a counter from inside draw -- this.d()'s lightning, checkpoint
+    // flicker and noelec, ContO's repair sparkle, landing dust and the
+    // electric ring -- guards that advance with it, so the effect animates at
+    // tick rate and an interpolated frame redraws the SAME frame of it rather
+    // than the next one. Guard at the mutation, not by snapshotting the field
+    // in main.js: a missed effect is then a one-line fix where it lives.
+    this.interpolating = false;
+    // The tick draw's random sequence, recorded so an interpolated pass can
+    // replay it. See random() and the arming in d(). float32 because that is
+    // what random() returns; `rn` is how many the tick used, `rp` the replay
+    // cursor. Sized to a typical frame's draw; grows if a frame needs more.
+    this.rlog = new Float32Array(8192);
+    this.rn = 0;
+    this.rp = 0;
+    this.recording = false;
     this.nochekflk = false;
     this.cntrn = 0;
     this.diup = [false, false, false];
@@ -174,6 +191,17 @@ export class Medium {
    * exactly rather than replaced.
    */
   random() {
+    // Interpolated pass: replay the sequence the tick's draw consumed instead
+    // of rolling new values. Effects roll their SHAPE from here -- the bolts
+    // on an electric ring, the repair sparkle, a damaged panel's jitter, the
+    // spark debris -- and a redraw that rolls fresh values draws a different
+    // random shape rather than the same one, which reads as a buzz at display
+    // rate instead of an animation at tick rate. Recording is armed in d(),
+    // the first call of every draw. Sites that consume conditionally stay
+    // lined up because the counters they branch on are frozen too; the modulo
+    // only matters if a redraw somehow outruns the tick, and it keeps every
+    // interpolated frame of a tick identical to the others even then.
+    if (this.interpolating && this.rn !== 0) return this.rlog[this.rp++ % this.rn];
     if (this.cntrn === 0) {
       for (let i = 0; i < 3; ++i) {
         this.rand[i] = trunc(10.0 * random());
@@ -195,7 +223,16 @@ export class Medium {
     }
     ++this.trn;
     if (this.trn === 3) this.trn = 0;
-    return fr(this.rand[this.trn] / 10.0);
+    const v = fr(this.rand[this.trn] / 10.0);
+    if (this.recording) {
+      if (this.rn === this.rlog.length) {
+        const grown = new Float32Array(this.rn * 2);
+        grown.set(this.rlog);
+        this.rlog = grown;
+      }
+      this.rlog[this.rn++] = v;
+    }
+    return v;
   }
 
   watch(contO, n) {
@@ -1105,7 +1142,13 @@ export class Medium {
       const xs = this.xs(n, n4);
       const ys = this.ys(n3, n4);
       if (xs - 1 > this.iw && xs + 3 < this.w && ys - 1 > this.ih && ys + 3 < this.h) {
-        if (this.twn[i] === 0) {
+        // Twinkle is a tick-rate effect too, and one that no snapshot could
+        // have restored: it rolls the unseeded module-level random(), so an
+        // interpolated frame would have recoloured every star on the night
+        // stages regardless of what main.js put back.
+        if (this.interpolating) {
+          // fall through to the draw below with the colours the tick chose
+        } else if (this.twn[i] === 0) {
           let n5 = trunc(3.0 * random());
           if (n5 >= 3) n5 = 0;
           if (n5 <= -1) n5 = 2;
@@ -1141,6 +1184,17 @@ export class Medium {
    * mountains, clouds, ground polys. Every object drawn later covers these.
    */
   d(graphics2D) {
+    // d() is the first call of every draw, so this is where the random log is
+    // armed: a tick draw starts recording from scratch, an interpolated pass
+    // rewinds the replay cursor to the start of that recording. Recording
+    // stays on past the end of draw and picks up simulate()'s randoms too --
+    // harmless, since a replay only ever reads the prefix draw consumed.
+    if (this.interpolating) {
+      this.rp = 0;
+    } else {
+      this.rn = 0;
+      this.recording = true;
+    }
     this.nsp = 0;
     if (this.zy > 90) this.zy = 90;
     if (this.zy < -90) this.zy = -90;
@@ -1195,13 +1249,15 @@ export class Medium {
       }
     }
     if (this.lightn !== -1 && this.lton) {
-      if (this.lightn < 16) {
-        if (this.lilo > this.lightn + 217) this.lilo -= 3;
-        else this.lightn = trunc(fr(16.0 + fr(16.0 * this.random())));
-      } else if (this.lilo < this.lightn + 217) {
-        this.lilo += 7;
-      } else {
-        this.lightn = trunc(fr(16.0 * this.random()));
+      if (!this.interpolating) {
+        if (this.lightn < 16) {
+          if (this.lilo > this.lightn + 217) this.lilo -= 3;
+          else this.lightn = trunc(fr(16.0 + fr(16.0 * this.random())));
+        } else if (this.lilo < this.lightn + 217) {
+          this.lilo += 7;
+        } else {
+          this.lightn = trunc(fr(16.0 * this.random()));
+        }
       }
       this.csky[0] = snapped(this.lilo, this.snap[0]);
       this.csky[1] = snapped(this.lilo, this.snap[1]);
@@ -1309,6 +1365,7 @@ export class Medium {
       this.drawclouds(graphics2D);
     }
     this.groundpolys(graphics2D);
+    if (this.interpolating) return;
     if (this.noelec !== 0) --this.noelec;
     if (this.cpflik) {
       this.cpflik = false;

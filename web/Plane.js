@@ -363,8 +363,13 @@ export class Plane {
         if (this.typ === 3) array2[n25] = trunc(fr(this.oz[n25] * n9) + n3);
         else array2[n25] = this.oz[n25] + n3;
       }
-      if (this.embos !== 70) ++this.embos;
-      else this.embos = 16;
+      // Tick-rate advance, like every other effect counter driven from
+      // draw: an interpolated frame redraws this stage of the damage
+      // animation rather than stepping to the next. See Medium.interpolating.
+      if (!this.m.interpolating) {
+        if (this.embos !== 70) ++this.embos;
+        else this.embos = 16;
+      }
     }
     if (this.wz !== 0) {
       this.rot(array3, array2, this.wy + n2, this.wz + n3, n7, this.n);
@@ -372,12 +377,14 @@ export class Plane {
     if (this.wx !== 0) {
       this.rot(array, array2, this.wx + n, this.wz + n3, n6, this.n);
     }
-    if (this.chip === 1 && (this.m.random() > 0.6 || this.bfase === 0)) {
+    if (this.chip === 1 && !this.m.interpolating && (this.m.random() > 0.6 || this.bfase === 0)) {
       this.chip = 0;
       if (this.bfase === 0 && this.nocol) this.bfase = 1;
     }
     if (this.chip !== 0) {
-      if (this.chip === 1) {
+      // Spawning the shard is a tick's job; by the end of the tick call
+      // chip is 2, so an interpolated frame only ever redraws it.
+      if (this.chip === 1 && !this.m.interpolating) {
         this.cxz = cxz;
         this.cxy = n4;
         this.czy = n5;
@@ -423,11 +430,13 @@ export class Plane {
         array18[n28] += this.dy;
         array17[n28] += this.dz;
       }
-      this.dx = i32(this.dx + this.vx);
-      this.dz = i32(this.dz + this.vz);
-      this.dy = i32(this.dy + this.vy);
-      this.vy = i32(this.vy + 7);
-      if (array18[0] > this.m.ground) this.chip = 19;
+      if (!this.m.interpolating) {
+        this.dx = i32(this.dx + this.vx);
+        this.dz = i32(this.dz + this.vz);
+        this.dy = i32(this.dy + this.vy);
+        this.vy = i32(this.vy + 7);
+        if (array18[0] > this.m.ground) this.chip = 19;
+      }
       this.rot(array16, array17, this.m.cx, this.m.cz, this.m.xz, 3);
       this.rot(array18, array17, this.m.cy, this.m.cz, this.m.zy, 3);
       const array22 = intArray(3);
@@ -445,8 +454,10 @@ export class Plane {
         setHSB(graphics2D, this.hsb[0], this.hsb[1], this.hsb[2]);
       }
       graphics2D.fillPolygon(array22, array23, 3);
-      ++this.chip;
-      if (this.chip === 20) this.chip = 0;
+      if (!this.m.interpolating) {
+        ++this.chip;
+        if (this.chip === 20) this.chip = 0;
+      }
     }
     this.rot(array, array3, n, n2, n4, this.n);
     this.rot(array3, array2, n2, n3, n5, this.n);

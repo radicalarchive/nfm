@@ -222,34 +222,28 @@ async function boot() {
   // blend of the two. Nothing in the simulation sees the blended values --
   // they are written in, drawn, and immediately restored.
   const FIELDS = ['x', 'y', 'z', 'xz', 'xy', 'zy'];
-  // Per-object state that draw() ADVANCES rather than reads, the object-level
-  // counterpart of MED_STATE below. ContO.fixit() steps `fcnt` and clears
-  // `fix` once it passes 7, and electrify() walks `noelec`; both are driven
-  // from ContO.d(). An interpolated frame re-runs d(), so without restoring
-  // these the repair sparkle advances at display rate instead of tick rate --
-  // and can step straight past the frame that clears `fix`, leaving the car
-  // sparkling until the next repair resets it.
-  const OBJ_STATE = ['fcnt', 'fix', 'ust'];
-  // The same problem in array form: stg[] and rtg[] are the dust/tyre-mark
-  // particle stages, stepped one per d() call by pdust() until they expire at
-  // 10. At display rate they ran through all ten stages in a fraction of a
-  // tick, which is why landing dust after a ramp was missing rather than just
-  // brief. Copied element-wise, not by reference.
-  const OBJ_ARRAYS = ['stg', 'rtg'];
-
-  const copyInto = (dst, src) => {
-    if (!dst || dst.length !== src.length) return src.slice();
-    for (let i = 0; i < src.length; i++) dst[i] = src[i];
-    return dst;
-  };
   const CAM = ['x', 'y', 'z', 'xz', 'zy'];
-  // Medium state that draw() ADVANCES rather than reads. Medium.d() toggles
-  // cpflik, rerolls elecr, counts down noelec and walks lilo/lightn -- all
-  // once per call. Re-running draw at display rate would tick them ~3x too
-  // fast (visible as faster checkpoint flicker and jumpier lightning), so we
-  // snapshot them before an interpolated draw and put them back after.
-  const MED_STATE = ['cpflik', 'elecr', 'noelec', 'lilo', 'lightn', 'nsp', 'ground',
-                     'cntrn', 'trn', 'fo', 'gofo', 'fvect'];
+  // Effect state used to be mirrored here field by field -- fcnt/fix for the
+  // repair sparkle, stg[]/rtg[] for dust and sparks, cpflik/elecr/noelec/lilo/
+  // lightn for the backdrop -- because every effect advances its own counter
+  // from inside draw(). That list could only ever be as complete as the last
+  // bug report: each effect was added after it visibly broke, and the electric
+  // ring's elc/edl/edr never was. It is gone. `medium.interpolating` now marks
+  // the pass and each effect guards its own advance at the mutation
+  // (`if (!this.m.interpolating)` in ContO and Medium), so a missed effect is
+  // a one-line fix where the mutation lives instead of a field forgotten in a
+  // list in another file.
+  //
+  // Randoms are handled the same way but in one place rather than at every
+  // call site: an interpolated pass REPLAYS the sequence the tick's draw
+  // consumed (Medium.random()), so a bolt or a spark keeps its shape instead
+  // of being rolled fresh at display rate. That leaves the PRNG cursor
+  // untouched during a redraw; it is still snapshotted below because the very
+  // first frame can interpolate before any tick has recorded a sequence.
+  //
+  // What genuinely has to be snapshotted is draw's one real OUTPUT:
+  // ContO.dist, which feeds the NEXT frame's depth sort.
+  const MED_STATE = ['cntrn', 'trn'];
   const snapPrev = { obj: [], cam: {} };
   const snapCurr = { obj: [], cam: {} };
 
@@ -260,8 +254,6 @@ async function boot() {
       let d = into.obj[i];
       if (!d) d = into.obj[i] = {};
       for (const f of FIELDS) d[f] = o[f];
-      for (const f of OBJ_STATE) d[f] = o[f];
-      for (const f of OBJ_ARRAYS) if (o[f]) d[f] = copyInto(d[f], o[f]);
       // dist is a side effect of draw() and feeds the NEXT frame's depth
       // sort. The interpolated redraw would overwrite it with values derived
       // from blended positions, so snapshot it and put it back.
@@ -325,8 +317,6 @@ async function boot() {
       const c = snapCurr.obj[i];
       if (!o || !c) continue;
       for (const f of FIELDS) o[f] = c[f];
-      for (const f of OBJ_STATE) o[f] = c[f];
-      for (const f of OBJ_ARRAYS) if (o[f] && c[f]) copyInto(o[f], c[f]);
       o.dist = c.dist;
     }
     for (const f of CAM) medium[f] = snapCurr.cam[f];
@@ -488,11 +478,16 @@ async function boot() {
     if (INTERPOLATE) {
       const t1 = performance.now();
       applyBlend(Math.min(1, acc / TICK_MS));
+      // Marks the whole pass as a redraw of the tick's frame. Every effect
+      // that steps a counter from inside draw() reads this and holds still;
+      // see the note by MED_STATE.
+      medium.interpolating = true;
       // keepOverlay: the HUD was drawn on the overlay by simulate() and is
       // not part of the geometry being re-projected here.
       rd.begin(true);
       gs.draw(rd, medium, xt, array2, array3);
       rd.replay(hudVerts);       // HUD last, so it stays on top
+      medium.interpolating = false;
       restoreCurr();
       fDraw += performance.now() - t1;
     }

@@ -103,17 +103,30 @@ and it has returned a negative fixed cost). Measure fixed costs with `?prof=1`.
 
 ## Rendering / correctness
 
-- [ ] **Stop patching per-effect state field by field — mark the pass instead.**
-      Every effect advances its own counter from inside `ContO.d()`/`Medium.d()`,
-      so re-running `draw()` for an interpolated frame steps all of them, and
-      each one has been fixed only once it visibly broke (repair sparkle,
-      landing dust; `electrify()`'s `elc`/`edl`/`edr` is still unfixed). Thread
-      an `interpolating` flag through the redraw and guard the advances at
-      source — `if (!m.interpolating) ++this.fcnt` — so a missed effect is a
-      one-line fix where the mutation is, not a field forgotten in
-      `OBJ_STATE`/`MED_STATE` in another file. The stronger version is to not
-      re-execute `draw()` at all: keep the tick's vertex buffer and re-project
-      it, which removes the class outright.
+- [x] **Stop patching per-effect state field by field — mark the pass instead.**
+      Done, and it took TWO mechanisms because the effects break in two ways.
+      **Counters:** `Medium.interpolating` marks the redraw and each effect
+      guards its own advance at the mutation (`if (!this.m.interpolating)`) —
+      repair sparkle, dust stages and drift, crash-spark spawn/velocity/stage
+      (every interpolated frame was seeding another 100 sparks), the electric
+      ring's `elc`, checkpoint flicker, lightning, `noelec`, star twinkle, and
+      `Plane`'s whole damage animation (`embos`, and the `chip` debris with
+      its own velocity integration) which no list had ever covered.
+      **Shape:** effects roll their geometry straight out of `random()`, so a
+      redraw drew a *different* random shape rather than a later one — that is
+      what made the repair ring's electricity buzz. Fixed once, centrally:
+      `Medium.random()` records the tick draw's sequence and an interpolated
+      pass replays it, armed in `Medium.d()` (always draw's first call). No
+      per-call-site caching, which matters because `Plane.s()` alone has ~30
+      shape-rolling randoms.
+      `OBJ_STATE`, `OBJ_ARRAYS` and the effect half of `MED_STATE` are gone
+      from `main.js`, which now snapshots draw's one real output, `ContO.dist`.
+      Regression test pins both halves: *"an interpolated draw advances no
+      per-effect animation state"* also asserts two interpolated frames of one
+      tick are vertex-identical.
+      The stronger version is still open: don't re-execute `draw()` at all,
+      keep the tick's vertex buffer and re-project it, which removes the class
+      outright rather than requiring the guard to be remembered.
 
 - [x] HUD vanished with `?interp=1` — `rd.begin()` clears the 2D overlay, and
       the interpolated redraw ran it after `simulate()` had drawn the HUD
@@ -138,6 +151,8 @@ and it has returned a negative fixed cost). Measure fixed costs with `?prof=1`.
       slots 1..6 by rejection sampling biased toward faster cars in later
       stages, then forces specific opponents for stages 10/12/14/15/16.
       `?cars=same` restores one-car-for-everyone.
+- [ ] Car stats bugs in index.html - index shows 4 stats, but there are 6
+    - the values shown in the sliders dont match the game
 
 
 ## Remaining Tasks
