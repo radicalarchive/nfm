@@ -245,6 +245,35 @@ and it has returned a negative fixed cost). Measure fixed costs with `?prof=1`.
       subagents editing tests green.
 - [ ] `CarMaker` / `StageMaker` — on decompilation/PORT_SPEC.md's drop list.
 
+## Netplay (private multiplayer)
+
+Decided 2026-08-02, nothing built yet. Static hosting only (GitHub Pages), so
+there is no backend of ours anywhere in this design.
+
+- **Transport:** PeerJS over its free public broker, WebRTC DataChannel in
+  unreliable/unordered mode, each packet carrying the last ~8 ticks of input so
+  a drop self-heals without retransmission. Manual copy-paste of offer/answer
+  stays worth keeping as a fallback that depends on nobody.
+- **Sync:** lockstep with a fixed input delay. Rollback is wanted later, so
+  keep the world's snapshot/restore path (`main.js`'s `capture`/`restore`)
+  general rather than assuming inputs never need re-simulating.
+- **First cut:** 2 players, join by URL room code, AI fills slots 2-6. No
+  lobby, chat or player list — those are in the ~9600 unported `xtGraphics`
+  lines and the 11 skipped multiplayer branches of `stat()`.
+- [ ] **Determinism groundwork, FIRST and verified on its own.** A desync found
+      after the transport exists is very hard to attribute; found now it is a
+      unit test. Two parts:
+      - Seed `Medium.random()`. Note it is consumed by the DRAW path too
+        (`Plane.s()` rolls ~30 per face, and the interpolation replay already
+        records and replays that sequence), so sim and draw need SEPARATE
+        streams or two clients rendering different numbers of interpolated
+        frames will desync the simulation.
+      - Bake `Medium`'s `tsin`/`tcos` as literal float32 constants. They are
+        built from `Math.sin`/`Math.cos` at init, which are not guaranteed
+        bit-identical across JS engines, and players will be on different ones.
+      - Acceptance: two independently built worlds tick 1000 times to
+        bit-identical state, asserted in a test.
+
 ## Known gaps / risks
 
 - [!] `Mad`'s `zy`/`xy` are unverified pending the seeded-PRNG task above.
