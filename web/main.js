@@ -150,7 +150,7 @@ async function boot() {
   const sfxvol = parseInt(params.get('sfxvol') || '100', 10);
   snd.setVolume(sfxvol / 100.0);
   
-  const musicvol = parseInt(params.get('musicvol') || '100', 10);
+  const musicvol = parseInt(params.get('musicvol') || '50', 10);
   music.setVolume(musicvol / 100.0);
 
   xt.snd = snd;
