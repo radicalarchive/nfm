@@ -9,10 +9,12 @@
 # The deployed tree mirrors the repo, minus everything the browser never asks
 # for (the jar, the decompiled sources, the tests):
 #
-#   nfm/index.html   the launcher
-#   nfm/web/         main.html + the port modules
-#   nfm/data/        models.zip, images.zip, HUD gifs
-#   nfm/stages/      stage definitions
+#   nfm/index.html      the launcher
+#   nfm/web/            main.html + the port modules
+#   nfm/web/vendor/     BassoonTracker, the MOD player web/music.js imports
+#   nfm/data/           models.zip, images.zip, sounds.zip, HUD gifs
+#   nfm/stages/         stage definitions
+#   nfm/music/          the tracker modules, fetched per stage by web/music.js
 #
 # Keeping the same shape as the repo is what lets vfs.detectFpath() work
 # unchanged in both places: './' from the root launcher, '../' from web/.
@@ -28,7 +30,15 @@ mkdir -p "$STAGE/web"
 cp "$SRC"/index.html "$STAGE/"
 cp "$SRC"/web/*.js "$SRC"/web/main.html "$STAGE/web/"
 rm -f "$STAGE"/web/*.test.js
-cp -r "$SRC/data" "$SRC/stages" "$STAGE/"
+# web/vendor/ is a SUBDIRECTORY, so the glob above misses it. Leaving it out
+#404s bassoonplayer.js, and because a failed ES module import throws, boot()
+# never finishes -- the page just sits on "booting...". The browser reports it
+# as a disallowed MIME type ("") rather than as a 404, which is a confusing
+# way to be told a file is absent.
+cp -r "$SRC/web/vendor" "$STAGE/web/"
+# music/ holds the tracker modules web/music.js fetches per stage (3.3 MB).
+# Not needed before the soundtrack was wired up; very much needed now.
+cp -r "$SRC/data" "$SRC/stages" "$SRC/music" "$STAGE/"
 
 # ---- cache busting ---------------------------------------------------------
 # The host sends no Cache-Control, so browsers apply heuristic freshness and an
@@ -42,7 +52,7 @@ cp -r "$SRC/data" "$SRC/stages" "$STAGE/"
 # imports. Asset fetches (data/, stages/) go through vfs.js and are
 # deliberately NOT stamped: they are the big files and they change far less
 # often.
-STAMP="$(cat "$STAGE"/web/*.js "$STAGE"/web/*.html "$STAGE"/index.html | md5sum | cut -c1-8)"
+STAMP="$(cat "$STAGE"/web/*.js "$STAGE"/web/vendor/*.js "$STAGE"/web/*.html "$STAGE"/index.html | md5sum | cut -c1-8)"
 for f in "$STAGE"/web/*.js "$STAGE"/web/*.html "$STAGE"/index.html; do
   sed -i -E "s@(from '\./([A-Za-z0-9_.-]+/)?[A-Za-z0-9_.-]+\.js)'@\1?v=$STAMP'@g; \
              s@(src=\"\./([A-Za-z0-9_.-]+/)?[A-Za-z0-9_.-]+\.js)\"@\1?v=$STAMP\"@g" "$f"

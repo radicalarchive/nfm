@@ -47,6 +47,7 @@ export class Audio {
     this.playing = new Map();      // name -> AudioBufferSourceNode, for stop()
     this.looping = new Map();      // name -> looping source, for stopLoop()
     this.muted = false;
+    this.volume = 1;
     this.ready = false;
   }
 
@@ -149,9 +150,15 @@ export class Audio {
     for (const name of [...this.looping.keys()]) this.stopLoop(name);
   }
 
+  /** Master level, 0..1. Independent of mute, which still wins. */
+  setVolume(v) {
+    this.volume = Math.max(0, Math.min(1, v));
+    if (this.gain) this.gain.gain.value = this.muted ? 0 : this.volume;
+  }
+
   setMuted(on) {
     this.muted = on;
-    if (this.gain) this.gain.gain.value = on ? 0 : 1;
+    if (this.gain) this.gain.gain.value = on ? 0 : this.volume;
     // Muting has to actually silence the loops, not just gate new playbacks:
     // the engine is already running when the mute lands.
     if (on) this.stopAllLoops();

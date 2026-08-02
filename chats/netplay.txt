@@ -1,0 +1,26 @@
+>>> you think its possible to adapt the old netcode or rewrite it to use webrtc? would be very cool to have multiplayer
+
+
+Yes, and the port's architecture is unusually well-suited to it — but I'd rewrite rather than adapt.
+
+**Why the old netcode can't be reused directly.** `Lobby.java` and `Login.java` are TCP socket clients talking to servers that have been dead for years, and a browser can't open raw TCP at all. So the transport has to be replaced no matter what. What *is* worth mining from those files is the wire semantics — what the game considered authoritative, how it handled joins mid-race — not the code.
+
+**The good news is the sim shape.** This game is close to ideal for deterministic lockstep:
+
+- Fixed 18.9 Hz timestep already, with the accumulator in `main.js`.
+- All 8 players are simulated locally every tick — `simulate()` loops `colide`/`drive`/`preform` over `nplayers`. A remote player is just a `Control` whose fields come off the wire instead of from `preform()` (AI) or the keyboard.
+- `Control` is ~7 bits of input per player per tick (up/down/left/right/handb/enter/lookback). At 18.9 Hz that's under 20 bytes/sec per player. Bandwidth is a non-issue.
+- Physics is **0.6–2.5 ms/tick**. That makes rollback genuinely affordable — re-simulating 5 ticks costs ~10 ms, well inside a 53 ms budget. Most projects can't do rollback because their sim is too expensive; here it's the cheap half.
+- `Mad.colide()` already reads `xt.multion` and swaps in different constants (28000/1.27 vs 7000/1.0), so the multiplayer physics variant is already ported.
+
+**The blockers are all determinism, and they're known.**
+
+1. `Medium.random()` bottoms out in unseeded `Math.random()` — already on `TASKS.md` as a verification blocker, but it's a hard prerequisite for lockstep. Everything downstream of it (`contO.zy`/`xy`) diverges immediately.
+2. `Medium` builds `tsin`/`tcos` at init from `Math.sin`/`Math.cos` (360 entries each). Those are **not** guaranteed bit-identical across JS engines — V8 and SpiderMonkey can differ in the last ulp, and you'd have players on both. Bake the 720 float32 values as literal constants and that risk disappears.
+3. Everything else is already in good shape, and that's not luck: `TRANSPILE_SPEC`'s discipline of wrapping every int op with `i32`/`Math.imul` and every float op with `fr()` is exactly what bit-determinism requires. IEEE guarantees the rest. The `Math.imul`-on-a-float bug we just fixed is the kind of thing that would have shown up as a desync instead of a visual glitch.
+
+**Transport.** WebRTC DataChannel in unreliable/unordered mode, with each packet carrying the last ~8 ticks of input so a drop self-heals without retransmission — standard for lockstep. You still need a signalling server for SDP exchange (a tiny WebSocket service), though for a first prototype you can literally copy-paste offer/answer strings between two browsers and skip the server entirely.
+
+**The alternative** is host-authoritative state sync — host simulates, broadcasts positions. It sidesteps determinism completely, but costs much more bandwidth and needs good interpolation to look right, and interpolation is currently the port's weakest area (the car-jitter bug). Given how cheap the sim is, lockstep is the easier road here.
+
+**What you'd still be missing:** the lobby, chat and player-list UI live in the ~9600 unported lines of `xtGraphics`, and the 11 skipped branches in `stat()` are exactly the multiplayer HUD. So a playable 2-player race is much closer than a finished multiplayer *mode* — you'd want a URL-param join for the prototype and leave the menus for later.

@@ -90,6 +90,8 @@ and it has returned a negative fixed cost). Measure fixed costs with `?prof=1`.
       car-select camera and car-maker spin), stat bars from CarDefine's tables,
       the NFM face keyed as `loadude` keys it, and a collapsed advanced panel
       carrying every query parameter.
+- [x] Audio volume settings — sfx and music volume sliders in the advanced panel,
+      piped to the audio and music modules.
 - [x] Stage-specific opponent grid (`xtGraphics.sortcars`).
 - [x] Overhead stage preview rendered with the real renderer (`m.trk = 2`).
 - [ ] **Stage 8 renders nothing in the overhead view** and falls back to the

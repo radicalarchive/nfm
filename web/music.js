@@ -63,6 +63,18 @@ const stageConstants = {
 
 let audioReady = false;
 let isPlaying = false;
+// Whether the game WANTS music playing, as distinct from whether it actually
+// is. They differ before the first gesture: BassoonTracker has its own
+// AudioContext, which starts suspended, so a play() issued at stage load is
+// accepted and silent. unlock() reconciles the two.
+let wantPlaying = false;
+// The two volume terms, kept apart because they change independently: the
+// track's own per-stage gain (set by load()) and the player's setting (set
+// once at boot). Multiplying them at the sink means neither overwrites the
+// other -- applying the track gain directly would silently undo a user
+// setting on every stage change.
+let trackGain = 1;
+let userVolume = 1;
 export let stageLoaded = false;
 
 // Bumped by every load(). A load that finishes after a newer one started must
@@ -129,7 +141,8 @@ export async function load(stage, trackvol = 200) {
   // `rate` is dropped. In the Java it set the mixer's sample rate, which
   // shifts pitch AND tempo together; BassoonTracker has no equivalent, and
   // faking it with playbackRate would detune the music.
-  setVolume(gain / 300.0);
+  trackGain = gain / 300.0;
+  applyVolume();
 
   try {
     const basePath = await detectFpath();
@@ -162,18 +175,21 @@ export async function load(stage, trackvol = 200) {
 }
 
 export function play() {
+  wantPlaying = true;
   if (!stageLoaded || !getContext()) return;
   BassoonTracker.play();
   isPlaying = true;
 }
 
 export function stop() {
+  wantPlaying = false;
   if (!audioReady) return;          // nothing started, nothing to cut
   BassoonTracker.stop();
   isPlaying = false;
 }
 
 export function resume() {
+  wantPlaying = true;
   if (!stageLoaded || !getContext()) return;
   if (!isPlaying) {
     BassoonTracker.play();
@@ -181,14 +197,51 @@ export function resume() {
   }
 }
 
-export function setVolume(v) {
+/**
+ * Resume the tracker's AudioContext from a user gesture, and start the track
+ * if one was asked for while it was suspended.
+ *
+ * BassoonTracker creates its OWN AudioContext, so web/audio.js's unlock()
+ * resumes the sound-effects context and leaves this one suspended -- which
+ * presents as "An AudioContext was prevented from starting automatically" and
+ * silent music while the sound effects work fine. Wired to the same first
+ * keypress; safe to call on every one.
+ */
+export function unlock() {
   if (!getContext()) return;
+  const audio = BassoonTracker.audio;
+  const ctx = audio && audio.context;
+  if (ctx && ctx.state === 'suspended' && typeof ctx.resume === 'function') ctx.resume();
+  if (audio && typeof audio.checkState === 'function') audio.checkState();
+  // Ask the library whether it is actually playing rather than trusting our
+  // own flag: play() was called while the context was suspended, so the flag
+  // says yes whether or not the sequencer really started. Guarding on it also
+  // avoids restarting a song that is already running.
+  const reallyPlaying = typeof BassoonTracker.isPlaying === 'function'
+    ? BassoonTracker.isPlaying()
+    : isPlaying;
+  if (wantPlaying && stageLoaded && !reallyPlaying) {
+    BassoonTracker.play();
+    isPlaying = true;
+  }
+}
+
+/** Push the current track-gain x user-volume product at the player. */
+function applyVolume() {
+  if (!getContext()) return;
+  const v = trackGain * userVolume;
   const audio = BassoonTracker.audio;
   if (audio && audio.masterVolume && audio.masterVolume.gain) {
     audio.masterVolume.gain.value = v;
   } else if (audio && typeof audio.setMasterVolume === 'function') {
     audio.setMasterVolume(v);
   }
+}
+
+/** The player's music level, 0..1. Survives track changes. */
+export function setVolume(v) {
+  userVolume = Math.max(0, Math.min(1, v));
+  applyVolume();
 }
 
 export function unload() {

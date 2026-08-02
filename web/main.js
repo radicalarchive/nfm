@@ -20,6 +20,7 @@ import { objArray, setSeed, setPooling } from './java.js';
 import { readZip, readText, detectFpath } from './vfs.js';
 import { loadHudImages } from './images.js';
 import { Audio } from './audio.js';
+import * as music from './music.js';
 
 const log = (msg) => {
   console.log(msg);
@@ -146,6 +147,12 @@ async function boot() {
   // browser has no Web Audio. The context starts suspended, so it is unlocked
   // on the first key press below.
   const snd = new Audio();
+  const sfxvol = parseInt(params.get('sfxvol') || '100', 10);
+  snd.setVolume(sfxvol / 100.0);
+  
+  const musicvol = parseInt(params.get('musicvol') || '100', 10);
+  music.setVolume(musicvol / 100.0);
+
   xt.snd = snd;
   snd.load().catch((e) => console.warn('sound unavailable:', e));
 
@@ -593,7 +600,10 @@ function installInput(u, snd) {
     return true;
   };
   addEventListener('keydown', (e) => {
-    if (snd) snd.unlock();     // AudioContext needs a gesture before it runs
+    // Two separate AudioContexts need the gesture: web/audio.js's for sound
+    // effects, and BassoonTracker's own for the music.
+    if (snd) snd.unlock();
+    music.unlock();
     set(e, true);
   });
   addEventListener('keyup', (e) => set(e, false));
