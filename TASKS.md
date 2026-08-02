@@ -188,7 +188,23 @@ and it has returned a negative fixed cost). Measure fixed costs with `?prof=1`.
       `checkpoint`, `wasted`, `powerup` and the `one`/`two`/`three`/`go`
       countdown are wired but still have no call site in the port — those live
       in race-state code that is not ported yet.
-- [ ] **Music — the `ibxm`/`ds.nfm.mod` tracker.** Delegation spec written:
+- [~] **Music — the `ibxm` tracker.** Calibration step 1 is DONE and verified:
+      `web/ibxm/Data.js` + `web/tools/DataProbe.java` + `web/ibxm/Data.test.js`,
+      delegated to `agy` (gemini-3.1-pro-high) and checked against the real
+      class myself — every expected value in the test was re-derived from the
+      probe here, so none of them were back-fitted to the JS. Two defects the
+      job's own report missed, both now fixed: the constructor did not coerce
+      to `Int8Array` (so the `Uint8Array` from `vfs.js` would have read `sByte`
+      as 130 instead of -126 — a detuned note, silently), and `strCp850` fell
+      back to Latin-1 because Node has no `Cp850` decoder, which is a
+      divergence rather than a port of the Java's fallback. Both have tests.
+      **Calibration verdict: the prompt template holds, so step 2 (`Sample` +
+      `Envelope`) can go to `agy` — but add "coerce typed-array views to the
+      Java's signedness at the boundary" and "print strings as code points"
+      to the brief, and keep verifying against the probe myself.**
+      Remaining: steps 2-3, then the AudioWorklet wiring (a human's job).
+      Old spec text below.
+- [ ] ~~**Music — the `ibxm`/`ds.nfm.mod` tracker.**~~ Delegation spec written:
       `decompilation/MUSIC_PORT_SPEC.md`. Self-contained (no renderer contact,
       no shared game state) and, unusually for this port, it has an exact
       oracle — render N seconds of PCM through the real classes by reflection
