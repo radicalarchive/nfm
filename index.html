@@ -56,7 +56,7 @@
   .facts b { color: #e6e8ee; font-weight: 600; }
 
   .bars { margin-top: .8rem; display: grid; gap: .35rem; }
-  .bar { display: grid; grid-template-columns: 4.6rem 1fr; align-items: center; gap: .5rem; font-size: .8rem; color: var(--dim); }
+  .bar { display: grid; grid-template-columns: 6.2rem 1fr; align-items: center; gap: .5rem; font-size: .8rem; color: var(--dim); }
   /* Both are spans, so they need display:block or the heights do nothing. */
   .bar .track { display: block; height: 8px; background: #0b0d13; border-radius: 4px; overflow: hidden; border: 1px solid #262b36; }
   .bar .fill { display: block; height: 100%; background: linear-gradient(90deg, #3a7bd5, var(--accent)); }
@@ -76,6 +76,9 @@
   details.adv { margin-top: 2.2rem; border-top: 1px solid var(--line); padding-top: .9rem; }
   details.adv > summary { cursor: pointer; color: var(--dim); font-size: .85rem; font-weight: 600; }
   details.adv > summary:hover { color: #e6e8ee; }
+
+  .bugreport { margin: 1.1rem 0 .2rem; text-align: center; color: var(--dim); font-size: .8rem; }
+  .bugreport a { color: var(--accent); }
   .grid { display: grid; gap: .9rem; grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr)); margin-top: 1rem; }
   fieldset { border: 1px solid var(--line); border-radius: 8px; padding: .6rem .8rem .8rem; margin: 0; background: var(--panel); }
   legend { color: #9fe6a0; font-weight: 600; font-size: .78rem; padding: 0 .35rem; }
@@ -191,7 +194,7 @@
           <legend>Audio</legend>
           <div class="row"><label for="sfxvol">Sound fx</label><input type="number" id="sfxvol" data-def="100" min="0" max="100" step="5">
             <span class="hint">0-100. Engine, crashes, skids.</span></div>
-          <div class="row"><label for="musicvol">Music</label><input type="number" id="musicvol" data-def="50" min="0" max="100" step="5">
+          <div class="row"><label for="musicvol">Music</label><input type="number" id="musicvol" data-def="100" min="0" max="100" step="5">
             <span class="hint">0-100, scaling the track's own per-stage volume.</span></div>
           <span class="hint" style="grid-column:auto">Audio needs a key press first — browsers block sound until then.</span>
         </fieldset>
@@ -223,6 +226,10 @@
       <button type="button" class="mini" id="reset">Reset advanced</button>
     </form>
   </details>
+
+  <p class="bugreport">
+    Something wrong? <a href="https://github.com/radicalarchive/nfm/issues" target="_blank" rel="noopener">File a bug</a>
+  </p>
 </main>
 
 <script type="module">

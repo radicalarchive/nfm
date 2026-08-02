@@ -2211,6 +2211,15 @@ export class XtGraphics {
     if (n < 0) {
       n = 27;
     }
+    // PORT DIVERGENCE. Past stage 27 both pickers run off the 16-car roster
+    // (forced opponent 7+(n-10+1)/2 = 16 at stage 28; the sampler reaches 18),
+    // and loadstage then dies on a null model. The Java can't reach it: stage
+    // select clamps at 27 (:1899, :2597) and 28-32 are the multiplayer stages,
+    // where the grid comes from the network and sortcars is never called. This
+    // port lets you pick them solo, so treat them as top difficulty.
+    if (n > 27) {
+      n = 27;
+    }
     let n2 = 7;
     if (this.gmode === 1) {
       n2 = 5;

@@ -153,8 +153,11 @@ and it has returned a negative fixed cost). Measure fixed costs with `?prof=1`.
       slots 1..6 by rejection sampling biased toward faster cars in later
       stages, then forces specific opponents for stages 10/12/14/15/16.
       `?cars=same` restores one-car-for-everyone.
-- [ ] Car stats bugs in index.html - index shows 4 stats, but there are 6
-    - the values shown in the sliders dont match the game
+- [x] Car stats bugs in index.html — the launcher showed four invented stats
+      normalised against the roster maximum. Replaced with the car-select
+      screen's own six bars and its own absolute formulas
+      (`xtGraphics.java:6096-6131`): Top Speed, Acceleration, Handling,
+      Stunts, Strength, Endurance.
 
 
 ## Remaining Tasks

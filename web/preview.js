@@ -97,32 +97,35 @@ export function carNames() {
 const CLASSES = ['Beginner', 'Amateur', 'Pro', 'Extreme', 'Bonus'];
 
 /**
- * Four comparable bars per car, taken from the physics tables CarDefine
- * already holds rather than from any menu artwork:
+ * The car-select screen's six stat bars, with the game's own formulas.
  *
- *   Speed     swits[car][2]  the top gear's switch point
- *   Accel     acelf[car][0]  first-gear acceleration
- *   Grip      grip[car]
- *   Strength  maxmag[car]    damage a car absorbs before it is wasted
+ * `xtGraphics.java:6096-6131` draws six 156px bars and then fills the REMAINDER
+ * black, so the fraction below is what the bar shows filled. Each is an
+ * absolute scale baked into the menu, not a ranking against the other cars —
+ * an earlier version here normalised four made-up stats against the roster
+ * maximum, which is why the bars disagreed with the game.
  *
- * Each is scaled against the strongest of the 16 stock cars, so the bars are
- * relative to the roster the way the game's own select screen reads.
+ *   Top Speed     (swits[2] - 220) / 90,   floored at 0.2
+ *   Acceleration  acelf[1]*acelf[0]*acelf[2]*grip / 7700, capped at 1
+ *   Handling      dishandle                (already 0..1)
+ *   Stunts        (airc*airs*bounce + 28) / 139, capped at 1
+ *   Strength      (moment + 0.5) / 2.6,    capped at 1
+ *   Endurance     outdam                   (already 0..1)
  */
 export function carStats(car) {
   const cd = world.cd;
-  const best = (pick) => {
-    let hi = 0;
-    for (let i = 0; i < CAR_COUNT; i++) hi = Math.max(hi, pick(i));
-    return hi || 1;
-  };
-  const bar = (pick) => Math.round((pick(car) / best(pick)) * 100);
+  const clamp = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v);
+  const pct = (v) => Math.round(v * 100);
   return {
     cls: CLASSES[cd.cclass[car]] ?? '',
     bars: [
-      ['Speed', bar((i) => cd.swits[i][2])],
-      ['Accel', bar((i) => cd.acelf[i][0])],
-      ['Grip', bar((i) => cd.grip[i])],
-      ['Strength', bar((i) => cd.maxmag[i])],
+      ['Top Speed', pct(clamp((cd.swits[car][2] - 220) / 90, 0.2, 1))],
+      ['Acceleration', pct(clamp(
+        cd.acelf[car][1] * cd.acelf[car][0] * cd.acelf[car][2] * cd.grip[car] / 7700, 0, 1))],
+      ['Handling', pct(clamp(cd.dishandle[car], 0, 1))],
+      ['Stunts', pct(clamp((cd.airc[car] * cd.airs[car] * cd.bounce[car] + 28) / 139, 0, 1))],
+      ['Strength', pct(clamp((cd.moment[car] + 0.5) / 2.6, 0, 1))],
+      ['Endurance', pct(clamp(cd.outdam[car], 0, 1))],
     ],
   };
 }

@@ -75,6 +75,11 @@ let wantPlaying = false;
 // setting on every stage change.
 let trackGain = 1;
 let userVolume = 1;
+// Third term, fixed: BassoonTracker's mixer is a lot hotter than ibxm's at the
+// same per-stage gain, so `gain/300` straight out of loadstrack drowns the
+// engine and crashes. This trims the whole music bus so that a full slider is
+// the desktop game's balance rather than an unusable maximum.
+const MUSIC_TRIM = 0.125;
 export let stageLoaded = false;
 
 // Bumped by every load(). A load that finishes after a newer one started must
@@ -226,10 +231,10 @@ export function unlock() {
   }
 }
 
-/** Push the current track-gain x user-volume product at the player. */
+/** Push the current trim x track-gain x user-volume product at the player. */
 function applyVolume() {
   if (!getContext()) return;
-  const v = trackGain * userVolume;
+  const v = MUSIC_TRIM * trackGain * userVolume;
   const audio = BassoonTracker.audio;
   if (audio && audio.masterVolume && audio.masterVolume.gain) {
     audio.masterVolume.gain.value = v;
