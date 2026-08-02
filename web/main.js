@@ -343,6 +343,10 @@ async function boot() {
   let lastFpsAt = last;
 
   let simMs = 0, drawMs = 0, nextFrameAt = 0;
+  // Jitter allowance for the ?maxfps= deadline, in ms. Well under a 60Hz
+  // vsync (16.7ms), so it never lets an extra frame through, and far above
+  // the sub-ms wobble in rAF timestamps.
+  const FRAME_SLOP = 2;
   // Vertices the last tick's simulate() emitted (HUD bars, checkpoint arrow),
   // replayed onto interpolated frames. They update at tick rate, which is the
   // rate they were drawn at anyway.
@@ -438,9 +442,23 @@ async function boot() {
 
     // Optional presentation cap. rAF still fires at the display rate; we just
     // skip the work. ?maxfps=30 halves the draw cost without touching physics.
+    //
+    // The deadline advances by a whole interval from the PREVIOUS deadline,
+    // not from `now`. Setting it from `now` folds each frame's overshoot into
+    // the next deadline, and on a 60Hz display a 33.3ms cap then lands just
+    // past a vsync and waits for the one after -- 20fps for a 30fps cap.
+    // FRAME_SLOP absorbs rAF timestamp jitter for the same reason: a deadline
+    // missed by a fraction of a millisecond otherwise costs a whole vsync.
+    // A cap that does not divide the display rate averages out correctly but
+    // is unevenly spaced -- 45 on 60Hz alternates 16.7ms and 33.3ms gaps.
+    // That much is inherent to skipping whole frames.
     if (MAX_FPS > 0) {
-      if (now < nextFrameAt) return;
-      nextFrameAt = now + 1000 / MAX_FPS;
+      const interval = 1000 / MAX_FPS;
+      if (now < nextFrameAt - FRAME_SLOP) return;
+      nextFrameAt += interval;
+      // Behind by more than a frame (tab was hidden, or a long stall): start
+      // a fresh cadence rather than running a burst to catch up.
+      if (nextFrameAt < now) nextFrameAt = now + interval;
     }
 
     acc += now - last;
@@ -618,14 +636,18 @@ function installInput(u, snd) {
     
     // The first touch sets the anchor for the joystick and starts driving
     if (e.touches.length === 1) {
-      const touch = e.touches[0];
-      startX = touch.pageX;
-      startY = touch.pageY;
+      startX = e.touches[0].pageX;
+      startY = e.touches[0].pageY;
       u.up = true;
-    }
-    // Any secondary touch counts as the handbrake
-    if (e.touches.length > 1) {
-      u.handb = true;
+      u.touchTrick = false;
+    } else if (e.touches.length >= 2) {
+      u.touchTrick = true;
+      const cx = (e.touches[0].pageX + e.touches[1].pageX) / 2;
+      const cy = (e.touches[0].pageY + e.touches[1].pageY) / 2;
+      startX = cx;
+      startY = cy;
+      u.touchTrickX = cx;
+      u.touchTrickY = cy;
     }
   }, { passive: false });
 
@@ -633,19 +655,35 @@ function installInput(u, snd) {
     e.preventDefault(); // prevent browser scrolling
     if (e.touches.length === 0) return;
     
-    const touch = e.touches[0];
-    const dx = touch.pageX - startX;
-    const dy = touch.pageY - startY;
+    let currentX = 0, currentY = 0;
+    if (e.touches.length === 1) {
+      currentX = e.touches[0].pageX;
+      currentY = e.touches[0].pageY;
+      u.touchTrick = false;
+    } else if (e.touches.length >= 2) {
+      u.touchTrick = true;
+      currentX = (e.touches[0].pageX + e.touches[1].pageX) / 2;
+      currentY = (e.touches[0].pageY + e.touches[1].pageY) / 2;
+    }
+    
+    const dx = currentX - startX;
+    const dy = currentY - startY;
 
-    // Analog steering for ground (90px = full lock, 3x less sensitive)
-    const STEER_MAX = 90.0;
-    u.steer = Math.max(-1.0, Math.min(1.0, dx / STEER_MAX));
+    // Analog steering for ground (squared curve for better feel without huge deadzone)
+    const STEER_MAX = 130.0;
+    let steerNorm = Math.max(-1.0, Math.min(1.0, dx / STEER_MAX));
+    u.steer = steerNorm * Math.abs(steerNorm);
 
-    // Digital keys for tricks / braking
+    if (u.touchTrick) {
+      u.touchTrickX = currentX;
+      u.touchTrickY = currentY;
+    }
+
+    // Digital keys for braking
     u.left = dx < -THRESHOLD;
     u.right = dx > THRESHOLD;
-    u.up = dy <= THRESHOLD;    // touching or dragging up
-    u.down = dy > THRESHOLD;   // dragging down
+    u.up = dy <= THRESHOLD;
+    u.down = dy > 120; // Much larger deadzone for reverse to avoid accidental triggering
   }, { passive: false });
 
   const endTouch = (e) => {
@@ -656,8 +694,16 @@ function installInput(u, snd) {
       u.right = false;
       u.handb = false;
       u.steer = 0.0;
-    } else {
+      u.touchTrick = false;
+    } else if (e.touches.length === 1) {
+      u.touchTrick = false;
       u.handb = false;
+      startX = e.touches[0].pageX;
+      startY = e.touches[0].pageY;
+    } else if (e.touches.length >= 2) {
+      u.touchTrick = true;
+      startX = (e.touches[0].pageX + e.touches[1].pageX) / 2;
+      startY = (e.touches[0].pageY + e.touches[1].pageY) / 2;
     }
   };
   
