@@ -316,7 +316,7 @@ export class GameSparker {
       for (let n8 = 0; n8 < xtGraphics.nplayers; ++n8) {
         this.u[n8].reset(checkPoints, xtGraphics.sc[n8]);
       }
-      xtGraphics.resetstat(checkPoints.stage);
+      xtGraphics.resetstat(checkPoints.stage, checkPoints.trackvol);
       checkPoints.calprox();
       for (let n9 = 0; n9 < xtGraphics.nplayers; ++n9) {
         array[n9] = new ContO(array2[xtGraphics.sc[n9]], xtGraphics.xstart[n9],

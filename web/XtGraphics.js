@@ -1,4 +1,5 @@
 import { idiv, i32, trunc, fr, intArray, floatArray, random, RGBtoHSB, HSBtoRGB } from './java.js';
+import * as music from './music.js';
 
 export class XtGraphics {
   constructor(m = null, cd = null, rd = null, app = null) {
@@ -263,7 +264,7 @@ export class XtGraphics {
     this.mutes = false;
     this.snd = null;      // web/audio.js, attached by main.js
     this.intertrack = null;
-    this.strack = null;
+    this.strack = music;
     this.loadedt = false;
     this.mutem = false;
     this.badmac = false;
@@ -516,7 +517,27 @@ export class XtGraphics {
 
   // --- stubs ---
   snap(_stage) {}
-  resetstat(_stage) {}
+  /**
+   * Java calls loadstrack() here. `loadedt` gates every strack call in
+   * playsounds(), so it flips true only once the module has actually parsed --
+   * load() resolves false on a missing zip or a superseded load, and reading a
+   * module-global flag afterwards instead would mark whatever finished last.
+   */
+  resetstat(_stage, trackvol = 200) {
+    // loadstrack's one special case: stage 27 is party.zip in party mode.
+    const track = (_stage === 27 && this.gmode === 2) ? 'party' : _stage;
+    this.loadmusic(track, trackvol);
+  }
+
+  /** Load a track and start it unless music is muted. Never throws. */
+  loadmusic(track, trackvol = 200) {
+    this.loadedt = false;
+    this.strack.load(track, trackvol).then((ok) => {
+      if (!ok) return;
+      this.loadedt = true;
+      if (!this.mutem) this.strack.resume();
+    });
+  }
   colorCar(_contO, _n) {}
   loadingstage(_stage, _b) {}
   trackbg(_b) {}
@@ -777,6 +798,7 @@ export class XtGraphics {
         if (this.fase === 0) {
           if (this.loadedt && this.strack && this.strack.stop) {
             this.strack.stop();
+            this.loadmusic('interface');   // back to the menu track
           }
           this.fase = -6;
         } else if (this.starcnt === 0 && control.chatup === 0 && (this.multion < 2 || !this.lan)) {

@@ -188,35 +188,37 @@ and it has returned a negative fixed cost). Measure fixed costs with `?prof=1`.
       `checkpoint`, `wasted`, `powerup` and the `one`/`two`/`three`/`go`
       countdown are wired but still have no call site in the port — those live
       in race-state code that is not ported yet.
-- [~] **Music — the `ibxm` tracker.** Calibration step 1 is DONE and verified:
-      `web/ibxm/Data.js` + `web/tools/DataProbe.java` + `web/ibxm/Data.test.js`,
-      delegated to `agy` (gemini-3.1-pro-high) and checked against the real
-      class myself — every expected value in the test was re-derived from the
-      probe here, so none of them were back-fitted to the JS. Two defects the
-      job's own report missed, both now fixed: the constructor did not coerce
-      to `Int8Array` (so the `Uint8Array` from `vfs.js` would have read `sByte`
-      as 130 instead of -126 — a detuned note, silently), and `strCp850` fell
-      back to Latin-1 because Node has no `Cp850` decoder, which is a
-      divergence rather than a port of the Java's fallback. Both have tests.
-      **Step 2 (`Sample` + `Envelope`) is also DONE and verified** — brief in
-      `decompilation/JOB_ibxm_sample.md`, with the two step-1 lessons folded in
-      as explicit rules. Came back clean: all 2,176 sinc-table entries and all
-      800 resampled mix samples re-derived from the probe here and identical,
-      the one genuine `+=` site (`Envelope.calculateAmpl`) has Java's looser
-      `>>` precedence right, and `float` vs `double` was called correctly (the
-      sinc tables are `double` throughout, so no `fr()`). No corrections
-      needed. **Two clean runs in a row: per PORT_SPEC's calibration rule the
-      template is now trusted, and step 3 can batch the remaining files** —
-      `IBXM`, `Module`, `Channel`, `Instrument`, `Note`, `Pattern`,
-      `GlobalVol` — still verifying each against a probe.
-      Remaining: step 3, then the AudioWorklet wiring (a human's job).
-      Old spec text below.
-- [ ] ~~**Music — the `ibxm`/`ds.nfm.mod` tracker.**~~ Delegation spec written:
-      `decompilation/MUSIC_PORT_SPEC.md`. Self-contained (no renderer contact,
-      no shared game state) and, unusually for this port, it has an exact
-      oracle — render N seconds of PCM through the real classes by reflection
-      and diff against the JS as integers. Bounded as calibrate-before-batching
-      requires; the AudioWorklet wiring stays with a human.
+- [x] **Music — done, without porting the tracker.** `web/music.js` plays the
+      game's own `.mod` modules through **BassoonTracker**, a pure-JS MOD/XM
+      player vendored into `web/vendor/` (48.8 KB raw, **16.3 KB gzipped**,
+      MIT). Wired to the existing `strack`/`loadedt`/`mutem` call sites, so
+      `playsounds()` is untouched; `resetstat()` loads the stage track and
+      handles `loadstrack`'s one special case (stage 27 is `party.zip` when
+      `gmode == 2`). All 34 `[gain, rate, bpmflex]` triples are transcribed and
+      **verified against the Java by a test that parses `loadstrack` itself** —
+      a shape-only test would pass with every number wrong.
+      `gain/300` maps to the master gain. `rate` is deliberately NOT applied:
+      it set the mixer's sample rate, shifting pitch and tempo together, and
+      faking it with `playbackRate` would detune the music. `trackvol` is
+      accepted and ignored, because `loadstrack` only uses it for custom
+      `mystages/mymusic` tracks (where it IS the gain), not for stock stages.
+      **Costs 3.3 MB — the modules already in the repo — versus 54 MB of Opus
+      or 203 MB of FLAC for pre-rendering, or ~2,500 lines to port `ibxm`.**
+      Verified: 119/119 tests, and a headless browser boot where the module
+      fetches, unzips and parses with no warning. **Audible check outstanding**
+      — headless Chromium produces no sound, so someone has to listen.
+      Not sample-identical to the desktop game: BassoonTracker's mixer is not
+      `ibxm`'s. Uses a `ScriptProcessorNode` (deprecated but functional).
+- [x] ~~Port the `ibxm` tracker~~ — **no longer needed.** `Data`, `Sample` and
+      `Envelope` are ported and verified (steps 1-2, kept: they cost nothing to
+      keep and are the reference if bit-exactness is ever wanted), but
+      `Channel`/`Module`/`IBXM` and the `RadicalMod` wrapper layer are dropped.
+- [x] ~~Pre-render the soundtrack at build time~~ — built and working
+      (`tools/bake-music.sh`, `web/tools/BakeMusic.java`, output gitignored),
+      but superseded: 203 MB FLAC / 54 MB Opus against 3.3 MB of modules.
+      Kept as a fallback. Its loop points come from `rollBackPos`/`rollBackTrig`
+      and needed a fix — `SuperClip` compares the latter against bytes
+      REMAINING, so loop end is `length - rollBackTrig`, not `rollBackTrig`.
 - [ ] Menus, car select, stage select — the other ~9600 lines of `xtGraphics`.
       Genuine brute work; the one part of this port that would suit a subagent.
       **Follow `decompilation/PORT_SPEC.md`'s "Calibrate before batching" procedure** — one

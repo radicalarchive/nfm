@@ -10,3 +10,9 @@ js/node_modules/
 mycars/*.rad
 !mycars/Example, MAX Revenge.rad
 !mycars/Simple Car.rad
+
+# Pre-rendered soundtrack: 257 MB of FLAC/Opus produced by tools/bake-music.sh.
+# Superseded by web/music.js playing the modules directly (3.3 MB, already in
+# music/). Kept on disk as a fallback, never committed -- regenerate with the
+# script if it is ever needed.
+music-baked/
