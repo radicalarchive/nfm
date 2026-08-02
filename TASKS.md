@@ -67,7 +67,10 @@ and it has returned a negative fixed cost). Measure fixed costs with `?prof=1`.
       if it is real it may be a smaller change for a similar win, and if it is
       an artifact the shader payoff is larger than currently estimated.
 - [ ] **GPU-side projection.** The only term that provably scales, and the
-      majority of draw. Budget ~2–3x on draw, not 5x. It is also what would
+      majority of draw. Budget ~2–3x on draw, not 5x. **But it will not fix
+      the fps DIPS:** `?res=1` dips noticeably less than `?res=2` on the same
+      scene, so the dips scale with pixels and are fill/overdraw-bound, which
+      a vertex shader does not touch. Average frame cost is what improves. It is also what would
       make interpolation affordable: per-object transforms as uniforms means
       interpolating costs a lerp instead of a full CPU redraw.
       The old note claiming the painter's sort blocks this was wrong: `dist` is
