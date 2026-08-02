@@ -260,7 +260,20 @@ there is no backend of ours anywhere in this design.
 - **First cut:** 2 players, join by URL room code, AI fills slots 2-6. No
   lobby, chat or player list — those are in the ~9600 unported `xtGraphics`
   lines and the 11 skipped multiplayer branches of `stat()`.
-- [ ] **Determinism groundwork, FIRST and verified on its own.** A desync found
+- [x] **Determinism groundwork** — done. Seeded sim/draw PRNG split (`java.js`),
+      baked `trig.js` tables, and a test that two runs reach bit-identical
+      state whatever they draw. Confirmed it fails with the split disabled.
+- [~] **Prototype built, one desync outstanding.** `netsync.js` (lockstep
+      rules, 12 tests), `netpeer.js` (PeerJS transport), launcher UI, and
+      `web/tools/netloop.mjs`, which runs two clients in separate processes
+      through a lossy relay. **Syncs for ~1118 ticks (~60s of racing), then
+      diverges via collision damage.** The lead is recorded: the collision
+      MESH already differs at tick 3, long before any position does, and
+      nothing in Mad writes it in those ticks — so the cause is at or near
+      world construction, not in the tick loop. Untested end to end in a
+      browser: PeerJS could not be exercised headlessly, because
+      `--virtual-time-budget` starves the real network.
+- [x] ~~Determinism groundwork, FIRST and verified on its own.~~ A desync found
       after the transport exists is very hard to attribute; found now it is a
       unit test. Two parts:
       - Seed `Medium.random()`. Note it is consumed by the DRAW path too

@@ -16,7 +16,7 @@
 // PAINTER'S ALGORITHM: polygons and sub-components are rendered strictly in
 // submission order. Never reorder, batch, or hoist draw calls.
 
-import { idiv, trunc, fr, i32, intArray, floatArray, objArray, RGBtoHSB, HSBtoRGB, JavaRandom } from './java.js';
+import { idiv, trunc, fr, i32, intArray, floatArray, objArray, RGBtoHSB, HSBtoRGB, JavaRandom, setDrawPhase } from './java.js';
 import { Plane } from './Plane.js';
 import { Wheels } from './Wheels.js';
 import { readLines } from './vfs.js';
@@ -1786,6 +1786,15 @@ export class ContO {
   }
 
   dust(n, n2, n3, n4, n5, n6, n7, n8, b) {
+    // Called from Mad.drive, but it seeds PARTICLES -- sx/sz/sy/stg and
+    // nothing physical -- so it runs on the draw streams. On the sim stream a
+    // puff that one client spawns and the other does not shifts every later
+    // simulation random, and the cars drift apart. See java.js.
+    setDrawPhase(true);
+    try { return this.#dust(n, n2, n3, n4, n5, n6, n7, n8, b); } finally { setDrawPhase(false); }
+  }
+
+  #dust(n, n2, n3, n4, n5, n6, n7, n8, b) {
     let b2 = false;
     if (n8 > 5 && (n === 0 || n === 2)) {
       b2 = true;

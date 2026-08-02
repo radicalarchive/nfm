@@ -103,7 +103,13 @@ test('Mad reseto and 300-tick drive match Java probe state', async () => {
     revlift, lift, comprad,
   };
 
-  const xt = { im: 0, dcrashes: intArray(8), skid: () => {}, pit: () => {} };
+  // `human` is part of the contract Mad depends on: simulation branches ask
+  // "is this car player-driven" rather than "is it mine", so that two netplay
+  // clients treat both human cars identically. With one player it is exactly
+  // the old `i === im` test, which is what the Java does and what this probe
+  // was captured against.
+  const xt = { im: 0, dcrashes: intArray(8), skid: () => {}, pit: () => {},
+               human(i) { return i === this.im; } };
 
   const baseContO = new ContO(formula7Bytes, m, trackers);
   const contO = new ContO(baseContO, 1000, 200, -5000, 0);

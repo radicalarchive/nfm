@@ -1,4 +1,4 @@
-import { idiv, i32, trunc, fr, intArray, floatArray, random, RGBtoHSB, HSBtoRGB } from './java.js';
+import { idiv, i32, trunc, fr, intArray, floatArray, random, RGBtoHSB, HSBtoRGB, setDrawPhase } from './java.js';
 import * as music from './music.js';
 
 export class XtGraphics {
@@ -56,6 +56,9 @@ export class XtGraphics {
     this.delays = Int32Array.from([600, 600, 600]);
     this.nplayers = 7;
     this.im = 0;
+    // Netplay sets this to every human-driven slot. Single player leaves it
+    // null, and `human()` then means exactly what `im` used to mean.
+    this.humans = null;
     this.plnames = new Array(8).fill("");
     this.osc = 10;
     this.minsl = 0;
@@ -404,6 +407,19 @@ export class XtGraphics {
   // so a missing or undecodable sounds.zip costs sound and nothing else.
 
   /** One-shot by name; silent if audio is unavailable. */
+  /**
+   * Is slot `i` driven by a person?
+   *
+   * Distinct from `i === im`, which asks "is it MINE". Simulation branches
+   * must use this one: the Java only ever has one human, so it conflates the
+   * two, and a branch that keys on `im` runs on a different car on each
+   * netplay client and diverges the two simulations. Presentation may keep
+   * using `im` -- you only hear your own car scrape.
+   */
+  human(i) {
+    return this.humans ? this.humans.has(i) : i === this.im;
+  }
+
   _snd(name) {
     if (this.snd && !this.mutes) this.snd.play(name);
   }
@@ -427,6 +443,11 @@ export class XtGraphics {
   }
 
   crash(a, n) {
+    setDrawPhase(true);
+    try { return this.#crash(a, n); } finally { setDrawPhase(false); }
+  }
+
+  #crash(a, n) {
     if (this.bfcrash !== 0) return;
     if (n === 0) {
       if (Math.abs(a) > 25.0 && Math.abs(a) < 170.0) {
@@ -461,6 +482,11 @@ export class XtGraphics {
   }
 
   skid(n, n2) {
+    setDrawPhase(true);
+    try { return this.#skid(n, n2); } finally { setDrawPhase(false); }
+  }
+
+  #skid(n, n2) {
     if (this.bfcrash === 0 && this.bfskid === 0 && n2 > 150.0) {
       if (n === 0) {
         this._snd(`skid${this.skflg + 1}`);
@@ -480,6 +506,11 @@ export class XtGraphics {
   }
 
   scrape(n, n2, n3) {
+    setDrawPhase(true);
+    try { return this.#scrape(n, n2, n3); } finally { setDrawPhase(false); }
+  }
+
+  #scrape(n, n2, n3) {
     if (this.bfscrape === 0 && Math.sqrt(n * n + n2 * n2 + n3 * n3) / 10.0 > 10.0) {
       let n4 = 0;
       if (this.m.random() > this.m.random()) n4 = 1;
@@ -498,6 +529,11 @@ export class XtGraphics {
   }
 
   gscrape(n, n2, n3) {
+    setDrawPhase(true);
+    try { return this.#gscrape(n, n2, n3); } finally { setDrawPhase(false); }
+  }
+
+  #gscrape(n, n2, n3) {
     if ((this.bfsc1 === 0 || this.bfsc2 === 0)
         && Math.sqrt(n * n + n2 * n2 + n3 * n3) / 10.0 > 15.0) {
       // scrape[2] and scrape[3] are two separate clips of scrape3.wav in the
@@ -610,7 +646,17 @@ export class XtGraphics {
    * one-shots but five continuously looping samples with sparkeng() choosing
    * which one is live.
    */
+  /** Per-tick sound pump. On the draw streams for the same reason stat() is. */
   playsounds(mad, control, n) {
+    setDrawPhase(true);
+    try {
+      return this.#playsounds(mad, control, n);
+    } finally {
+      setDrawPhase(false);
+    }
+  }
+
+  #playsounds(mad, control, n) {
     if ((this.fase === 0 || this.fase === 7001) && this.starcnt < 35 && this.cntwis !== 8 && !this.mutes) {
       let b = (control.up && mad.speed > 0.0) || (control.down && mad.speed < 10.0);
       let b2 = (mad.skid === 1 && control.handb)
@@ -826,7 +872,27 @@ export class XtGraphics {
     // TODO not ported: chat network socket shutdown
   }
 
+  /**
+   * The HUD, the end-of-race overlays and the announcer chatter.
+   *
+   * Runs on the DRAW streams even though it is called from simulate(). It is
+   * presentation: it picks a sound variant and an adjective out of random(),
+   * and it is driven by the LOCAL player's Mad, so two netplay clients take
+   * different branches through it and consume different numbers of randoms.
+   * On the sim stream that silently desynchronises every AI car -- which is
+   * exactly how it was found. Nothing here feeds physics except the race-end
+   * flags, which are game state and not random.
+   */
   stat(mad, contO, checkPoints, control, b) {
+    setDrawPhase(true);
+    try {
+      return this.#stat(mad, contO, checkPoints, control, b);
+    } finally {
+      setDrawPhase(false);
+    }
+  }
+
+  #stat(mad, contO, checkPoints, control, b) {
     if (this.holdit) {
       let n = 250;
       if (this.fase === 7001) {
@@ -1506,9 +1572,16 @@ export class XtGraphics {
             this.asay = this.asay + " " + this.loop;
           }
           let n6 = 0;
-          mad.travxy = Math.abs(mad.travxy);
-          while (mad.travxy > 270) {
-            mad.travxy -= 360;
+          // LOCAL COPIES. The Java consumes these counters destructively, out
+          // of the live Mad -- and stat() only ever runs on the local player's
+          // car, so in a netplay session each client mangles a DIFFERENT car's
+          // stunt accumulator. travxy/travxz feed powerup, so the two
+          // simulations diverge through the announcer's text formatting, which
+          // is as indirect as a desync gets. Working on copies leaves the
+          // announcement identical and the physics untouched.
+          let travxy = Math.abs(mad.travxy);
+          while (travxy > 270) {
+            travxy -= 360;
             ++n6;
           }
           if (n6 === 0 && mad.rtab) {
@@ -1532,9 +1605,9 @@ export class XtGraphics {
           }
           let n7 = 0;
           let b5 = false;
-          mad.travxz = Math.abs(mad.travxz);
-          while (mad.travxz > 90) {
-            mad.travxz -= 180;
+          let travxz = Math.abs(mad.travxz);      // a copy; see travxy above
+          while (travxz > 90) {
+            travxz -= 180;
             n7 += 180;
             if (n7 > 900) {
               n7 = 900;

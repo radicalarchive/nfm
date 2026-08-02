@@ -508,3 +508,43 @@ test('two worlds tick to bit-identical state regardless of how much they draw', 
 
   assert.deepEqual(await run(0), await run(3), 'the two simulations diverged');
 });
+
+test('the AI never drives a human slot, local or remote', async () => {
+  // Two ways this breaks. Single player: if slot im is not excluded, preform()
+  // steers the player's own car and it fights the keyboard. Netplay: if the
+  // remote human's slot is not excluded, each client runs its own AI on the
+  // other player's car and they desync immediately, since preform() reads
+  // per-client state.
+  const w = await buildWorld({ players: 4 });
+  const calls = new Set();
+  for (let i = 0; i < 4; i++) {
+    const u = w.gs.u[i];
+    const orig = u.preform.bind(u);
+    u.preform = (...a) => { calls.add(i); return orig(...a); };
+  }
+  w.gs.u[1].human = true;          // a remote player in slot 1
+  w.xt.im = 0;
+
+  for (let t = 0; t < 5; t++) {
+    w.rd.begin();
+    w.gs.tick(w.rd, w.medium, w.trackers, w.checkPoints, w.xt, w.record, w.array2, w.array3);
+  }
+  assert.deepEqual([...calls].sort(), [2, 3], `AI drove slots ${[...calls]}`);
+});
+
+test('a guest sees its own car, not the host\'s', async () => {
+  // Everything in the view block is "whose screen is this" and was hardcoded
+  // to slot 0. A guest with im = 1 whose camera still follows slot 0 is
+  // playing blind, which is the single most visible way netplay can be wrong.
+  const w = await buildWorld({ players: 4 });
+  w.xt.im = 1;
+  w.array2[1].x = 40000;           // put slot 1 somewhere unmistakable
+  w.array2[1].z = 40000;
+  for (let t = 0; t < 3; t++) {
+    w.rd.begin();
+    w.gs.tick(w.rd, w.medium, w.trackers, w.checkPoints, w.xt, w.record, w.array2, w.array3);
+  }
+  const near = (a, b) => Math.abs(a - b) < 20000;
+  assert.ok(near(w.medium.x, -40000) || near(w.medium.x, 40000),
+    `camera at x=${w.medium.x} did not follow slot 1 at 40000`);
+});

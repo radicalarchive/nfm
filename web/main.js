@@ -21,6 +21,9 @@ import { readZip, readText, detectFpath } from './vfs.js';
 import { loadHudImages } from './images.js';
 import { Audio } from './audio.js';
 import * as music from './music.js';
+import { InputSync, packInput, applyInput, DEFAULT_DELAY,
+         worldHash, encodeCheck, decodeCheck } from './netsync.js';
+import { NetPeer, makeRoomCode } from './netpeer.js';
 
 const log = (msg) => {
   console.log(msg);
@@ -28,16 +31,112 @@ const log = (msg) => {
   if (el) el.textContent = msg;
 };
 
+/**
+ * Agree on the race before either side builds a world.
+ *
+ * The host picks everything and the guest accepts it verbatim -- seed, stage,
+ * the whole grid, the input delay. Nothing is negotiated in the sense of being
+ * argued about, because two machines that each decided part of the setup would
+ * start from different worlds and lockstep has no way to notice, let alone
+ * recover.
+ *
+ * The grid is sent explicitly rather than being re-derived from the seed:
+ * sortcars() consumes randoms, so a client that regenerated it would advance
+ * its PRNG differently and desync before the lights went out.
+ */
+async function negotiate(mode, params, cfg, keep) {
+  const net = new NetPeer({ onStatus: (m) => log(m) });
+  keep(net);
+  const name = (params.get('name') || '').slice(0, 12);
+  const delay = Math.max(1, parseInt(params.get('delay') || String(DEFAULT_DELAY), 10));
+
+  if (mode === 'host') {
+    const code = (params.get('room') || makeRoomCode()).toUpperCase();
+    await net.host(code);
+    // The grid is drawn HERE, on the host, from the host's seed.
+    setSeed(cfg.seed);
+    const cars = [];
+    {
+      const tmp = new XtGraphics();
+      tmp.cd = new CarDefine([], null, null, null);
+      tmp.sc[0] = cfg.car;
+      tmp.sortcars(cfg.stage);
+      for (let i = 0; i < 8; i++) cars[i] = tmp.sc[i];
+    }
+    const hello = await new Promise((resolve) => {
+      const prev = net.onData;
+      net.onData = (d) => {
+        const msg = typeof d === 'string' ? JSON.parse(d) : d;
+        if (msg && msg.t === 'hello') { net.onData = prev; resolve(msg); }
+      };
+    });
+    // Slot 1 is the guest, and it races the car the guest picked.
+    cars[1] = Number.isInteger(hello.car) ? hello.car : cars[1];
+    const start = { t: 'start', seed: cfg.seed, stage: cfg.stage, players: cfg.players,
+                    cars, delay, hostName: name || 'Host', guestName: hello.name || 'Player 2' };
+    net.send(JSON.stringify(start));
+    log(`racing ${start.guestName} — room ${code}`);
+    return { ...cfg, cars, delay, localIndex: 0, room: code,
+             names: [start.hostName, start.guestName] };
+  }
+
+  const code = (params.get('room') || '').toUpperCase();
+  if (!code) throw new Error('joining needs ?room=CODE');
+  await net.join(code);
+  net.send(JSON.stringify({ t: 'hello', name: name || 'Player 2', car: cfg.car }));
+  const start = await new Promise((resolve) => {
+    net.onData = (d) => {
+      const msg = typeof d === 'string' ? JSON.parse(d) : d;
+      if (msg && msg.t === 'start') resolve(msg);
+    };
+  });
+  log(`joined ${start.hostName} — room ${code}`);
+  return { ...cfg, seed: start.seed, stage: start.stage, players: start.players,
+           cars: start.cars, delay: start.delay, localIndex: 1, room: code,
+           names: [start.hostName, start.guestName] };
+}
+
 async function boot() {
   const params = new URLSearchParams(location.search);
-  const stage = parseInt(params.get('stage') || '1', 10);
-  const car = parseInt(params.get('car') || '1', 10);        // 1 = formula7
-  // ?cars=same puts the player's car in every slot, which is what this
-  // harness used to do unconditionally.
-  const sameCars = params.get('cars') === 'same';
-  const players = parseInt(params.get('players') || '7', 10);
   const base = await detectFpath(params.get('path'));
-  setSeed(parseInt(params.get('seed') || '12345', 10));
+
+  // ---- netplay handshake --------------------------------------------------
+  //
+  // Done BEFORE the world is built, because the host dictates every input to
+  // the world's construction: seed, stage, grid and player count. Lockstep
+  // requires the two worlds to be identical at tick 0, and the cheapest way to
+  // guarantee that is for only one machine to decide any of it.
+  const netMode = params.get('net');                 // 'host' | 'join' | null
+  let net = null, sync = null, netDelay = DEFAULT_DELAY;
+  // tick -> the peer's hash for it. Compared as our own ticks pass; see the
+  // note by CHECK_EVERY.
+  const peerChecks = new Map();
+  let desynced = false;
+  let cfg = {
+    seed: parseInt(params.get('seed') || '12345', 10),
+    stage: parseInt(params.get('stage') || '1', 10),
+    car: parseInt(params.get('car') || '1', 10),
+    players: parseInt(params.get('players') || '7', 10),
+    cars: null,
+    localIndex: 0,
+  };
+  if (netMode === 'host' || netMode === 'join') {
+    cfg = await negotiate(netMode, params, cfg, (n) => { net = n; });
+    netDelay = cfg.delay;
+    sync = new InputSync(cfg.localIndex, [0, 1], netDelay);
+    net.onData = (d) => {
+      const bytes = d instanceof ArrayBuffer ? new Uint8Array(d) : d;
+      const check = decodeCheck(bytes);
+      if (check) peerChecks.set(check.tick, check.hash);
+      else sync.decode(bytes);
+    };
+  }
+
+  const stage = cfg.stage;
+  const car = cfg.car;
+  const players = cfg.players;
+  const sameCars = params.get('cars') === 'same';
+  setSeed(cfg.seed);
 
   const glCanvas = document.getElementById('gl');
   const textCanvas = document.getElementById('overlay');
@@ -102,7 +201,25 @@ async function boot() {
 
   xt.nplayers = players;
   xt.sc[0] = car;
-  if (sameCars) {
+  if (cfg.cars) {
+    // Netplay: the grid came off the wire already drawn. Re-running sortcars
+    // here would consume randoms and desync the two clients before tick 0.
+    for (let i = 0; i < 8; ++i) xt.sc[i] = cfg.cars[i];
+    xt.im = cfg.localIndex;
+    // Which slots are people. Simulation branches key on this rather than on
+    // `im`, so both clients treat both human cars the same way; see
+    // XtGraphics.human().
+    xt.humans = new Set([0, 1]);
+    // The original's own way of telling a human from a bot: a name containing
+    // "MadBot". stat() at :1005 already reads it, so labelling here is enough
+    // for the game to treat the remote player as a player.
+    for (let i = 0; i < xt.nplayers; ++i) {
+      const human = i === 0 || i === 1;
+      xt.isbot[i] = !human;
+      xt.plnames[i] = human ? (cfg.names[i] || `Player ${i + 1}`) : `MadBot${i}`;
+    }
+    gs.u[1 - cfg.localIndex].human = true;   // the peer drives their own slot
+  } else if (sameCars) {
     for (let i = 1; i < 8; ++i) xt.sc[i] = car;
   } else {
     // The original never races eight identical cars: sortcars() draws the
@@ -161,7 +278,15 @@ async function boot() {
   snd.load().catch((e) => console.warn('sound unavailable:', e));
 
   log(`stage "${checkPoints.name}"  objects=${gs.nob}  checkpoints=${checkPoints.nsp}  laps=${checkPoints.nlaps}`);
-  installInput(gs.u[0], snd);
+  // In a netplay session the keyboard writes to a SHADOW control, not to the
+  // live one. netApply() overwrites the live Control every tick with the input
+  // agreed for that tick, so a key RELEASE would be undone: the keyup sets
+  // up=false, netApply immediately restores the older up=true, no further
+  // event ever arrives, and the car accelerates forever. The shadow is only
+  // ever written by input events and only ever read when deciding what to
+  // send, so it always reflects what the player is actually holding.
+  const pad = sync ? new Control(medium) : gs.u[cfg.localIndex];
+  installInput(pad, snd);
 
   let backdropMs = 0;
   if (PROFILE) {
@@ -448,7 +573,72 @@ async function boot() {
     leaving = true;
     snd.stopAllLoops();
     music.stop();
+    net?.close();
     location.href = '../index.html';
+  }
+
+  // ---- lockstep ------------------------------------------------------------
+  //
+  // netTick counts ticks from 0 on both machines, so "tick N" needs no clock
+  // agreement: the race starts when both peers have exchanged start, and the
+  // count is the shared reference from then on.
+  //
+  // Each tick we decide the input for netTick + delay and send it; the tick
+  // about to run consumes input decided `delay` ticks ago and already
+  // delivered. If it has not arrived, we stall -- no prediction, no rollback,
+  // so a stall is visible as a freeze rather than as a rubber-band.
+  let netTick = 0;
+  let stalledSince = 0;
+  const remoteSlot = 1 - cfg.localIndex;
+
+  /** @returns true when the tick may run. */
+  function netGate() {
+    if (!sync) return true;
+    if (!net.open) return false;              // peer gone: freeze, don't drift
+    // Decide and publish our own input for the far end of the delay window.
+    const future = netTick + netDelay;
+    if (sync.lastSent < future) {
+      const packed = packInput(pad);
+      sync.setLocal(future, packed);
+      // Quantise in place too, so what this machine simulates is exactly what
+      // the other one will. See netsync.packInput.
+      applyInput(pad, packed);
+      sync.lastSent = future;
+      net.send(sync.encode(future));
+    }
+    return sync.ready(netTick);
+  }
+
+  /** Put every human's agreed input in place for the tick about to run. */
+  function netApply() {
+    if (!sync) return;
+    applyInput(gs.u[cfg.localIndex], sync.get(cfg.localIndex, netTick));
+    applyInput(gs.u[remoteSlot], sync.get(remoteSlot, netTick));
+  }
+
+  // How often the two clients compare world hashes. Lockstep is silent when it
+  // fails -- both sides keep trading inputs while rendering different races --
+  // so without this a desync is something you notice minutes later, if at all.
+  // Cheap enough to leave on permanently: 9 bytes every ~3 seconds.
+  const CHECK_EVERY = 60;
+
+  function netCheck() {
+    if (netTick % CHECK_EVERY !== 0) return;
+    const mine = worldHash(array2, array3, xt.nplayers);
+    net.send(encodeCheck(netTick, mine));
+    // The peer's hash for a tick can arrive before or after we reach it, so
+    // compare whatever has already landed rather than waiting for a round trip.
+    const theirs = peerChecks.get(netTick);
+    if (theirs !== undefined) {
+      peerChecks.delete(netTick);
+      if (theirs !== mine && !desynced) {
+        desynced = true;
+        log(`DESYNC at tick ${netTick}: ${mine.toString(16)} vs ${theirs.toString(16)}`);
+        console.warn(`netplay desync at tick ${netTick}`);
+      } else if (theirs === mine) {
+        console.log(`sync ok @${netTick} ${mine.toString(16)}`);
+      }
+    }
   }
 
   function frame(now) {
@@ -486,6 +676,17 @@ async function boot() {
 
     let stepped = false;
     while (acc >= TICK_MS) {
+      if (!netGate()) {
+        // Waiting on the peer. Hold the accumulator at one tick so the moment
+        // input lands we run exactly one tick, not a burst that would make the
+        // catch-up visible as a lurch.
+        acc = TICK_MS;
+        if (!stalledSince) stalledSince = now;
+        else if (now - stalledSince > 4000) log('waiting for the other player...');
+        break;
+      }
+      stalledSince = 0;
+      netApply();
       // Snapshot BEFORE the tick, so after the loop snapPrev holds the state
       // entering the most recent tick and snapCurr the state leaving it --
       // correct even when several ticks run to catch up.
@@ -516,6 +717,12 @@ async function boot() {
       ticks++;
       ticksThisFrame++;
       stepped = true;
+      if (sync) {
+        netTick++;
+        // Ticks older than the delay window can never be needed again.
+        if ((netTick & 63) === 0) sync.forget(netTick - netDelay - 1);
+        netCheck();
+      }
 
       // End of race. stat() runs the whole finish sequence itself -- it sets
       // holdit to freeze the field under the win/lose overlay, counts holdcnt

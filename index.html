@@ -77,6 +77,12 @@
   details.adv > summary { cursor: pointer; color: var(--dim); font-size: .85rem; font-weight: 600; }
   details.adv > summary:hover { color: #e6e8ee; }
 
+  .netrow { display: flex; gap: .6rem; align-items: center; margin: .5rem 0; flex-wrap: wrap; }
+  .netrow input[type=text] {
+    font: 600 13px ui-monospace, Menlo, Consolas, monospace; padding: .35rem .5rem;
+    border-radius: 5px; border: 1px solid #39404f; background: #12151d; color: #e6e8ee;
+  }
+
   .bugreport { margin: 1.1rem 0 .2rem; text-align: center; color: var(--dim); font-size: .8rem; }
   .bugreport a { color: var(--accent); }
   .grid { display: grid; gap: .9rem; grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr)); margin-top: 1rem; }
@@ -159,6 +165,29 @@
     <button class="race" id="race" disabled>Loading…</button>
     <div class="status" id="status"></div>
   </div>
+
+  <details class="adv" id="netbox">
+    <summary>Two-player (experimental)</summary>
+    <p class="hint" style="margin:.6rem 0">
+      Peer to peer over WebRTC, no server of ours involved. One of you hosts and
+      reads out the room code; the other joins with it. The host's car, stage and
+      opponents are used for both. Lockstep, so a bad connection shows up as both
+      cars pausing together rather than as teleporting.
+    </p>
+    <div class="netrow">
+      <label for="netname">Your name</label>
+      <input type="text" id="netname" maxlength="12" placeholder="Player">
+    </div>
+    <div class="netrow">
+      <button type="button" class="mini" id="nethost">Host a race</button>
+      <span class="hint">You pick the stage and cars above.</span>
+    </div>
+    <div class="netrow">
+      <button type="button" class="mini" id="netjoin">Join</button>
+      <input type="text" id="netroom" maxlength="6" placeholder="CODE" style="text-transform:uppercase;width:6rem">
+      <span class="hint">Your car choice is kept; everything else comes from the host.</span>
+    </div>
+  </details>
 
   <details class="adv">
     <summary>Advanced &amp; developer settings</summary>
@@ -396,6 +425,25 @@ $('players').onchange = buildURL;
 $('cars').onchange = buildURL;
 form.addEventListener('input', buildURL);
 $('race').onclick = () => { cancelAnimationFrame(spinning); location.href = buildURL(); };
+
+// Two-player. The URL is the launcher's single source of truth for every
+// setting, so netplay just adds parameters to the one buildURL already makes --
+// which means every advanced setting keeps working in a networked race.
+const netURL = (extra) => {
+  const u = new URL(buildURL(), location.href);
+  for (const [k, v] of Object.entries(extra)) u.searchParams.set(k, v);
+  return u.pathname + u.search;
+};
+$('nethost').onclick = () => {
+  cancelAnimationFrame(spinning);
+  location.href = netURL({ net: 'host', name: $('netname').value || 'Host' });
+};
+$('netjoin').onclick = () => {
+  const room = ($('netroom').value || '').trim().toUpperCase();
+  if (!room) { $('netroom').focus(); return; }
+  cancelAnimationFrame(spinning);
+  location.href = netURL({ net: 'join', room, name: $('netname').value || 'Player 2' });
+};
 $('reset').onclick = resetAdvanced;
 $('copy').onclick = async (e) => {
   await navigator.clipboard.writeText(new URL(buildURL(), location.href).href);

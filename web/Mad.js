@@ -10,7 +10,7 @@
 //                so any expression mixing them is float32 in Java and drifts without this.
 //   i32(x)       int wrapping
 
-import { idiv, trunc, fr, i32, intArray, floatArray, objArray, HSBtoRGB } from './java.js';
+import { idiv, trunc, fr, i32, intArray, floatArray, objArray, HSBtoRGB, setDrawPhase } from './java.js';
 
 function int2(a, b) {
   const o = objArray(a);
@@ -1534,7 +1534,11 @@ export class Mad {
       }
     }
     if (this.focus === -1) {
-      if (this.im === this.xt.im) {
+      // human(), not "mine": this advances checkpoint focus by a different
+      // amount for the player's car, so keyed on `im` each netplay client
+      // advanced a different car and the two diverged. Same for every branch
+      // below that touches physics rather than sound or the HUD.
+      if (this.xt.human(this.im)) {
         focus += 2;
       } else {
         ++focus;
@@ -1560,7 +1564,7 @@ export class Mad {
       if (checkPoints.typ[focus] === -3) {
         focus = 0;
       }
-      if (this.im === this.xt.im) {
+      if (this.xt.human(this.im)) {
         if (this.missedcp !== -1) {
           this.missedcp = -1;
         }
@@ -1569,7 +1573,7 @@ export class Mad {
       }
     } else {
       focus = this.focus;
-      if (this.im === this.xt.im) {
+      if (this.xt.human(this.im)) {
         if (this.missedcp === 0 && this.mtouch && Math.sqrt(this.py(idiv(contO.x, 10), idiv(checkPoints.x[this.focus], 10), idiv(contO.z, 10), idiv(checkPoints.z[this.focus], 10))) > 800.0) {
           this.missedcp = 1;
         }
@@ -1780,7 +1784,13 @@ export class Mad {
         }
       }
     }
-    if (this.im === this.xt.im) {
+    // HUMAN, not "mine". This clears the wall-contact flag every tick for a
+    // player-driven car and lets it persist for an AI one, and `wall` feeds
+    // `surfer`, which feeds powerup and power. Keyed on `im` it ran on a
+    // different car on each netplay client, so the host's car surfed on the
+    // guest's machine and not on the host's: a 20-point power difference out
+    // of nothing. Single player is unaffected -- human() is `i === im` there.
+    if (this.xt.human(this.im)) {
       if (control.wall !== -1) {
         control.wall = -1;
       }
@@ -1798,12 +1808,22 @@ export class Mad {
     } else if (checkPoints.dested[this.im] !== 0 && checkPoints.dested[this.im] !== 3) {
       checkPoints.dested[this.im] = 0;
     }
+    // The record-ghost countdown. Genuinely local-only -- each client tracks
+    // its own replay -- so unlike the `wall` clear it cannot be made
+    // human-symmetric. That makes its random a PRESENTATION random: taken from
+    // the sim stream it advances on a different tick on each netplay client
+    // and desyncs everything downstream, which is exactly what it did.
     if (this.im === this.xt.im && this.rpd.wasted === 0 && this.rpdcatch !== 0) {
       --this.rpdcatch;
       if (this.rpdcatch === 0) {
         this.rpd.cotchinow(this.im);
         if (this.rpd.hcaught) {
-          this.rpd.whenwasted = trunc(fr(185.0 + fr(this.m.random() * 20.0)));
+          setDrawPhase(true);
+          try {
+            this.rpd.whenwasted = trunc(fr(185.0 + fr(this.m.random() * 20.0)));
+          } finally {
+            setDrawPhase(false);
+          }
         }
       }
     }
@@ -2217,7 +2237,7 @@ export class Mad {
                 n7 = -300.0;
               }
               mad.scx[k] = fr(mad.scx[k] + n7);
-              if (this.im === this.xt.im) {
+              if (this.xt.human(this.im)) {
                 mad.colidim = true;
               }
               const n9 = n + mad.regx(k, fr(fr(n7 * this.cd.moment[this.cn]) * n5), contO2);
@@ -2275,10 +2295,10 @@ export class Mad {
                 contO2.sprk(fr(fr(array[j] + array4[k]) / 2.0), fr(fr(array2[j] + array5[k]) / 2.0), fr(fr(array3[j] + array6[k]) / 2.0), fr(fr(mad.scx[k] + this.scx[j]) / 4.0), fr(fr(mad.scy[k] + this.scy[j]) / 4.0), fr(fr(mad.scz[k] + this.scz[j]) / 4.0), 2);
               }
             }
-            if (this.im === this.xt.im) {
+            if (this.xt.human(this.im)) {
               mad.lastcolido = 70;
             }
-            if (mad.im === this.xt.im) {
+            if (this.xt.human(mad.im)) {
               this.lastcolido = 70;
             }
             mad.scy[k] = fr(mad.scy[k] - this.cd.lift[this.cn]);

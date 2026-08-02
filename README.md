@@ -38,3 +38,4 @@ Both the Java and JS versions have a few enhancements to increase game resolutio
 - [ ] sound
 - [ ] game menus
 - [ ] private online multiplayer
+- [ ] upgrade ints to floats :o

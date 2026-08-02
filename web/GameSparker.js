@@ -401,6 +401,12 @@ export class GameSparker {
   }
 
   #draw(rd, medium, xtGraphics, array2, array3) {
+    // Rebuilding a wasted car's model is structurally inside draw(), but it is
+    // a SIMULATION event: ContO's constructor randomises the mesh of every
+    // `gr == -15` plane, and that mesh is the collision geometry Mad.regx()
+    // deforms and reads damage out of. Left on the draw stream the two clients
+    // would build differently-shaped cars.
+    setDrawPhase(false);
     for (let n33 = 0; n33 < xtGraphics.nplayers; ++n33) {
       if (array3[n33].newcar) {
         const xz = array2[n33].xz;
@@ -413,6 +419,7 @@ export class GameSparker {
         array3[n33].newcar = false;
       }
     }
+    setDrawPhase(true);
     medium.d(rd);
     let n34 = 0;
     const array16 = intArray(200);
@@ -460,7 +467,15 @@ export class GameSparker {
         record.rec(array2[n45], n45, array3[n45].squash, array3[n45].lastcolido, array3[n45].cntdest, 0);
       }
       checkPoints.checkstat(array3, array2, record, xtGraphics.nplayers, xtGraphics.im, 0);
-      for (let n46 = 1; n46 < xtGraphics.nplayers; ++n46) {
+      // The Java starts at 1 because the local player is always slot 0 and
+      // everyone else is AI. In a netplay session a remote HUMAN occupies one
+      // of those slots, and running preform() on it would have the AI drive
+      // the other player's car -- differently on each machine, since preform
+      // reads state the two clients legitimately hold at different moments.
+      for (let n46 = 0; n46 < xtGraphics.nplayers; ++n46) {
+        // The local slot is human by definition, so single-player needs no
+        // setup and cannot accidentally hand the player's car to the AI.
+        if (n46 === xtGraphics.im || this.u[n46].human) continue;
         this.u[n46].preform(array3[n46], array2[n46], checkPoints, trackers);
       }
     } else {
@@ -473,11 +488,16 @@ export class GameSparker {
       }
       if (xtGraphics.starcnt !== 0) --xtGraphics.starcnt;
     }
+    // Whose screen this is. The Java hardcodes 0 in the single-player path and
+    // keeps the real index in xtGraphics.im, which it already passes to
+    // checkstat above; in a netplay session the guest is slot 1 and every one
+    // of these has to follow it, or the guest watches the host's car.
+    const im = xtGraphics.im;
     if (xtGraphics.starcnt < 38) {
       if (this.view === 0) {
-        medium.follow(array2[0], array3[0].cxz, this.u[0].lookback);
-        xtGraphics.stat(array3[0], array2[0], checkPoints, this.u[0], true);
-        if (array3[0].outshakedam > 0) {
+        medium.follow(array2[im], array3[im].cxz, this.u[im].lookback);
+        xtGraphics.stat(array3[im], array2[im], checkPoints, this.u[im], true);
+        if (array3[im].outshakedam > 0) {
           this.shaka = idiv(array3[0].outshakedam, 20);
           if (this.shaka > 25) this.shaka = 25;
         }
@@ -486,13 +506,13 @@ export class GameSparker {
         this.lmxz = medium.xz;
       }
       if (this.view === 1) {
-        medium.around(array2[0], false);
-        xtGraphics.stat(array3[0], array2[0], checkPoints, this.u[0], false);
+        medium.around(array2[im], false);
+        xtGraphics.stat(array3[im], array2[im], checkPoints, this.u[im], false);
         this.mvect = 80;
       }
       if (this.view === 2) {
-        medium.watch(array2[0], array3[0].mxz);
-        xtGraphics.stat(array3[0], array2[0], checkPoints, this.u[0], false);
+        medium.watch(array2[im], array3[im].mxz);
+        xtGraphics.stat(array3[im], array2[im], checkPoints, this.u[im], false);
         this.mvect = 65 + idiv(Math.abs(this.lmxz - medium.xz), 5) * 100;
         if (this.mvect > 90) this.mvect = 90;
         this.lmxz = medium.xz;
@@ -506,10 +526,10 @@ export class GameSparker {
       if (n47 >= xtGraphics.nplayers) n47 = xtGraphics.nplayers - 1;
       medium.around(array2[n47], true);
       this.mvect = 80;
-      if (this.u[0].enter || this.u[0].handb) {
+      if (this.u[xtGraphics.im].enter || this.u[xtGraphics.im].handb) {
         xtGraphics.starcnt = 38;
-        this.u[0].enter = false;
-        this.u[0].handb = false;
+        this.u[xtGraphics.im].enter = false;
+        this.u[xtGraphics.im].handb = false;
       }
       if (xtGraphics.starcnt === 38) {
         medium.vert = false;
