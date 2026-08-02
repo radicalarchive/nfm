@@ -239,3 +239,4 @@ and it has returned a negative fixed cost). Measure fixed costs with `?prof=1`.
 - [ ] Glyph shimmer at distance is believed authentic (`Plane.java:742` culls
       sub-3px faces; `:261` is a 12/20-vertex LOD switch) — wants a side-by-side
       against `./start.sh` to confirm.
+- [ ] BassoonTracker's `ScriptProcessorNode` can starve and stutter under heavy load; needs an `AudioWorklet` port (or fallback to pre-rendered audio).
