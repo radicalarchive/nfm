@@ -254,7 +254,10 @@ async function boot() {
   //
   // What genuinely has to be snapshotted is draw's one real OUTPUT:
   // ContO.dist, which feeds the NEXT frame's depth sort.
-  const MED_STATE = ['cntrn', 'trn'];
+  // The DRAW bank of Medium's PRNG (see the note by its constructor). The sim
+  // bank is untouched by draw() and must not be snapshotted -- restoring it
+  // after an interpolated frame would rewind simulation state.
+  const MED_STATE = ['dcntrn', 'dtrn'];
   const snapPrev = { obj: [], cam: {} };
   const snapCurr = { obj: [], cam: {} };
 
@@ -273,9 +276,9 @@ async function boot() {
     for (const f of CAM) into.cam[f] = medium[f];
     for (const f of MED_STATE) into.cam[f] = medium[f];
     if (!into.rand) into.rand = new Int32Array(3);
-    into.rand.set(medium.rand);
+    into.rand.set(medium.drand);
     if (!into.diup) into.diup = [];
-    for (let i = 0; i < 3; i++) into.diup[i] = medium.diup[i];
+    for (let i = 0; i < 3; i++) into.diup[i] = medium.ddiup[i];
   };
 
   /** Shortest-path lerp for angles in degrees; plain lerp otherwise. */
@@ -332,8 +335,8 @@ async function boot() {
     }
     for (const f of CAM) medium[f] = snapCurr.cam[f];
     for (const f of MED_STATE) medium[f] = snapCurr.cam[f];
-    medium.rand.set(snapCurr.rand);
-    for (let i = 0; i < 3; i++) medium.diup[i] = snapCurr.diup[i];
+    medium.drand.set(snapCurr.rand);
+    for (let i = 0; i < 3; i++) medium.ddiup[i] = snapCurr.diup[i];
   };
 
   capture(snapPrev);

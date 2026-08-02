@@ -100,20 +100,49 @@ export function objArray(n) {
 // the spot-check tests meaningful and leaves the door open to a full
 // differential harness later.
 
+// TWO streams, and the split is a hard requirement for lockstep netplay.
+// Drawing consumes randoms (Plane.s() rolls ~30 per face for panel jitter and
+// flame shapes; every effect rolls its own geometry), and a client draws a
+// variable number of interpolated frames per tick depending on its refresh
+// rate and load. Sharing one stream therefore advances the sequence a
+// different number of times on each machine, and the next SIM call reads a
+// different value -- a desync caused purely by one player's monitor.
+//
+// The sim stream is advanced only by simulation code, so it stays in step
+// across clients as long as the ticks and inputs do. The draw stream drifts
+// freely and affects nothing but pixels.
 let _seed = 0x2545f491;
+let _drawSeed = 0x9e3779b9;
+let _drawPhase = false;
 
 export function setSeed(s) {
   _seed = s >>> 0 || 1;
+  // Deliberately NOT the same value: identical seeds would make the two
+  // streams return identical sequences, and a stream-crossing bug would then
+  // be invisible until the counts diverged.
+  _drawSeed = (_seed ^ 0x9e3779b9) >>> 0 || 1;
+}
+
+/**
+ * Mark the draw phase. Everything reached from GameSparker.draw() -- which is
+ * where the interpolated redraw lives -- must run inside it.
+ */
+export function setDrawPhase(on) {
+  _drawPhase = on;
+}
+
+export function inDrawPhase() {
+  return _drawPhase;
 }
 
 /** Uniform in [0,1), matching the contract of java.lang.Math.random(). */
 export function random() {
   // xorshift32
-  let x = _seed;
+  let x = _drawPhase ? _drawSeed : _seed;
   x ^= x << 13; x >>>= 0;
   x ^= x >>> 17;
   x ^= x << 5;  x >>>= 0;
-  _seed = x;
+  if (_drawPhase) _drawSeed = x; else _seed = x;
   return x / 4294967296;
 }
 

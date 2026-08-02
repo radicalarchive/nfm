@@ -456,3 +456,55 @@ test('the race tick pumps playsounds once per tick', async () => {
   }
   assert.strictEqual(pumps, 10, `expected one pump per tick, got ${pumps}`);
 });
+
+test('two worlds tick to bit-identical state regardless of how much they draw', async () => {
+  // The lockstep prerequisite, and the reason java.js keeps two PRNG streams.
+  // Client A draws once per tick; client B also draws three interpolated
+  // frames per tick, the way a 60Hz machine does against an 18.9Hz sim. Their
+  // simulations must not notice. On a single shared stream B's extra draws
+  // advance the sequence and every sim value downstream differs -- a desync
+  // caused by nothing but the other player's refresh rate.
+  //
+  // The two runs are SEQUENTIAL, not interleaved: the PRNG is module state, so
+  // two worlds alive at once share one stream and would interleave in a way no
+  // two browser tabs ever do. Each run re-seeds from scratch, as a fresh tab
+  // does.
+  const state = (w) => {
+    const out = [];
+    for (let i = 0; i < w.xt.nplayers; i++) {
+      const o = w.array2[i], m = w.array3[i];
+      out.push(o.x, o.y, o.z, o.xz, o.xy, o.zy,
+               m.speed, m.power, m.hitmag, m.mxz, m.nlaps);
+    }
+    out.push(w.checkPoints.wasted, w.checkPoints.catchfin);
+    for (let i = 0; i < w.xt.nplayers; i++) out.push(w.checkPoints.pos[i], w.checkPoints.clear[i]);
+    return out;
+    // The CAMERA is deliberately not in here. Medium.d() -- the draw path --
+    // normalises medium.xz into [0,360) and clamps zy/y, so a client drawing
+    // interpolated frames normalises more often, and follow() is a stateful
+    // ease that reads the result: two clients' cameras drift apart by a whole
+    // turn's worth of representation. That cannot desync anything, because no
+    // physics class reads medium.xz at all (grep: zero hits in Mad, Control,
+    // Wheels, Record, CheckPoints), and each player has their own camera by
+    // definition. Asserting on it would pin a divergence that is correct.
+  };
+
+  const run = async (interpFrames) => {
+    const w = await buildWorld({ seed: 4242 });
+    w.gs.u[0].up = true;
+    w.gs.u[0].right = true;
+    for (let t = 0; t < 200; t++) {
+      w.rd.begin();
+      w.gs.tick(w.rd, w.medium, w.trackers, w.checkPoints, w.xt, w.record, w.array2, w.array3);
+      for (let f = 0; f < interpFrames; f++) {
+        w.medium.interpolating = true;
+        w.rd.begin(true);
+        w.gs.draw(w.rd, w.medium, w.xt, w.array2, w.array3);
+        w.medium.interpolating = false;
+      }
+    }
+    return state(w);
+  };
+
+  assert.deepEqual(await run(0), await run(3), 'the two simulations diverged');
+});

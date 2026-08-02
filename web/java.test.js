@@ -99,3 +99,17 @@ test('JavaRandom matches java.util.Random bit for bit', () => {
 
   assert.equal(new JavaRandom(0).nextDouble(), 0.730967787376657);
 });
+
+test('the baked trig tables match this engine, entry for entry', async () => {
+  // Baking them is for CROSS-engine stability, which no single-engine test can
+  // check. What this pins is that baking did not change the simulation on the
+  // engine the tables were generated on -- a transcription slip in 720 numbers
+  // would otherwise surface as a subtly wrong game, not as a failure.
+  const { TCOS, TSIN } = await import('./trig.js');
+  assert.equal(TCOS.length, 360);
+  assert.equal(TSIN.length, 360);
+  for (let i = 0; i < 360; i++) {
+    assert.equal(TCOS[i], Math.fround(Math.cos(i * 0.017453292519943295)), `cos ${i}`);
+    assert.equal(TSIN[i], Math.fround(Math.sin(i * 0.017453292519943295)), `sin ${i}`);
+  }
+});

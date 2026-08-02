@@ -10,8 +10,10 @@
 
 import {
   idiv, trunc, fr, intArray, floatArray, objArray, random, JavaRandom, RGBtoHSB,
+  inDrawPhase,
 } from './java.js';
 import { Madness } from './Madness.js';
+import { TCOS, TSIN } from './trig.js';
 
 /** Java long division: truncates toward zero, like int division. */
 function ldiv(a, b) {
@@ -130,10 +132,20 @@ export class Medium {
     this.rp = 0;
     this.recording = false;
     this.nochekflk = false;
+    // This PRNG's own state is banked per phase for the same reason java.js's
+    // seed is (see the note there): draw() consumes a variable number of
+    // randoms per tick, and a shared walk would feed the simulation different
+    // values on two machines with different frame rates. `rand`/`diup`/
+    // `cntrn`/`trn` are the SIM bank; `drand`/`ddiup`/`dcntrn`/`dtrn` the draw
+    // one. main.js snapshots the draw bank across an interpolated frame.
     this.cntrn = 0;
     this.diup = [false, false, false];
     this.rand = Int32Array.from([0, 0, 0]);
     this.trn = 0;
+    this.dcntrn = 0;
+    this.ddiup = [false, false, false];
+    this.drand = Int32Array.from([0, 0, 0]);
+    this.dtrn = 0;
     this.hit = 45000;
     this.ptr = 0;
     this.ptcnt = -10;
@@ -180,8 +192,11 @@ export class Medium {
     this.twn = null;
     this.resdown = 0;
     this.rescnt = 5;
-    for (let i = 0; i < 360; ++i) this.tcos[i] = Math.cos(i * 0.017453292519943295);
-    for (let j = 0; j < 360; ++j) this.tsin[j] = Math.sin(j * 0.017453292519943295);
+    // Baked, not computed: Math.sin/Math.cos are not required to be correctly
+    // rounded, so two players on different JS engines would get tables that
+    // differ in the last ulp and desync. See trig.js.
+    this.tcos.set(TCOS);
+    this.tsin.set(TSIN);
   }
 
   /**
@@ -202,28 +217,34 @@ export class Medium {
     // only matters if a redraw somehow outruns the tick, and it keeps every
     // interpolated frame of a tick identical to the others even then.
     if (this.interpolating && this.rn !== 0) return this.rlog[this.rp++ % this.rn];
-    if (this.cntrn === 0) {
+    // Pick the bank for this phase. Names shadow the fields deliberately: the
+    // body below is the Java's, unchanged, operating on whichever bank is live.
+    const draw = inDrawPhase();
+    const rand = draw ? this.drand : this.rand;
+    const diup = draw ? this.ddiup : this.diup;
+    if ((draw ? this.dcntrn : this.cntrn) === 0) {
       for (let i = 0; i < 3; ++i) {
-        this.rand[i] = trunc(10.0 * random());
-        if (random() > random()) this.diup[i] = false;
-        else this.diup[i] = true;
+        rand[i] = trunc(10.0 * random());
+        if (random() > random()) diup[i] = false;
+        else diup[i] = true;
       }
-      this.cntrn = 20;
+      if (draw) this.dcntrn = 20; else this.cntrn = 20;
     } else {
-      --this.cntrn;
+      if (draw) --this.dcntrn; else --this.cntrn;
     }
     for (let j = 0; j < 3; ++j) {
-      if (this.diup[j]) {
-        ++this.rand[j];
-        if (this.rand[j] === 10) this.rand[j] = 0;
+      if (diup[j]) {
+        ++rand[j];
+        if (rand[j] === 10) rand[j] = 0;
       } else {
-        --this.rand[j];
-        if (this.rand[j] === -1) this.rand[j] = 9;
+        --rand[j];
+        if (rand[j] === -1) rand[j] = 9;
       }
     }
-    ++this.trn;
-    if (this.trn === 3) this.trn = 0;
-    const v = fr(this.rand[this.trn] / 10.0);
+    let trn = (draw ? this.dtrn : this.trn) + 1;
+    if (trn === 3) trn = 0;
+    if (draw) this.dtrn = trn; else this.trn = trn;
+    const v = fr(rand[trn] / 10.0);
     if (this.recording) {
       if (this.rn === this.rlog.length) {
         const grown = new Float32Array(this.rn * 2);

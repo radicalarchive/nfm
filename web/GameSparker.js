@@ -9,7 +9,7 @@
 // browser cannot, so loadbase/loadstage take already-fetched bytes/text.
 // Everything else is line-for-line.
 
-import { idiv, trunc, intArray, objArray } from './java.js';
+import { idiv, trunc, intArray, objArray, setDrawPhase } from './java.js';
 import { ContO } from './ContO.js';
 import { readLines, entryText } from './vfs.js';
 
@@ -387,6 +387,20 @@ export class GameSparker {
    * sort, exactly as in the Java).
    */
   draw(rd, medium, xtGraphics, array2, array3) {
+    // Everything below draws on the draw PRNG streams, never the sim ones --
+    // see the note in java.js. Marked here rather than at the call sites so a
+    // new caller (the interpolated redraw, the launcher preview) cannot forget
+    // to, and in a finally so a throw mid-draw cannot leave the sim reading
+    // draw randoms for the rest of the session.
+    setDrawPhase(true);
+    try {
+      this.#draw(rd, medium, xtGraphics, array2, array3);
+    } finally {
+      setDrawPhase(false);
+    }
+  }
+
+  #draw(rd, medium, xtGraphics, array2, array3) {
     for (let n33 = 0; n33 < xtGraphics.nplayers; ++n33) {
       if (array3[n33].newcar) {
         const xz = array2[n33].xz;
