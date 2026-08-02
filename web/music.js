@@ -78,8 +78,9 @@ let userVolume = 1;
 // Third term, fixed: BassoonTracker's mixer is a lot hotter than ibxm's at the
 // same per-stage gain, so `gain/300` straight out of loadstrack drowns the
 // engine and crashes. This trims the whole music bus so that a full slider is
-// the desktop game's balance rather than an unusable maximum.
-const MUSIC_TRIM = 0.125;
+// the desktop game's balance rather than an unusable maximum. Set by ear; the
+// per-stage gain still varies around it (0.4 to 1.33).
+const MUSIC_TRIM = 0.33;
 export let stageLoaded = false;
 
 // Bumped by every load(). A load that finishes after a newer one started must
@@ -109,6 +110,7 @@ function getContext() {
     if (BassoonTracker.audio && typeof BassoonTracker.audio.init === 'function') {
       BassoonTracker.audio.init();
     }
+    hookMasterVolume();
     audioReady = true;
     return true;
   } catch (e) {
@@ -231,16 +233,37 @@ export function unlock() {
   }
 }
 
+/**
+ * The music level has to be applied by scaling the tracker's own master-volume
+ * writes, not by setting the gain node directly.
+ *
+ * `audio.setMasterVolume` drives the param with `setValueAtTime` +
+ * `linearRampToValueAtTime`, and an AudioParam under automation ignores a
+ * later `gain.value = v` — the write succeeds and is inaudible. The tracker
+ * also calls `setMasterVolume(1)` on play and again for a module's
+ * global-volume effect (MOD effect 0x10), so any level set beforehand is
+ * overwritten regardless.
+ *
+ * Wrapping the setter covers both, and leaves a module's own volume
+ * automation working relative to our level.
+ */
+let trackerLevel = 1;     // the last level the tracker asked for, unscaled
+let rawSetMasterVolume = null;
+
+function hookMasterVolume() {
+  const audio = BassoonTracker.audio;
+  if (!audio || typeof audio.setMasterVolume !== 'function' || rawSetMasterVolume) return;
+  rawSetMasterVolume = audio.setMasterVolume.bind(audio);
+  audio.setMasterVolume = (level, when) => {
+    trackerLevel = level;
+    rawSetMasterVolume(level * MUSIC_TRIM * trackGain * userVolume, when);
+  };
+}
+
 /** Push the current trim x track-gain x user-volume product at the player. */
 function applyVolume() {
-  if (!getContext()) return;
-  const v = MUSIC_TRIM * trackGain * userVolume;
-  const audio = BassoonTracker.audio;
-  if (audio && audio.masterVolume && audio.masterVolume.gain) {
-    audio.masterVolume.gain.value = v;
-  } else if (audio && typeof audio.setMasterVolume === 'function') {
-    audio.setMasterVolume(v);
-  }
+  if (!getContext() || !rawSetMasterVolume) return;
+  rawSetMasterVolume(trackerLevel * MUSIC_TRIM * trackGain * userVolume);
 }
 
 /** The player's music level, 0..1. Survives track changes. */

@@ -46,6 +46,10 @@ python3 -m http.server 8123        # from the repo root
 ```sh
 ./deploy.sh                        # -> cop:/www/nfm/ (a flat tree)
 ```
+**Run it whenever you finish a change the user is meant to look at or listen
+to.** The deployed site is where they check the work; leaving it on the last
+deploy means they judge a change that never shipped. Say in your reply that you
+deployed.
 Mirrors with `rsync --delete` and stamps every ES module import with a content
 hash. **The stamping is not optional:** the host sends no `Cache-Control`, so a
 module graph otherwise goes stale one file at a time and you debug last
