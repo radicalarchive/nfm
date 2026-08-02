@@ -93,15 +93,51 @@ it.txt` carries that line in the shipped content, so the stock stages take
 whatever default the menu sets — check that before concluding a track fails to
 load.
 
-## Wiring, which is NOT the subagent's job
+## The game PRE-RENDERS the module — there is no realtime playback
 
-Do this yourself afterwards. It is small and it is where the browser-specific
-judgement lives:
+**Corrected 2026-08-01, and it makes the whole job easier.** The plan below
+assumed an `AudioWorkletProcessor` streaming from the mixer. The game does not
+work that way. `RadicalMod`'s constructor calls
+`IBXModSlayer.turnbytesNorm()`, which runs the mixer to completion at load and
+returns **the entire track as a PCM byte[]** (16-bit LE, MONO — it keeps only
+the even mix indices, i.e. one side of the stereo pair — at a 22000 skiprate),
+capped at 18,000,000 bytes. That buffer is handed to `SuperClip`, which is
+just a streaming clip player with a loop point.
 
-- an `AudioWorkletProcessor` pulling from the port's mixer into a ring buffer;
-- the same autoplay-gesture unlock `web/audio.js` already does;
+So the browser side is: render once into an `AudioBuffer`, play it with a
+looping `AudioBufferSourceNode`. That is machinery `web/audio.js` already has.
+**No AudioWorklet, no ring buffer, no realtime deadline, no audio-thread
+concurrency** — which was the part of this job that actually needed care.
+
+- `sClip.rollBackPos` / `rollBackTrig` are the loop points -> `loopStart` /
+  `loopEnd` on the source node.
+- `prepareSlayer(module, n2, n, n3)` takes sample rate, gain and bpm flex;
+  `loadstrack` (`xtGraphics.java:2987`) has a per-stage table of those
+  constants for all 32 stages, which is data to transcribe, not logic.
+- Watch `n *= (int)0.8f` in `RadicalMod`'s constructor — a §2 artifact, really
+  `n = (int)(n * 0.8f)`. See `WORK.md`.
+- The same autoplay-gesture unlock `web/audio.js` already does.
 - `checkPoints.trackname` / `trackvol` are parsed from the stage file already
   (`GameSparker.loadstage`) and select the track and its volume.
+
+### The oracle is even better than described
+
+`turnbytesNorm()` returns the whole track as bytes, so the comparison is a
+byte-for-byte diff of one buffer against the Java's — one check covering the
+entire tracker, with no timing or streaming to make it approximate.
+
+## Files the spec missed
+
+The game does not call `ibxm` directly. It goes through a wrapper layer that
+also has to be ported (~427 lines on top of the 2,494):
+
+| file | lines | note |
+|---|---|---|
+| `RadicalMod.java` | 208 | what `xtGraphics.strack` actually is; load/play/stop/resume |
+| `ds/nfm/xm/IBXModSlayer.java` | 110 | `turnbytesNorm`, the pre-render loop |
+| `ds/nfm/ModuleLoader.java` | 79 | reads the module out of the stage zip |
+| `ds/nfm/xm/IBXMod.java` | 30 | small |
+| `SuperClip.java` | 126 | **do NOT port** — Java Sound streaming, replaced by `web/audio.js` |
 
 ## Non-negotiables for the prompt
 

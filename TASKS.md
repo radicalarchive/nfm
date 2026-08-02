@@ -175,13 +175,13 @@ and it has returned a negative fixed cost). Measure fixed costs with `?prof=1`.
       **Not ported:** the `multion==2/3` branch that mirrors player 0's mute
       flags onto a remote player, and the `app.applejava` clip-reopen
       workaround; both marked `// TODO not ported:` at the site.
-- [~] **Engine sound.** The looping clip type is in (`web/audio.js`:
+- [x] **Engine sound.** The looping clip type is in (`web/audio.js`:
       `loop`/`stopLoop`/`isLooping`/`stopAllLoops`; muting cuts live loops),
       the 25 numbered samples and `air0`-`air5` decode, and `sparkeng()` holds
-      exactly one of five engine clips looping per rev band. **Unverified by
-      ear** — needs a listen in a real browser, which is the only oracle here.
-      `checkopen()`'s clip reopening is deliberately not ported; Web Audio has
-      no equivalent failure to work around.
+      exactly one of five engine clips looping per rev band.
+      **Confirmed by ear in a real browser (2026-08-01) — the only oracle that
+      counts for audio.** `checkopen()`'s clip reopening is deliberately not
+      ported; Web Audio has no equivalent failure to work around.
 - [~] Remaining one-shots: all now bound to real clips via `XtGraphics._clip`
       rather than `{play(){}}` stubs, so `firewasted` (fired from
       `playsounds()`) and `carfixed` (already called from `Mad`) work.
