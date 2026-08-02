@@ -15,8 +15,21 @@
 
 import { readZip } from './vfs.js';
 
-/** Clips the race needs, by name in sounds.zip minus the extension. */
+/**
+ * Clips the race needs, by name in sounds.zip minus the extension.
+ *
+ * The 25 numbered ones are the engine: `engs[signature][rev]`, five car engine
+ * signatures by five rev slots, switched as continuous loops by sparkeng()
+ * rather than fired as one-shots. `air0`-`air5` are the airborne/landing
+ * whooshes, looped the same way.
+ */
 const CLIPS = [
+  '00', '01', '02', '03', '04',
+  '10', '11', '12', '13', '14',
+  '20', '21', '22', '23', '24',
+  '30', '31', '32', '33', '34',
+  '40', '41', '42', '43', '44',
+  'air0', 'air1', 'air2', 'air3', 'air4', 'air5',
   'crash1', 'crash2', 'crash3',
   'lowcrash1', 'lowcrash2', 'lowcrash3',
   'skid1', 'skid2', 'skid3',
@@ -32,6 +45,7 @@ export class Audio {
     this.ctx = null;
     this.buffers = new Map();      // name -> AudioBuffer
     this.playing = new Map();      // name -> AudioBufferSourceNode, for stop()
+    this.looping = new Map();      // name -> looping source, for stopLoop()
     this.muted = false;
     this.ready = false;
   }
@@ -93,8 +107,53 @@ export class Audio {
     this.playing.delete(name);
   }
 
+  /**
+   * AudioClip.loop(): start this clip looping, and keep looping until stop().
+   *
+   * The engine is not a sequence of one-shots -- sparkeng() holds one rev
+   * sample looping and switches to another as the revs cross a threshold, so
+   * calling this on a clip already looping must be a no-op rather than a
+   * restart, or the engine machine-guns at the tick rate. sparkeng() does
+   * track that itself in pengs[], but a stray double-loop() is the kind of
+   * thing that only shows up as a sound artifact, so it is cheap to be safe
+   * here too.
+   */
+  loop(name) {
+    if (this.muted || !this.ctx || this.ctx.state !== 'running') return;
+    if (this.looping.has(name)) return;
+    const buf = this.buffers.get(name);
+    if (!buf) return;
+    const src = this.ctx.createBufferSource();
+    src.buffer = buf;
+    src.loop = true;
+    src.connect(this.gain);
+    src.start();
+    this.looping.set(name, src);
+  }
+
+  /** Stop a loop started by loop(). Separate from the one-shot bookkeeping. */
+  stopLoop(name) {
+    const src = this.looping.get(name);
+    if (!src) return;
+    try { src.stop(); } catch { /* already ended */ }
+    this.looping.delete(name);
+  }
+
+  /** Is this clip currently looping? */
+  isLooping(name) {
+    return this.looping.has(name);
+  }
+
+  /** Cut every loop -- used when the race ends or the car is destroyed. */
+  stopAllLoops() {
+    for (const name of [...this.looping.keys()]) this.stopLoop(name);
+  }
+
   setMuted(on) {
     this.muted = on;
     if (this.gain) this.gain.gain.value = on ? 0 : 1;
+    // Muting has to actually silence the loops, not just gate new playbacks:
+    // the engine is already running when the mute lands.
+    if (on) this.stopAllLoops();
   }
 }

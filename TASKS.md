@@ -162,28 +162,32 @@ and it has returned a negative fixed cost). Measure fixed costs with `?prof=1`.
       absent Web Audio costs sound and nothing else.
 - [x] `crash` / `skid` / `scrape` / `gscrape` ported from xtGraphics.java
       (9289-9430), rotation counters and `bfXXX` debounce included.
-- [ ] **A sound effect plays once per race, then never again** — the same
-      `playsounds()` gap below: `bfcrash` is set to 2 on the first crash and
-      nothing decrements it, so every later crash is suppressed. Fixed by the
-      item immediately below; listed separately because it presents as an audio
-      bug rather than a missing method.
-- [ ] **`playsounds()` — port it FIRST, everything below depends on it.**
-      `xtGraphics.java:9081`, ~200 lines, called once per tick from
-      `GameSparker.java:1705`. It decrements `bfcrash` / `bfskid` /
-      `bfscrape` / `bfsc1` / `bfsc2` (`:9207-9221`), and **nothing in the port
-      decrements them today**. So the first skid sets `bfskid = 5` and every
-      later one is suppressed forever — currently you hear at most one crash,
-      one skid and one scrape per session. This is why the game sounds nearly
-      silent, and it is a small fix with a large effect.
-- [ ] **Engine sound.** `playsounds()` drives `engs[][]` via `checkopen()`:
-      the numbered samples in sounds.zip (`00.wav`-`44.wav`, gear x rev index,
-      plus `air0`-`air5`) are continuously switched loops, not one-shots. Needs
-      a looping/crossfading clip type in `web/audio.js` — `AudioClip.loop()`
-      in the Java, which the current one-shot backend does not implement.
-- [ ] Remaining one-shots that exist in sounds.zip and are decoded but never
-      triggered: `checkpoint`, `wasted`, `firewasted`, `carfixed`, `powerup`,
-      and the `one`/`two`/`three`/`go` countdown. Their call sites are inside
-      `playsounds()` and the race-state code.
+- [x] **A sound effect plays once per race, then never again** — fixed by
+      `playsounds()` below, which decrements the `bfXXX` counters. Covered by
+      *"playsounds decrements the sound debounce counters"*, which asserts a
+      second crash actually sounds rather than just checking the field.
+- [x] **`playsounds()` — ported** (`XtGraphics.playsounds`), with
+      `sparkeng()` and `stopairs()`, called once per tick from the end of
+      `GameSparker.simulate()`. It decrements every `bfXXX` debounce counter
+      and drives the engine and air loops. Two tests pin it: the counters
+      clearing, and the tick actually calling the pump — porting the method
+      and leaving it unreferenced would otherwise pass everything.
+      **Not ported:** the `multion==2/3` branch that mirrors player 0's mute
+      flags onto a remote player, and the `app.applejava` clip-reopen
+      workaround; both marked `// TODO not ported:` at the site.
+- [~] **Engine sound.** The looping clip type is in (`web/audio.js`:
+      `loop`/`stopLoop`/`isLooping`/`stopAllLoops`; muting cuts live loops),
+      the 25 numbered samples and `air0`-`air5` decode, and `sparkeng()` holds
+      exactly one of five engine clips looping per rev band. **Unverified by
+      ear** — needs a listen in a real browser, which is the only oracle here.
+      `checkopen()`'s clip reopening is deliberately not ported; Web Audio has
+      no equivalent failure to work around.
+- [~] Remaining one-shots: all now bound to real clips via `XtGraphics._clip`
+      rather than `{play(){}}` stubs, so `firewasted` (fired from
+      `playsounds()`) and `carfixed` (already called from `Mad`) work.
+      `checkpoint`, `wasted`, `powerup` and the `one`/`two`/`three`/`go`
+      countdown are wired but still have no call site in the port — those live
+      in race-state code that is not ported yet.
 - [ ] **Music — the `ibxm`/`ds.nfm.mod` tracker.** Delegation spec written:
       `decompilation/MUSIC_PORT_SPEC.md`. Self-contained (no renderer contact,
       no shared game state) and, unusually for this port, it has an exact

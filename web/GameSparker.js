@@ -504,6 +504,16 @@ export class GameSparker {
         rd.fillRect(0, 0, 800, 450);
       }
     }
+    // GameSparker.java:1698-1705. Once per TICK -- it is the pump that
+    // decrements every bfXXX debounce counter and switches the engine loops,
+    // so at display rate the engine would chatter and every debounce would
+    // clear ~3x too fast. Interpolated frames redraw, they do not simulate,
+    // so being here in simulate() is exactly right.
+    if (xtGraphics.im > -1 && xtGraphics.im < 8) {
+      // TODO not ported: the multion==2/3 branch, which mirrors player 0's
+      // mute flags onto the remote player's control before pumping.
+      xtGraphics.playsounds(array3[xtGraphics.im], this.u[0], checkPoints.stage);
+    }
   }
 
   /** Extract the nth comma-separated int from `key(a,b,c)`. */

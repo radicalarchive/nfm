@@ -235,23 +235,27 @@ export class XtGraphics {
     this.ocntdn = new Array(4).fill(null);
     this.cntdn = new Array(4).fill(null);
     this.gocnt = 0;
-    this.engs = Array.from({ length: 5 }, () => new Array(5).fill(null));
+    // engs[signature][rev] and air[] are LOOPS, switched by sparkeng(); the
+    // rest are one-shots. Names are the entries in sounds.zip minus the
+    // extension -- the engine's are literally "00".."44".
+    this.engs = Array.from({ length: 5 }, (_, k) =>
+      Array.from({ length: 5 }, (_, j) => this._clip(`${k}${j}`)));
     this.pengs = new Array(5).fill(false);
-    this.air = new Array(6).fill(null);
+    this.air = Array.from({ length: 6 }, (_, l) => this._clip(`air${l}`));
     this.aird = false;
     this.grrd = false;
     this.crashClips = new Array(3).fill(null);
     this.lowcrash = new Array(3).fill(null);
-    this.tires = null;
-    this.checkpoint = { play() {} };
-    this.carfixed = { play() {} };
-    this.powerup = { play() {} };
-    this.three = { play() {} };
-    this.two = { play() {} };
-    this.one = { play() {} };
-    this.go = { play() {} };
-    this.wastd = { play() {} };
-    this.firewasted = { play() {} };
+    this.tires = this._clip('tires');
+    this.checkpoint = this._clip('checkpoint');
+    this.carfixed = this._clip('carfixed');
+    this.powerup = this._clip('powerup');
+    this.three = this._clip('three');
+    this.two = this._clip('two');
+    this.one = this._clip('one');
+    this.go = this._clip('go');
+    this.wastd = this._clip('wasted');
+    this.firewasted = this._clip('firewasted');
     this.pwastd = false;
     this.skidClips = new Array(3).fill(null);
     this.dustskid = new Array(3).fill(null);
@@ -403,6 +407,24 @@ export class XtGraphics {
     if (this.snd && !this.mutes) this.snd.play(name);
   }
 
+  /**
+   * An AudioClip stand-in bound to one name in sounds.zip.
+   *
+   * The Java holds `AudioClip` objects in `engs[][]`, `air[]`, `wastd` and so
+   * on and calls `.play()` / `.loop()` / `.stop()` on them. Handing the port
+   * the same shape keeps those call sites transpilable line by line, which
+   * matters most in playsounds(), where the engine is a state machine over
+   * which of five clips is currently looping.
+   */
+  _clip(name) {
+    return {
+      play: () => { if (this.snd && !this.mutes) this.snd.play(name); },
+      loop: () => { if (this.snd && !this.mutes) this.snd.loop(name); },
+      stop: () => { if (this.snd) { this.snd.stopLoop(name); this.snd.stop(name); } },
+      resume: () => { if (this.snd && !this.mutes) this.snd.loop(name); },
+    };
+  }
+
   crash(a, n) {
     if (this.bfcrash !== 0) return;
     if (n === 0) {
@@ -499,7 +521,229 @@ export class XtGraphics {
   loadingstage(_stage, _b) {}
   trackbg(_b) {}
   stoploading() {}
-  playsounds() {}
+
+  /**
+   * The per-tick sound pump. `xtGraphics.java:9081`, called once per tick from
+   * `GameSparker.java:1705`.
+   *
+   * Nothing else decrements the `bfXXX` debounce counters, so without this the
+   * first crash sets `bfcrash = 2` and every later crash is suppressed for the
+   * rest of the session -- you hear exactly one crash, one skid and one
+   * scrape per race. It also drives the engine, which is not a series of
+   * one-shots but five continuously looping samples with sparkeng() choosing
+   * which one is live.
+   */
+  playsounds(mad, control, n) {
+    if ((this.fase === 0 || this.fase === 7001) && this.starcnt < 35 && this.cntwis !== 8 && !this.mutes) {
+      let b = (control.up && mad.speed > 0.0) || (control.down && mad.speed < 10.0);
+      let b2 = (mad.skid === 1 && control.handb)
+        || Math.abs(fr(mad.scz[0] - fr(fr(fr(mad.scz[1] + mad.scz[0]) + mad.scz[2]) + mad.scz[3]) / 4.0)) > 1.0
+        || Math.abs(fr(mad.scx[0] - fr(fr(fr(mad.scx[1] + mad.scx[0]) + mad.scx[2]) + mad.scx[3]) / 4.0)) > 1.0;
+      let b3 = false;
+      if (control.up && mad.speed < 10.0) {
+        b2 = true;
+        b = true;
+        b3 = true;
+      }
+      if (b && mad.mtouch) {
+        if (!mad.capsized) {
+          if (!b2) {
+            if (mad.power !== 98.0) {
+              // Three rev bands, split at the car's own gear-change points.
+              // Within a band the sample index is the fraction of the way
+              // through it; `pwait` holds the top slot for a few ticks so the
+              // engine does not chatter between two samples at a threshold.
+              if (Math.abs(mad.speed) > 0.0 && Math.abs(mad.speed) <= this.cd.swits[mad.cn][0]) {
+                let n2 = trunc(fr(fr(3.0 * Math.abs(mad.speed)) / this.cd.swits[mad.cn][0]));
+                if (n2 === 2) {
+                  if (this.pwait === 0) {
+                    n2 = 0;
+                  } else {
+                    --this.pwait;
+                  }
+                } else {
+                  this.pwait = 7;
+                }
+                this.sparkeng(n2, mad.cn);
+              }
+              if (Math.abs(mad.speed) > this.cd.swits[mad.cn][0] && Math.abs(mad.speed) <= this.cd.swits[mad.cn][1]) {
+                let n3 = trunc(fr(fr(3.0 * fr(Math.abs(mad.speed) - this.cd.swits[mad.cn][0]))
+                  / fr(this.cd.swits[mad.cn][1] - this.cd.swits[mad.cn][0])));
+                if (n3 === 2) {
+                  if (this.pwait === 0) {
+                    n3 = 0;
+                  } else {
+                    --this.pwait;
+                  }
+                } else {
+                  this.pwait = 7;
+                }
+                this.sparkeng(n3, mad.cn);
+              }
+              if (Math.abs(mad.speed) > this.cd.swits[mad.cn][1] && Math.abs(mad.speed) <= this.cd.swits[mad.cn][2]) {
+                this.sparkeng(trunc(fr(fr(3.0 * fr(Math.abs(mad.speed) - this.cd.swits[mad.cn][1]))
+                  / fr(this.cd.swits[mad.cn][2] - this.cd.swits[mad.cn][1]))), mad.cn);
+              }
+            } else {
+              let n4 = 2;
+              if (this.pwait === 0) {
+                if (Math.abs(mad.speed) > this.cd.swits[mad.cn][1]) {
+                  n4 = 3;
+                }
+              } else {
+                --this.pwait;
+              }
+              this.sparkeng(n4, mad.cn);
+            }
+          } else {
+            // Wheelspin: the engine drops out and a tyre-squeal air sample
+            // takes over.
+            this.sparkeng(-1, mad.cn);
+            if (b3) {
+              if (this.stopcnt <= 0) {
+                this.air[5].loop();
+                this.stopcnt = 10;
+              }
+            } else if (this.stopcnt <= -2) {
+              this.air[2 + trunc(fr(this.m.random() * 3.0))].loop();
+              this.stopcnt = 7;
+            }
+          }
+        } else {
+          this.sparkeng(3, mad.cn);
+        }
+        this.grrd = false;
+        this.aird = false;
+      } else {
+        this.pwait = 15;
+        if (!mad.mtouch && !this.grrd && this.m.random() > 0.4) {
+          this.air[trunc(fr(this.m.random() * 4.0))].loop();
+          this.stopcnt = 5;
+          this.grrd = true;
+        }
+        if (!mad.wtouch && !this.aird) {
+          this.stopairs();
+          this.air[trunc(fr(this.m.random() * 4.0))].loop();
+          this.stopcnt = 10;
+          this.aird = true;
+        }
+        this.sparkeng(-1, mad.cn);
+      }
+      if (mad.cntdest !== 0 && this.cntwis < 7) {
+        if (!this.pwastd) {
+          this.wastd.loop();
+          this.pwastd = true;
+        }
+      } else {
+        if (this.pwastd) {
+          this.wastd.stop();
+          this.pwastd = false;
+        }
+        if (this.cntwis === 7 && !this.mutes) {
+          this.firewasted.play();
+        }
+      }
+    } else {
+      this.sparkeng(-2, mad.cn);
+      if (this.pwastd) {
+        this.wastd.stop();
+        this.pwastd = false;
+      }
+    }
+    if (this.stopcnt !== -20) {
+      if (this.stopcnt === 1) {
+        this.stopairs();
+      }
+      --this.stopcnt;
+    }
+    // THE debounce decrements. crash()/skid()/scrape()/gscrape() set these and
+    // nothing else clears them.
+    if (this.bfcrash !== 0) {
+      --this.bfcrash;
+    }
+    if (this.bfscrape !== 0) {
+      --this.bfscrape;
+    }
+    if (this.bfsc1 !== 0) {
+      --this.bfsc1;
+    }
+    if (this.bfsc2 !== 0) {
+      --this.bfsc2;
+    }
+    if (this.bfskid !== 0) {
+      --this.bfskid;
+    }
+    if (mad.newcar) {
+      this.cntwis = 0;
+    }
+    if (this.fase === 0 || this.fase === 7001 || this.fase === 6 || this.fase === -1
+        || this.fase === -2 || this.fase === -3 || this.fase === -4 || this.fase === -5) {
+      if (this.mutes !== control.mutes) {
+        this.mutes = control.mutes;
+      }
+      if (control.mutem !== this.mutem) {
+        this.mutem = control.mutem;
+        if (this.mutem) {
+          if (this.loadedt) {
+            this.strack.stop();
+          }
+        } else if (this.loadedt) {
+          this.strack.resume();
+        }
+      }
+    }
+    if (mad.cntdest !== 0 && this.cntwis < 7) {
+      if (mad.dest) {
+        ++this.cntwis;
+      }
+    } else {
+      if (mad.cntdest === 0) {
+        this.cntwis = 0;
+      }
+      if (this.cntwis === 7) {
+        this.cntwis = 8;
+      }
+    }
+    // TODO not ported: `if (this.app.applejava) this.closesounds();` -- an
+    // Apple-JVM workaround that closed and reopened clips every tick.
+  }
+
+  /** `xtGraphics.java:9258`. Cut every air loop. */
+  stopairs() {
+    for (let i = 0; i < 6; ++i) {
+      this.air[i].stop();
+    }
+  }
+
+  /**
+   * `xtGraphics.java:9264`. Hold exactly one of the five engine samples
+   * looping: `n` selects it (-1 for silence, so the loop below compares
+   * against `n + 1`), `lcn` is the car, whose `enginsignature` picks the bank.
+   * Changing car stops the old bank's clips first, or they loop forever.
+   */
+  sparkeng(n, lcn) {
+    if (this.lcn !== lcn) {
+      for (let i = 0; i < 5; ++i) {
+        if (this.pengs[i]) {
+          this.engs[this.cd.enginsignature[this.lcn]][i].stop();
+          this.pengs[i] = false;
+        }
+      }
+      this.lcn = lcn;
+    }
+    ++n;
+    for (let j = 0; j < 5; ++j) {
+      if (n === j) {
+        if (!this.pengs[j]) {
+          this.engs[this.cd.enginsignature[lcn]][j].loop();
+          this.pengs[j] = true;
+        }
+      } else if (this.pengs[j]) {
+        this.engs[this.cd.enginsignature[lcn]][j].stop();
+        this.pengs[j] = false;
+      }
+    }
+  }
 
   stopchat() {
     // TODO not ported: chat network socket shutdown

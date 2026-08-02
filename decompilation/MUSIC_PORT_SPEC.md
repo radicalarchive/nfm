@@ -6,7 +6,7 @@ first — they are binding, and the calibration procedure is not optional.
 
 ## What this is
 
-The game's soundtrack is a MOD/XM tracker module (`ds.nfm.mod`) played by a
+The game's soundtrack is a set of MOD/XM tracker modules played by a
 decompiled copy of **ibxm**, a small Java playback library. Sound *effects* are
 already done (`web/audio.js`); this is only the music.
 
@@ -52,7 +52,7 @@ Unlike the rest of the port, this one can be checked exactly, so there is no
 excuse for "it sounds right":
 
 1. Write a Java probe (`web/tools/IbxmProbe.java`, `package tools;` — see
-   `WORK.md`) that loads `music/ds.nfm.mod` through the **real** ibxm classes
+   `WORK.md`) that loads a module (see "Where the modules actually are") through the **real** ibxm classes
    out of `java/Game.jar` by reflection, renders **N seconds** of PCM at a
    fixed sample rate, and writes raw signed 16-bit LE to stdout.
 2. Do the same in JS with the port.
@@ -77,6 +77,21 @@ eleven files at once.
 
 Ceiling: if step 1 comes back needing prompt changes, that is expected. If step
 2 does as well, stop delegating and do it directly.
+
+## Where the modules actually are
+
+**Corrected 2026-08-01 — there is no `ds.nfm.mod`.** Each track is its own zip
+under `music/`: `music/stage1.zip` contains `stage1.mod`, and so on through
+`stage32.zip`, plus `music/interface.zip` -> `interface.mod`. The reader
+therefore goes through `web/vfs.js`'s zip path exactly as `sounds.zip` and
+`models.zip` do, not straight at a bare file.
+
+The stage file names its track: `soundtrack(<name>.mod,<vol>,<n>)`, parsed by
+`GameSparker.loadstage` into `checkPoints.trackname` / `trackvol` (volume
+clamped to 50..300). Only `mystages/Example Stage - with all the parts used in
+it.txt` carries that line in the shipped content, so the stock stages take
+whatever default the menu sets — check that before concluding a track fails to
+load.
 
 ## Wiring, which is NOT the subagent's job
 

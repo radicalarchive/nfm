@@ -304,3 +304,58 @@ test('an interpolated draw advances no per-effect animation state', async () => 
     + ` ${first.length} vs ${second.length} words, first at ${diff}`
     + ` (${first[diff]} vs ${second[diff]})`);
 });
+
+// The bug this pins: crash()/skid()/scrape() set bfcrash/bfskid/bfscrape to
+// suppress the same sample retriggering every tick, and playsounds() is the
+// ONLY thing that decrements them (xtGraphics.java:9207-9221). Without it the
+// first crash of a race set bfcrash = 2 and every later crash was silent --
+// which presented as "a sound effect plays once per race, then never again"
+// rather than as a missing method.
+test('playsounds decrements the sound debounce counters', async () => {
+  const w = await buildWorld();
+  w.xt.fase = 0;
+  w.xt.starcnt = 0;
+
+  // Arm them the way a crash, a skid and two scrapes would.
+  w.xt.bfcrash = 2;
+  w.xt.bfskid = 5;
+  w.xt.bfscrape = 5;
+  w.xt.bfsc1 = 12;
+  w.xt.bfsc2 = 6;
+
+  w.xt.playsounds(w.array3[0], w.gs.u[0], w.checkPoints.stage);
+  assert.deepStrictEqual(
+    [w.xt.bfcrash, w.xt.bfskid, w.xt.bfscrape, w.xt.bfsc1, w.xt.bfsc2],
+    [1, 4, 4, 11, 5], 'one pump should decrement each counter exactly once');
+
+  // And they must reach zero rather than stalling, or the effect is silent
+  // for the rest of the race.
+  for (let t = 0; t < 20; t++) w.xt.playsounds(w.array3[0], w.gs.u[0], w.checkPoints.stage);
+  assert.deepStrictEqual(
+    [w.xt.bfcrash, w.xt.bfskid, w.xt.bfscrape, w.xt.bfsc1, w.xt.bfsc2],
+    [0, 0, 0, 0, 0], 'counters must clear so a later crash can sound');
+
+  // A counter cleared means crash() actually fires again -- the observable
+  // symptom, not just the field.
+  let plays = 0;
+  w.xt.snd = { play: () => { plays++; }, stop() {}, loop() {}, stopLoop() {} };
+  w.xt.crash(200.0, 0);
+  w.xt.playsounds(w.array3[0], w.gs.u[0], w.checkPoints.stage);
+  w.xt.playsounds(w.array3[0], w.gs.u[0], w.checkPoints.stage);
+  w.xt.crash(200.0, 0);
+  assert.strictEqual(plays, 2, 'the second crash must sound once the debounce has run out');
+});
+
+// The race tick has to actually call the pump; porting playsounds() and
+// leaving it unreferenced would pass every test above and change nothing.
+test('the race tick pumps playsounds once per tick', async () => {
+  const w = await buildWorld();
+  let pumps = 0;
+  const real = w.xt.playsounds.bind(w.xt);
+  w.xt.playsounds = (...a) => { pumps++; return real(...a); };
+  for (let t = 0; t < 10; t++) {
+    w.rd.begin();
+    w.gs.tick(w.rd, w.medium, w.trackers, w.checkPoints, w.xt, w.record, w.array2, w.array3);
+  }
+  assert.strictEqual(pumps, 10, `expected one pump per tick, got ${pumps}`);
+});
