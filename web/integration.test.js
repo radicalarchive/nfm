@@ -27,7 +27,14 @@ import { objArray, setSeed, setPooling } from './java.js';
 const R = new URL('../', import.meta.url);
 const readRepo = (p, enc) => readFileSync(new URL(p, R), enc);
 
-async function buildWorld({ stage = 1, car = 1, players = 7, seed = 12345 } = {}) {
+/**
+ * @param countdown  keep the race start armed. resetstat() sets starcnt = 130,
+ *   which holds all physics for the intro fly-by and the 3-2-1; a test that
+ *   wants to drive has to be past it, so this defaults to off and zeroes the
+ *   counter the way the pre-countdown port behaved.
+ */
+async function buildWorld({ stage = 1, car = 1, players = 7, seed = 12345,
+                            countdown = false } = {}) {
   setSeed(seed);
   const zip = await parseZip(new Uint8Array(readRepo('data/models.zip')));
   const rd = new Graphics2D(null, null, 800, 450);
@@ -54,6 +61,8 @@ async function buildWorld({ stage = 1, car = 1, players = 7, seed = 12345 } = {}
 
   gs.loadstage(array2, array, medium, trackers, checkPoints, xt, array3, record,
                readRepo(`stages/${stage}.txt`, 'latin1'));
+
+  if (!countdown) xt.starcnt = 0;
 
   medium.trk = 0; medium.iw = 0; medium.ih = 0; medium.w = 800; medium.h = 450;
   return { rd, medium, trackers, checkPoints, gs, xt, record, array, array2, array3 };
@@ -106,6 +115,94 @@ test('holding throttle actually accelerates the car', async () => {
   }
   assert.ok(w.array3[0].speed > 10, `speed only reached ${w.array3[0].speed}`);
   assert.notEqual(w.array2[0].z, z0, 'car never moved');
+});
+
+test('the race starts with the intro and countdown, and holds physics until GO', async () => {
+  // resetstat() arming starcnt is the whole start sequence: without it the
+  // race began instantly with no fly-by, no 3-2-1 and no countdown sounds,
+  // and every branch below is unreachable while still passing every other
+  // test. Assert the counter AND its two visible consequences.
+  const w = await buildWorld({ countdown: true });
+  assert.equal(w.xt.starcnt, 130, 'resetstat did not arm the countdown');
+  assert.equal(w.xt.gocnt, 3);
+
+  const z0 = w.array2[0].z;
+  w.gs.u[0].up = true;
+
+  // Intro fly-by: 130 -> 38. Physics is frozen throughout.
+  for (let t = 0; t < 92; t++) {
+    w.rd.begin();
+    w.gs.tick(w.rd, w.medium, w.trackers, w.checkPoints, w.xt, w.record, w.array2, w.array3);
+  }
+  assert.equal(w.array2[0].z, z0, 'the car moved during the intro');
+  assert.equal(w.array3[0].speed, 0, 'the car revved during the intro');
+
+  // Countdown: gocnt steps 3 -> 2 -> 1 -> 0 as starcnt passes 24, 13 and 2.
+  const seen = [];
+  for (let t = 0; t < 38; t++) {
+    w.rd.begin();
+    w.gs.tick(w.rd, w.medium, w.trackers, w.checkPoints, w.xt, w.record, w.array2, w.array3);
+    if (seen[seen.length - 1] !== w.xt.gocnt) seen.push(w.xt.gocnt);
+  }
+  assert.deepEqual(seen, [3, 2, 1, 0], `countdown ran ${seen}`);
+  assert.equal(w.xt.starcnt, 0);
+
+  // And now it drives.
+  for (let t = 0; t < 40; t++) {
+    w.rd.begin();
+    w.gs.tick(w.rd, w.medium, w.trackers, w.checkPoints, w.xt, w.record, w.array2, w.array3);
+  }
+  assert.notEqual(w.array2[0].z, z0, 'the car never moved after GO');
+});
+
+test('the intro camera survives a grid smaller than the Java ever builds', async () => {
+  // It orbits car 3, which does not exist at ?players=2 -- a port-only
+  // setting. Reaching an empty slot throws inside Medium.around.
+  for (const players of [1, 2, 3, 7]) {
+    const w = await buildWorld({ players, countdown: true });
+    for (let t = 0; t < 5; t++) {
+      w.rd.begin();
+      w.gs.tick(w.rd, w.medium, w.trackers, w.checkPoints, w.xt, w.record, w.array2, w.array3);
+    }
+  }
+});
+
+test('wasting the field ends the race and asks to leave', async () => {
+  // The finish sequence lives entirely in stat(): it freezes the field with
+  // holdit, holds the overlay for holdcnt ticks, then sets fase = -2, which is
+  // the Java's "leave the race" signal and what main.js watches to return to
+  // the launcher. Nothing else in the port produces fase -2, so a race that
+  // could never end would look exactly like a race nobody has finished yet.
+  const w = await buildWorld({ players: 2 });
+  // Waste the opposition for real rather than writing checkPoints.wasted:
+  // checkstat() recounts it from the cars' dest flags on every tick, so an
+  // assigned value is gone before stat() ever reads it.
+  w.array3[1].dest = true;
+
+  w.rd.begin();
+  w.gs.tick(w.rd, w.medium, w.trackers, w.checkPoints, w.xt, w.record, w.array2, w.array3);
+  assert.equal(w.xt.holdit, true, 'the race did not freeze');
+  assert.equal(w.xt.winner, true, 'wasting everyone did not count as a win');
+  assert.equal(w.checkPoints.haltall, true);
+
+  // 250 is the single-player hold; it must expire on its own, since the
+  // player is not required to press anything.
+  for (let t = 0; t < 260 && w.xt.fase !== -2; t++) {
+    w.rd.begin();
+    w.gs.tick(w.rd, w.medium, w.trackers, w.checkPoints, w.xt, w.record, w.array2, w.array3);
+  }
+  assert.equal(w.xt.fase, -2, `race never signalled its end (holdcnt ${w.xt.holdcnt})`);
+});
+
+test('being wasted ends the race as a loss', async () => {
+  const w = await buildWorld({ players: 2 });
+  w.array3[0].dest = true;
+  w.xt.cntwis = 8;
+
+  w.rd.begin();
+  w.gs.tick(w.rd, w.medium, w.trackers, w.checkPoints, w.xt, w.record, w.array2, w.array3);
+  assert.equal(w.xt.holdit, true, 'the race did not freeze on being wasted');
+  assert.equal(w.xt.winner, false, 'being wasted counted as a win');
 });
 
 test('the run is deterministic for a fixed seed', async () => {

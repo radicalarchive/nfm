@@ -131,6 +131,10 @@ async function boot() {
   medium.w = 800;
   medium.h = 450;
   xt.fase = 0;
+  // The Java sets this entering the race from stage select (xtGraphics:2587),
+  // not in resetstat: the x of the translucent NFM guy behind the countdown.
+  // -1 suppresses him entirely.
+  xt.dudo = 150;
 
   // HUD assets. After loadstage, because loadsnap() tints with medium.snap
   // and the stage file is what sets it. Failure is non-fatal: the draw sites
@@ -432,11 +436,23 @@ async function boot() {
     if (e.code === 'KeyR' && BENCH_MS > 0) restartBench();
   });
 
+  // Back to the launcher once the race is over. Idempotent: the navigation is
+  // asynchronous, so without the flag every remaining frame would fire it
+  // again, and the engine loops would be stopped repeatedly on the way out.
+  let leaving = false;
+  function leaveRace() {
+    if (leaving) return;
+    leaving = true;
+    snd.stopAllLoops();
+    music.stop();
+    location.href = '../index.html';
+  }
+
   function frame(now) {
     requestAnimationFrame(frame);
     // Frozen after the benchmark window: no ticks, no draws, and the result
     // stays on screen. Press R to run another window.
-    if (benchDone) return;
+    if (benchDone || leaving) return;
 
     let fSim = 0, fDraw = 0, ticksThisFrame = 0;
 
@@ -497,6 +513,13 @@ async function boot() {
       ticks++;
       ticksThisFrame++;
       stepped = true;
+
+      // End of race. stat() runs the whole finish sequence itself -- it sets
+      // holdit to freeze the field under the win/lose overlay, counts holdcnt
+      // up to the hold length, and only then sets fase = -2, the Java's "leave
+      // the race" signal. In the Java that lands in the menus; here it goes
+      // back to the launcher, which is the closest thing this port has.
+      if (xt.fase === -2) { leaveRace(); return; }
     }
     if (stepped) capture(snapCurr);
 
@@ -625,6 +648,16 @@ function installInput(u, snd) {
     set(e, true);
   });
   addEventListener('keyup', (e) => set(e, false));
+
+  // A click unlocks audio too, and drives nothing. Without it the countdown is
+  // silent for anyone who does not touch the keyboard first: it runs in the
+  // first seven seconds of the race, both contexts start suspended under the
+  // autoplay policy, and the gesture that started the race happened on the
+  // launcher page, which does not carry over. Unlocking twice is a no-op.
+  addEventListener('pointerdown', () => {
+    if (snd) snd.unlock();
+    music.unlock();
+  });
 
   // Virtual joystick for mobile touch
   let startX = 0, startY = 0;

@@ -38,6 +38,15 @@ export class Mad {
     this.wtouch = false;
     this.cntouch = 0;
     this.capsized = false;
+    this.wasTouchTrick = false;
+    this.basePzy = 0;
+    this.basePxy = 0;
+    this.baseXz = 0;
+    this.baseTouchX = 0;
+    this.baseTouchY = 0;
+    this.lastDeltaX = 0;
+    this.lastDeltaY = 0;
+    this.trickDisableUntilLift = false;
     this.txz = 0;
     this.fxz = 0;
     this.pmlt = 1;
@@ -461,6 +470,68 @@ export class Mad {
           }
           this.pxy = trunc(fr(this.pxy + fr(this.rcomp - this.lcomp)));
         }
+      }
+      
+      if (control.touchTrick && !this.trickDisableUntilLift) {
+        if (!this.wasTouchTrick) {
+          this.basePzy = this.pzy;
+          this.basePxy = this.pxy;
+          this.baseXz  = contO.xz;
+          this.baseTouchX = control.touchTrickX;
+          this.baseTouchY = control.touchTrickY;
+          this.lastDeltaX = 0;
+          this.lastDeltaY = 0;
+          this.wasTouchTrick = true;
+        }
+        
+        let deltaY = (control.touchTrickY - this.baseTouchY) * 0.8;
+        let deltaX = (control.touchTrickX - this.baseTouchX) * 0.8;
+        
+        // Lock roll to primary axis only
+        if (Math.abs(deltaX) > Math.abs(deltaY)) {
+          deltaY = 0;
+        } else {
+          deltaX = 0;
+        }
+        
+        let frameDeltaY = deltaY - this.lastDeltaY;
+        let frameDeltaX = deltaX - this.lastDeltaX;
+        this.lastDeltaY = deltaY;
+        this.lastDeltaX = deltaX;
+        
+        this.pxy = trunc(this.basePxy - deltaX);
+        this.pzy = trunc(this.basePzy + deltaY * this.m.cos(this.pxy));
+        
+        if (zyinv) {
+          contO.xz = trunc(this.baseXz + deltaY * this.m.sin(this.pxy));
+        } else {
+          contO.xz = trunc(this.baseXz - deltaY * this.m.sin(this.pxy));
+        }
+        
+        // Update trick accumulators directly
+        this.travxy = trunc(this.travxy - frameDeltaX);
+        this.travzy = trunc(this.travzy - frameDeltaY);
+        
+        // Force trick loop state so it awards points
+        this.loop = 2;
+        
+        // Zero out momentum so it freezes on release
+        this.lcomp = 0.0;
+        this.rcomp = 0.0;
+        this.ucomp = 0.0;
+        this.dcomp = 0.0;
+      } else {
+        this.wasTouchTrick = false;
+        if (!control.touchTrick) {
+          this.trickDisableUntilLift = false;
+        }
+      }
+    } else {
+      this.wasTouchTrick = false;
+      if (control.touchTrick) {
+        this.trickDisableUntilLift = true;
+      } else {
+        this.trickDisableUntilLift = false;
       }
     }
     let n11 = fr(fr(20.0 * this.speed) / fr(154.0 * this.cd.simag[this.cn]));

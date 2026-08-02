@@ -187,6 +187,16 @@ and it has returned a negative fixed cost). Measure fixed costs with `?prof=1`.
       **Confirmed by ear in a real browser (2026-08-01) — the only oracle that
       counts for audio.** `checkopen()`'s clip reopening is deliberately not
       ported; Web Audio has no equivalent failure to work around.
+- [x] **Race start and finish wired up.** `resetstat()` now ports the whole
+      per-race reset (`xtGraphics.java:1484`), not just the music load; its
+      `starcnt = 130` / `gocnt = 3` are what arm the intro fly-by and the
+      3-2-1-GO. Both sequences were already ported in `GameSparker.simulate`
+      and `stat()` but unreachable with the counter left at zero. The
+      end-of-race overlays (`youwon`, `youlost`, `yourwasted`, `youwastedem`)
+      and the countdown's `d1/d2/d3.png` faces now load in `images.js`;
+      `gamefinished`/`disco`/`wgame` stay out, being multion-only in the
+      Java's own `snap()`. `fase == -2` -- the Java's leave-the-race signal --
+      returns to the launcher, since the menus are not ported.
 - [~] Remaining one-shots: all now bound to real clips via `XtGraphics._clip`
       rather than `{play(){}}` stubs, so `firewasted` (fired from
       `playsounds()`) and `carfixed` (already called from `Mad`) work.

@@ -484,8 +484,12 @@ export class GameSparker {
         this.lmxz = medium.xz;
       }
     } else {
+      // The intro camera orbits car 3. The Java only ever gets here with 7
+      // players or 1, so it hardcodes those two cases; `?players=2` and 3 are
+      // this port's own settings and would index an empty grid slot.
       let n47 = 3;
       if (xtGraphics.nplayers === 1) n47 = 0;
+      if (n47 >= xtGraphics.nplayers) n47 = xtGraphics.nplayers - 1;
       medium.around(array2[n47], true);
       this.mvect = 80;
       if (this.u[0].enter || this.u[0].handb) {

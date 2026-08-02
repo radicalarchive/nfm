@@ -192,10 +192,17 @@ export class Graphics2D {
     this._pack();
   }
 
-  /** setComposite(AlphaComposite.getInstance(rule, alpha)). */
+  /**
+   * setComposite(AlphaComposite.getInstance(rule, alpha)).
+   *
+   * Java's composite covers every drawing operation, so it has to reach the
+   * 2D overlay as well as the vertex colour -- the countdown's NFM guy is a
+   * drawImage under a 0.3 composite and renders as a solid face without it.
+   */
   setComposite(alpha) {
     this.a = alpha;
     this._pack();
+    if (this.text) this.text.globalAlpha = alpha;
   }
 
   /**
@@ -548,6 +555,9 @@ export class Graphics2D {
     this.projVerts = 0;
     this.a = 1;
     this._pack();
+    // Opaque again for the new frame, so a composite left set by a throw
+    // partway through the last one cannot dim everything from then on.
+    if (this.text) this.text.globalAlpha = 1;
     if (keepOverlay) return;
     // Clear in device space, then restore the game-space transform.
     this.text.setTransform(1, 0, 0, 1, 0, 0);

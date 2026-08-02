@@ -24,6 +24,9 @@ export class Control {
     this.afta = false;
     this.fpnt = intArray(5);
     this.steer = 0.0;
+    this.touchTrick = false;
+    this.touchTrickX = 0;
+    this.touchTrickY = 0;
     this.trfix = 0;
     this.forget = false;
     this.bulistc = false;

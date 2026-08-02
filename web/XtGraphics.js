@@ -518,12 +518,68 @@ export class XtGraphics {
   // --- stubs ---
   snap(_stage) {}
   /**
-   * Java calls loadstrack() here. `loadedt` gates every strack call in
+   * Reset every per-race counter — xtGraphics.java:1484.
+   *
+   * `starcnt = 130` and `gocnt = 3` are what start a race: GameSparker.simulate
+   * holds the physics until starcnt reaches 0 and runs the orbiting intro
+   * camera meanwhile, and stat() draws the 3-2-1-GO and plays its sounds on
+   * the way down. Leave them at their constructor zeroes and the race begins
+   * mid-air with no countdown, which is what this port did before.
+   *
+   * Java calls loadstrack() here too. `loadedt` gates every strack call in
    * playsounds(), so it flips true only once the module has actually parsed --
    * load() resolves false on a missing zip or a superseded load, and reading a
    * module-global flag afterwards instead would mark whatever finished last.
+   *
+   * Not ported: the `fase == 22` branch resetting the chat buffers, and the
+   * `fase == 2 || fase == -22` guard around sortcars -- the port calls
+   * sortcars from its own loadstage rather than from here.
    */
   resetstat(_stage, trackvol = 200) {
+    this.arrace = false;
+    this.alocked = -1;
+    this.lalocked = -1;
+    this.cntflock = 90;
+    this.onlock = false;
+    this.ana = 0;
+    this.cntan = 0;
+    this.cntovn = 0;
+    this.tcnt = 30;
+    this.wasay = false;
+    this.clear = 0;
+    this.dmcnt = 0;
+    this.pwcnt = 0;
+    this.auscnt = 45;
+    this.pnext = 0;
+    this.pback = 0;
+    this.starcnt = 130;
+    this.gocnt = 3;
+    this.grrd = true;
+    this.aird = true;
+    this.bfcrash = 0;
+    this.bfscrape = 0;
+    this.cntwis = 0;
+    this.bfskid = 0;
+    this.pwait = 7;
+    this.forstart = 200;
+    this.exitm = 0;
+    this.holdcnt = 0;
+    this.holdit = false;
+    this.winner = false;
+    this.wasted = 0;
+    for (let i = 0; i < 8; ++i) {
+      this.dested[i] = 0;
+      this.isbot[i] = false;
+      this.dcrashes[i] = 0;
+    }
+    this.runtyp = 0;
+    this.discon = 0;
+    this.dnload = 0;
+    this.beststunt = 0;
+    this.laptime = 0;
+    this.fastestlap = 0;
+    this.sendstat = 0;
+
     // loadstrack's one special case: stage 27 is party.zip in party mode.
     const track = (_stage === 27 && this.gmode === 2) ? 'party' : _stage;
     this.loadmusic(track, trackvol);

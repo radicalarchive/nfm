@@ -30,6 +30,23 @@ const SINGLE = {
   'wasted.gif': 'owas',
   'lap.gif': 'olap',
   'wgame.gif': 'owgame',
+  // End-of-race overlays. `gamefinished` and `disco` are multion-only in the
+  // Java's snap() and are not loaded here for the same reason.
+  'youwon.gif': 'oyouwon',
+  'youlost.gif': 'oyoulost',
+  'yourwasted.gif': 'oyourwasted',
+  'youwastedem.gif': 'oyouwastedem',
+};
+
+/**
+ * Zip entry name -> [field, index], loaded RAW.
+ *
+ * The countdown's NFM guy is the one HUD graphic the Java loads with plain
+ * loadimage and never passes through snap(), so it keeps its own colours and
+ * its PNG alpha. Running loadsnap over it would key its greys to transparent.
+ */
+const RAW_INDEXED = {
+  'd1.png': ['dude', 0], 'd2.png': ['dude', 1], 'd3.png': ['dude', 2],
 };
 
 /** Zip entry name -> [field, index]. Indexed images. */
@@ -149,6 +166,15 @@ export async function loadHudImages(xt, zip, medium) {
       const target = field.slice(1);             // orank -> rank
       if (!xt[target]) xt[target] = [];
       xt[target][idx] = loadsnap(bm, snap);
+    }));
+  }
+
+  for (const [entry, [field, idx]] of Object.entries(RAW_INDEXED)) {
+    const bytes = zip.get(entry);
+    if (!bytes) continue;
+    jobs.push(decode(bytes, entry).then((bm) => {
+      if (!xt[field]) xt[field] = [];
+      xt[field][idx] = bm;
     }));
   }
 
