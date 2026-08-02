@@ -142,13 +142,7 @@ export function random() {
   x ^= x << 13; x >>>= 0;
   x ^= x >>> 17;
   x ^= x << 5;  x >>>= 0;
-  if (_drawPhase) _drawSeed = x; else {
-    _seed = x;
-    const st = new Error().stack.split('\n')[3] || '?';
-    globalThis.__jtally = globalThis.__jtally || new Map();
-    const k = st.trim().slice(0, 78);
-    globalThis.__jtally.set(k, (globalThis.__jtally.get(k) || 0) + 1);
-  }
+  if (_drawPhase) _drawSeed = x; else _seed = x;
   return x / 4294967296;
 }
 

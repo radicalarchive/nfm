@@ -89,6 +89,8 @@ for (let i = 0; i < 2; i++) {
           for (let k = 0; k < fa.length; k += 2) {
             if (fa[k + 1] !== fb[k + 1] && fa[k] !== 'rpdcatch') {
               console.log(`FIRST FIELD DIFF t${m.tick} car${c}.${fa[k]}: ${fa[k + 1]} vs ${fb[k + 1]}`);
+              console.log(`   A[${c}] = ${A[c]}`);
+              console.log(`   B[${c}] = ${B[c]}`);
               fieldReported = true;
             }
           }

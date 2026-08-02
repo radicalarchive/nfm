@@ -831,6 +831,36 @@ export class XtGraphics {
     // Apple-JVM workaround that closed and reopened clips every tick.
   }
 
+  /**
+   * Advance the missed-checkpoint countdown, once per tick per car.
+   *
+   * The Java does this inside stat(), while formatting the "Checkpoint
+   * Missed!" banner -- but Mad.drive READS the counter back (`=== -2`,
+   * `!== 0` at Mad.js:1580-1583), so it is simulation state wearing a HUD's
+   * clothes. stat() only ever runs on the local player's car, so leaving the
+   * increment there advanced a different car on each netplay client and the
+   * two simulations parted company. Called from GameSparker.simulate for
+   * every slot; an AI car's counter is pinned at 0 by drive(), so the `> 0`
+   * gate makes it a no-op for them and single player is unchanged.
+   */
+  tickMissedCp(mad, checkPoints) {
+    if (this.starcnt !== 0 || this.multion >= 2 || checkPoints.stage === 10) return;
+    if (this.arrace) return;
+    // The Java also gates on auscnt, exitm and holdit. Those are PER-CLIENT
+    // HUD state -- auscnt is the announcer's timer, driven by the local
+    // player's own stunts -- so gating a simulation counter on them advances
+    // it on different ticks on each machine. Only mad.capcnt survives, being
+    // the car's own state. The visible cost in single player is that the
+    // "Checkpoint Missed!" banner no longer pauses while the announcer talks.
+    if (mad.capcnt !== 0) return;
+    if (mad.missedcp > 0) {
+      ++mad.missedcp;
+      if (mad.missedcp === 70) {
+        mad.missedcp = -2;
+      }
+    }
+  }
+
   /** `xtGraphics.java:9258`. Cut every air loop. */
   stopairs() {
     for (let i = 0; i < 6; ++i) {
@@ -1293,10 +1323,8 @@ export class XtGraphics {
                     this.drawcs(70, "Checkpoint Missed!", 255, 150, 0, 2);
                   }
                 }
-                ++mad.missedcp;
-                if (mad.missedcp === 70) {
-                  mad.missedcp = -2;
-                }
+                // The increment that used to live here now runs once per
+                // tick for every car, in tickMissedCp() -- see there.
               } else if (mad.mtouch && this.cntovn < 70) {
                 if (Math.abs(this.ana) > 100) {
                   ++this.cntan;

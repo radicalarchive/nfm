@@ -97,13 +97,33 @@ function stateVector() {
         }
       }
     }
+    // Wide on purpose. The hash surfaces a desync only when it reaches a
+    // hashed field; the cause is usually in the collision bookkeeping that
+    // feeds it, several hundred ticks earlier.
+    let wheels = 0;
+    for (const w of [m.scx, m.scy, m.scz]) if (w) for (const v of w) wheels = (Math.imul(wheels ^ (v | 0), 16777619)) >>> 0;
     return ['x', o.x, 'y', o.y, 'z', o.z, 'xz', o.xz, 'xy', o.xy, 'zy', o.zy,
             'speed', m.speed, 'power', m.power, 'powerup', m.powerup,
             'hitmag', m.hitmag, 'nlaps', m.nlaps, 'trcnt', m.trcnt,
             'travxy', m.travxy, 'travzy', m.travzy, 'travxz', m.travxz,
             'surfer', m.surfer, 'capsized', m.capsized, 'skid', m.skid,
             'mxz', m.mxz, 'fixes', m.fixes, 'cntdest', m.cntdest,
-            'mesh', mesh >>> 0].join(',');
+            'shakedam', m.shakedam, 'outshakedam', m.outshakedam,
+            'colidim', m.colidim, 'lastcolido', m.lastcolido,
+            'squash', m.squash, 'dest', m.dest, 'clear', m.clear,
+            'focus', m.focus, 'missedcp', m.missedcp, 'wtouch', m.wtouch,
+            'gtouch', m.gtouch, 'mtouch', m.mtouch, 'loop', m.loop,
+            'pzy', m.pzy, 'pxy', m.pxy, 'tilt', m.tilt,
+            'wheels', wheels, 'mesh', mesh >>> 0,
+            'cxz', m.cxz, 'point', m.point, 'pcleared', m.pcleared,
+            'ucomp', m.ucomp, 'dcomp', m.dcomp, 'lcomp', m.lcomp, 'rcomp', m.rcomp,
+            'capcnt', m.capcnt, 'srfcnt', m.srfcnt, 'xtpower', m.xtpower,
+            'newcar', m.newcar, 'lxz', m.lxz, 'travx', m.travx,
+            'keys', (() => { let h = 0x811c9dc5;
+              for (const arr of [o.keyx, o.keyz, o.keyy]) if (arr) for (const v of arr) {
+                h ^= v | 0; h = Math.imul(h, 16777619) >>> 0;
+              }
+              return h >>> 0; })()].join(',');
   });
 }
 
@@ -156,17 +176,12 @@ function pump() {
       medium.interpolating = false;
     }
     netTick++;
-    if (netTick % 1 === 0) {
-      process.send({ k: 'hash', tick: netTick, h: worldHash(array2, array3, xt.nplayers),
-                     sim: globalThis.__simCalls || 0, mr: globalThis.__mrand || 0, tally: [...(globalThis.__mtally||new Map())],
-                     cars: [0,1,2,3].map(i=>{const o=array2[i],m=array3[i];
-                       return ['x',o.x,'y',o.y,'z',o.z,'xz',o.xz,'xy',o.xy,'zy',o.zy,
-                        'speed',m.speed,'power',m.power,'powerup',m.powerup,'xtpower',m.xtpower,
-                        'hitmag',m.hitmag,'nlaps',m.nlaps,'trcnt',m.trcnt,'lxz',m.lxz,'srfcnt',m.srfcnt,'travxy',m.travxy,'travzy',m.travzy,'surfer',m.surfer,
-                        'capsized',m.capsized,'wtouch',m.wtouch,'gtouch',m.gtouch,'mtouch',m.mtouch,
-                        'skid',m.skid,'loop',m.loop,'mxz',m.mxz,'travxz',m.travxz,'tilt',m.tilt,
-                        'rpdcatch',m.rpdcatch,'fixes',m.fixes,'cntdest',m.cntdest,'mesh',(()=>{let h=0x811c9dc5;const o=array2[i];for(let q=0;q<o.npl;q++){const pl=o.p[q];for(let r=0;r<pl.n;r++){h^=pl.ox[r]|0;h=Math.imul(h,16777619)>>>0;h^=pl.oz[r]|0;h=Math.imul(h,16777619)>>>0;h^=pl.oy[r]|0;h=Math.imul(h,16777619)>>>0;}}return h>>>0;})()].join(',');}) });
-    }
+    // Report every tick. The hash is what netplay itself checks; the field
+    // dump is what makes a desync findable -- "the hashes differ" is not a
+    // debuggable statement, "car1.travxz is -53 here and 53 there" is.
+    process.send({ k: 'hash', tick: netTick,
+                   h: worldHash(array2, array3, xt.nplayers),
+                   cars: stateVector() });
   }
 }
 

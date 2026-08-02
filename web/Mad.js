@@ -1600,25 +1600,29 @@ export class Mad {
         for (let n115 = 0; n115 < checkPoints.fn; ++n115) {
           if (!checkPoints.roted[n115]) {
             if (Math.abs(contO.z - checkPoints.fz[n115]) < 200 && this.py(idiv(contO.x, 100), idiv(checkPoints.fx[n115], 100), idiv(contO.y, 100), idiv(checkPoints.fy[n115], 100)) < 30) {
-              if (contO.dist === 0) {
-                contO.fcnt = 8;
-              } else {
-                if (this.im === this.xt.im && !contO.fix && !this.xt.mutes) {
-                  this.xt.carfixed.play();
-                }
-                contO.fix = true;
-              }
-              this.rpd.fix[this.im] = 300;
-            }
-          } else if (Math.abs(contO.x - checkPoints.fx[n115]) < 200 && this.py(idiv(contO.z, 100), idiv(checkPoints.fz[n115], 100), idiv(contO.y, 100), idiv(checkPoints.fy[n115], 100)) < 30) {
-            if (contO.dist === 0) {
-              contO.fcnt = 8;
-            } else {
+              // The Java repairs instantly when `dist === 0` and animates
+              // otherwise. `dist` is DRAW's output -- it is zero for an object
+              // the camera culled -- so this asks "is anyone looking?" and
+              // then changes the SIMULATION: fcnt 8 makes drive() reset
+              // hitmag, cntdest and dest on the very next tick, where the
+              // animated path takes eight. Two netplay clients have two
+              // cameras, so the same car came back into the race on different
+              // ticks on each, and everything downstream diverged. Always
+              // animate: nobody can see the difference on a car that was
+              // culled, and the repair now takes the same eight ticks
+              // everywhere.
               if (this.im === this.xt.im && !contO.fix && !this.xt.mutes) {
                 this.xt.carfixed.play();
               }
               contO.fix = true;
+              this.rpd.fix[this.im] = 300;
             }
+          } else if (Math.abs(contO.x - checkPoints.fx[n115]) < 200 && this.py(idiv(contO.z, 100), idiv(checkPoints.fz[n115], 100), idiv(contO.y, 100), idiv(checkPoints.fy[n115], 100)) < 30) {
+            // Same as above: never branch the simulation on `dist`.
+            if (this.im === this.xt.im && !contO.fix && !this.xt.mutes) {
+              this.xt.carfixed.play();
+            }
+            contO.fix = true;
             this.rpd.fix[this.im] = 300;
           }
         }

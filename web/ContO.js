@@ -1625,10 +1625,25 @@ export class ContO {
       graphics2D.setColor(r3, g3, b3);
       graphics2D.fillPolygon(array, array2, 8);
     }
-    // Tick-rate advance: an interpolated frame redraws this stage of the
-    // sparkle, it does not step to the next one. Stepping at display rate ran
-    // the sparkle ~3x fast and could skip the frame that clears `fix`.
-    if (this.m.interpolating) return;
+  }
+
+  /**
+   * Step the repair animation. SIMULATION, despite driving a visual effect.
+   *
+   * `fcnt` used to be advanced at the end of fixit(), which d() calls from
+   * inside the on-screen visibility test -- so a car only got repaired while
+   * someone was looking at it. Mad.drive reads `fcnt === 7 || 8` and resets
+   * hitmag, cntdest and dest there, i.e. the repair FINISHING is what puts a
+   * wasted car back in the race. Two netplay clients have two cameras, so the
+   * same car came back on different ticks on each of them, and everything
+   * after that diverged.
+   *
+   * Called once per tick per car from GameSparker.simulate. Interpolated
+   * frames never reach it, which is also what the old `m.interpolating` guard
+   * here was for.
+   */
+  stepFix() {
+    if (!this.fix) return;
     if (this.fcnt > 7) {
       this.fcnt = 0;
       this.fix = false;

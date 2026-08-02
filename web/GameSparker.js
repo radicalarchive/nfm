@@ -406,8 +406,12 @@ export class GameSparker {
     // `gr == -15` plane, and that mesh is the collision geometry Mad.regx()
     // deforms and reads damage out of. Left on the draw stream the two clients
     // would build differently-shaped cars.
+    // ...and an INTERPOLATED redraw must not do it at all. It is a mutation,
+    // and interpolated frames re-render the tick's world rather than advancing
+    // it; letting one rebuild here consumed the newcar flag and randomised a
+    // fresh mesh on whichever client happened to draw more frames.
     setDrawPhase(false);
-    for (let n33 = 0; n33 < xtGraphics.nplayers; ++n33) {
+    for (let n33 = 0; !medium.interpolating && n33 < xtGraphics.nplayers; ++n33) {
       if (array3[n33].newcar) {
         const xz = array2[n33].xz;
         const xy = array2[n33].xy;
@@ -467,6 +471,13 @@ export class GameSparker {
         record.rec(array2[n45], n45, array3[n45].squash, array3[n45].lastcolido, array3[n45].cntdest, 0);
       }
       checkPoints.checkstat(array3, array2, record, xtGraphics.nplayers, xtGraphics.im, 0);
+      // Per-tick and per-CAR, not per-screen: see XtGraphics.tickMissedCp
+      // and ContO.stepFix. Both used to advance from inside drawing code,
+      // which made them depend on the camera.
+      for (let n = 0; n < xtGraphics.nplayers; ++n) {
+        xtGraphics.tickMissedCp(array3[n], checkPoints);
+        array2[n].stepFix();
+      }
       // The Java starts at 1 because the local player is always slot 0 and
       // everyone else is AI. In a netplay session a remote HUMAN occupies one
       // of those slots, and running preform() on it would have the AI drive
