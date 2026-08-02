@@ -34,6 +34,23 @@
     <canvas id="overlay" width="800" height="450"></canvas>
   </div>
   <div id="log">booting…</div>
+  <!-- Shown only while hosting, until the other player connects. The room
+       code is meant to be read aloud down a phone, which 12px of console text
+       in the corner is not. -->
+  <div id="room" hidden><span>Room code</span><b id="roomcode"></b><em id="roomhint"></em></div>
+<style>
+  #room {
+    position: fixed; inset: 0; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: .6rem;
+    background: #0b0d13; color: #e6e8ee; font: 16px system-ui, sans-serif;
+    text-align: center; padding: 1rem;
+  }
+  #room[hidden] { display: none; }
+  #room span { color: #8a8f9c; letter-spacing: .14em; text-transform: uppercase; font-size: .8rem; }
+  #room b { font: 700 clamp(3rem, 18vw, 7rem)/1 ui-monospace, Menlo, Consolas, monospace;
+            letter-spacing: .12em; color: #6cf; }
+  #room em { color: #8a8f9c; font-style: normal; font-size: .9rem; }
+</style>
 <script type="module" src="./main.js"></script>
 <script type="module">
   // Scale-to-fit the 800x450 CSS box. This is a GPU-composited transform,

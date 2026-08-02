@@ -52,6 +52,14 @@ async function negotiate(mode, params, cfg, keep) {
 
   if (mode === 'host') {
     const code = (params.get('room') || makeRoomCode()).toUpperCase();
+    // Big enough to read out. Hidden again as soon as someone joins.
+    const banner = document.getElementById('room');
+    if (banner) {
+      document.getElementById('roomcode').textContent = code;
+      document.getElementById('roomhint').textContent =
+        'Give this to the other player — they pick Join on the launcher.';
+      banner.hidden = false;
+    }
     await net.host(code);
     // The grid is drawn HERE, on the host, from the host's seed.
     setSeed(cfg.seed);
@@ -75,6 +83,7 @@ async function negotiate(mode, params, cfg, keep) {
     const start = { t: 'start', seed: cfg.seed, stage: cfg.stage, players: cfg.players,
                     cars, delay, hostName: name || 'Host', guestName: hello.name || 'Player 2' };
     net.send(JSON.stringify(start));
+    if (banner) banner.hidden = true;
     log(`racing ${start.guestName} — room ${code}`);
     return { ...cfg, cars, delay, localIndex: 0, room: code,
              names: [start.hostName, start.guestName] };
