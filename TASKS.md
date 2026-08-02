@@ -198,11 +198,18 @@ and it has returned a negative fixed cost). Measure fixed costs with `?prof=1`.
       as 130 instead of -126 — a detuned note, silently), and `strCp850` fell
       back to Latin-1 because Node has no `Cp850` decoder, which is a
       divergence rather than a port of the Java's fallback. Both have tests.
-      **Calibration verdict: the prompt template holds, so step 2 (`Sample` +
-      `Envelope`) can go to `agy` — but add "coerce typed-array views to the
-      Java's signedness at the boundary" and "print strings as code points"
-      to the brief, and keep verifying against the probe myself.**
-      Remaining: steps 2-3, then the AudioWorklet wiring (a human's job).
+      **Step 2 (`Sample` + `Envelope`) is also DONE and verified** — brief in
+      `decompilation/JOB_ibxm_sample.md`, with the two step-1 lessons folded in
+      as explicit rules. Came back clean: all 2,176 sinc-table entries and all
+      800 resampled mix samples re-derived from the probe here and identical,
+      the one genuine `+=` site (`Envelope.calculateAmpl`) has Java's looser
+      `>>` precedence right, and `float` vs `double` was called correctly (the
+      sinc tables are `double` throughout, so no `fr()`). No corrections
+      needed. **Two clean runs in a row: per PORT_SPEC's calibration rule the
+      template is now trusted, and step 3 can batch the remaining files** —
+      `IBXM`, `Module`, `Channel`, `Instrument`, `Note`, `Pattern`,
+      `GlobalVol` — still verifying each against a probe.
+      Remaining: step 3, then the AudioWorklet wiring (a human's job).
       Old spec text below.
 - [ ] ~~**Music — the `ibxm`/`ds.nfm.mod` tracker.**~~ Delegation spec written:
       `decompilation/MUSIC_PORT_SPEC.md`. Self-contained (no renderer contact,
