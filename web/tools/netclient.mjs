@@ -86,7 +86,11 @@ function stateVector() {
     let mesh = 0x811c9dc5;
     for (let q = 0; q < o.npl; q++) {
       const pl = o.p[q];
-      for (let r = 0; r < pl.n; r++) {
+      // pl.ox.length, NOT pl.n: Plane.s() sets n to 12 or 20 as a distance
+      // LOD, so hashing to `n` makes this a function of the CAMERA -- and each
+      // client has its own camera. That produced a convincing phantom "mesh
+      // desync at tick 3" that cost an hour.
+      for (let r = 0; r < pl.ox.length; r++) {
         for (const v of [pl.ox[r], pl.oy[r], pl.oz[r]]) {
           mesh ^= v | 0;
           mesh = Math.imul(mesh, 16777619) >>> 0;
@@ -166,4 +170,7 @@ function pump() {
   }
 }
 
+// Report the world BEFORE any tick runs. Nothing checked construction until
+// now, and "identical at tick 1" does not imply "identical at tick 0".
+process.send({ k: 'hash', tick: 0, h: worldHash(array2, array3, xt.nplayers), cars: stateVector() });
 process.send({ k: 'ready' });
