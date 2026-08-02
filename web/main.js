@@ -607,6 +607,56 @@ function installInput(u, snd) {
     set(e, true);
   });
   addEventListener('keyup', (e) => set(e, false));
+
+  // Virtual joystick for mobile touch
+  let startX = 0, startY = 0;
+  const THRESHOLD = 30; // pixels
+
+  addEventListener('touchstart', (e) => {
+    if (snd) snd.unlock();
+    music.unlock();
+    
+    // The first touch sets the anchor for the joystick and starts driving
+    if (e.touches.length === 1) {
+      const touch = e.touches[0];
+      startX = touch.pageX;
+      startY = touch.pageY;
+      u.up = true;
+    }
+    // Any secondary touch counts as the handbrake
+    if (e.touches.length > 1) {
+      u.handb = true;
+    }
+  }, { passive: false });
+
+  addEventListener('touchmove', (e) => {
+    e.preventDefault(); // prevent browser scrolling
+    if (e.touches.length === 0) return;
+    
+    const touch = e.touches[0];
+    const dx = touch.pageX - startX;
+    const dy = touch.pageY - startY;
+
+    u.left = dx < -THRESHOLD;
+    u.right = dx > THRESHOLD;
+    u.up = dy <= THRESHOLD;    // touching or dragging up
+    u.down = dy > THRESHOLD;   // dragging down
+  }, { passive: false });
+
+  const endTouch = (e) => {
+    if (e.touches.length === 0) {
+      u.up = false;
+      u.down = false;
+      u.left = false;
+      u.right = false;
+      u.handb = false;
+    } else {
+      u.handb = false;
+    }
+  };
+  
+  addEventListener('touchend', endTouch);
+  addEventListener('touchcancel', endTouch);
 }
 
 boot().catch((e) => {
