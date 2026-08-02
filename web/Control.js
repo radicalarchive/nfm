@@ -23,6 +23,7 @@ export class Control {
     this.acr = 0;
     this.afta = false;
     this.fpnt = intArray(5);
+    this.steer = 0.0;
     this.trfix = 0;
     this.forget = false;
     this.bulistc = false;

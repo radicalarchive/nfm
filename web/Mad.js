@@ -474,38 +474,42 @@ export class Mad {
     if (contO.wzy > 30) {
       contO.wzy -= 30;
     }
-    if (control.right) {
-      contO.wxz -= this.cd.turn[this.cn];
-      if (contO.wxz < -36) {
-        contO.wxz = -36;
+    if (control.steer !== 0.0) {
+      contO.wxz = trunc(-36.0 * control.steer);
+    } else {
+      if (control.right) {
+        contO.wxz -= this.cd.turn[this.cn];
+        if (contO.wxz < -36) {
+          contO.wxz = -36;
+        }
       }
-    }
-    if (control.left) {
-      contO.wxz += this.cd.turn[this.cn];
-      if (contO.wxz > 36) {
-        contO.wxz = 36;
+      if (control.left) {
+        contO.wxz += this.cd.turn[this.cn];
+        if (contO.wxz > 36) {
+          contO.wxz = 36;
+        }
       }
-    }
-    if (contO.wxz !== 0 && !control.left && !control.right) {
-      if (Math.abs(this.speed) < 10.0) {
-        if (Math.abs(contO.wxz) === 1) {
-          contO.wxz = 0;
-        }
-        if (contO.wxz > 0) {
-          --contO.wxz;
-        }
-        if (contO.wxz < 0) {
-          ++contO.wxz;
-        }
-      } else {
-        if (Math.abs(contO.wxz) < this.cd.turn[this.cn] * 2) {
-          contO.wxz = 0;
-        }
-        if (contO.wxz > 0) {
-          contO.wxz -= this.cd.turn[this.cn] * 2;
-        }
-        if (contO.wxz < 0) {
-          contO.wxz += this.cd.turn[this.cn] * 2;
+      if (contO.wxz !== 0 && !control.left && !control.right) {
+        if (Math.abs(this.speed) < 10.0) {
+          if (Math.abs(contO.wxz) === 1) {
+            contO.wxz = 0;
+          }
+          if (contO.wxz > 0) {
+            --contO.wxz;
+          }
+          if (contO.wxz < 0) {
+            ++contO.wxz;
+          }
+        } else {
+          if (Math.abs(contO.wxz) < this.cd.turn[this.cn] * 2) {
+            contO.wxz = 0;
+          }
+          if (contO.wxz > 0) {
+            contO.wxz -= this.cd.turn[this.cn] * 2;
+          }
+          if (contO.wxz < 0) {
+            contO.wxz += this.cd.turn[this.cn] * 2;
+          }
         }
       }
     }

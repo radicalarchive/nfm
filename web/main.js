@@ -637,6 +637,11 @@ function installInput(u, snd) {
     const dx = touch.pageX - startX;
     const dy = touch.pageY - startY;
 
+    // Analog steering for ground (90px = full lock, 3x less sensitive)
+    const STEER_MAX = 90.0;
+    u.steer = Math.max(-1.0, Math.min(1.0, dx / STEER_MAX));
+
+    // Digital keys for tricks / braking
     u.left = dx < -THRESHOLD;
     u.right = dx > THRESHOLD;
     u.up = dy <= THRESHOLD;    // touching or dragging up
@@ -650,6 +655,7 @@ function installInput(u, snd) {
       u.left = false;
       u.right = false;
       u.handb = false;
+      u.steer = 0.0;
     } else {
       u.handb = false;
     }
