@@ -30,10 +30,14 @@
   textarea { width: 100%; height: 56vh; resize: vertical; background: #0b0d13; color: #cfd6e6;
              border: 1px solid var(--line); border-radius: 8px; padding: .6rem .7rem;
              font: 13px/1.45 ui-monospace, Menlo, Consolas, monospace; tab-size: 2; }
+  /* 700x550 is the applet's own surface; the box is 30% shorter than that and
+     the canvas is cropped to its middle rather than squashed, so the model
+     keeps the proportions the renderer draws it with. */
   .view { position: relative; background: #0b0d13; border: 1px solid var(--line); border-radius: 8px;
-          overflow: hidden; aspect-ratio: 700/550; touch-action: none; cursor: grab; }
+          overflow: hidden; aspect-ratio: 700/385; touch-action: none; cursor: grab; }
   .view.dragging { cursor: grabbing; }
-  .view canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+  /* Cropped, not squashed: full width, 700/385 of the height, centred. */
+  .view canvas { position: absolute; left: 0; width: 100%; height: 142.86%; top: -21.43%; }
 
   .bar { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; margin-top: .7rem; }
   button, select, input[type=text], input[type=number] {

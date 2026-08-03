@@ -447,7 +447,9 @@ $('applystats').onclick = () => {
     view.yaw = (view.yaw + (e.clientX - lastX) * 0.7 + 360) % 360;
     // Tilt is clamped: past vertical the model is upside down and there is no
     // depth buffer to make sense of it.
-    view.pitch = Math.max(-85, Math.min(85, view.pitch + (e.clientY - lastY) * 0.5));
+    // Inverted: dragging DOWN tilts the model's nose down, i.e. the pointer
+    // pushes the near side away, which is what a turntable does.
+    view.pitch = Math.max(-85, Math.min(85, view.pitch - (e.clientY - lastY) * 0.5));
     lastX = e.clientX; lastY = e.clientY;
   });
   const end = () => { dragging = false; box.classList.remove('dragging'); };
