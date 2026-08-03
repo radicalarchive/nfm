@@ -172,8 +172,16 @@ export async function renameCar(from, to) {
  * Returns the names actually loaded, in slot order, so a caller can show the
  * player which car is in which slot.
  */
-export async function loadIntoCarDefine(cd) {
-  cd.loadcarmaker();
+export async function loadIntoCarDefine(cd, { menu = true } = {}) {
+  if (menu) {
+    cd.loadcarmaker();
+  } else {
+    // In a race the stage owns the sky and fog colours, and include[] says
+    // which base models the stage loaded. loadcarmaker() resets all three for
+    // the car-maker's own backdrop, so racing a custom car must not call it —
+    // only the slot counter it sets matters here.
+    cd.nlcars = 16;
+  }
   const loaded = [];
   for (const name of await listAll()) {
     if (cd.nlcars >= 56) break;

@@ -16,6 +16,7 @@ import { CarDefine } from './CarDefine.js';
 import { Mad } from './Mad.js';
 import { GameSparker } from './GameSparker.js';
 import { XtGraphics } from './XtGraphics.js';
+import { loadIntoCarDefine } from './carstore.js';
 import { objArray, setSeed, setPooling } from './java.js';
 import { readZip, readText, detectFpath } from './vfs.js';
 import { loadHudImages } from './images.js';
@@ -142,7 +143,11 @@ async function boot() {
   }
 
   const stage = cfg.stage;
-  const car = cfg.car;
+  // ?mycar=<name> races a car out of browser storage (or mycars/) instead of
+  // one of the 16 built-in slots. Resolved after loadbase, once CarDefine
+  // exists to load it into.
+  const myCarName = params.get('mycar');
+  let car = cfg.car;
   const players = cfg.players;
   const sameCars = params.get('cars') === 'same';
   setSeed(cfg.seed);
@@ -206,6 +211,17 @@ async function boot() {
   for (let i = 0; i < 8; ++i) {
     array3[i] = new Mad(carDefine, medium, record, xt, i);
     gs.u[i] = new Control(medium);
+  }
+
+  if (myCarName) {
+    const loaded = await loadIntoCarDefine(carDefine, { menu: false });
+    const at = loaded.indexOf(myCarName);
+    if (at < 0) {
+      log(`no such car: ${myCarName} -- racing car ${car} instead`);
+    } else {
+      car = 16 + at;   // custom cars occupy slots 16.., as loadcarmaker() puts them
+      log(`racing custom car "${myCarName}" (slot ${car})`);
+    }
   }
 
   xt.nplayers = players;

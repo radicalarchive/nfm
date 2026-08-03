@@ -103,6 +103,9 @@
   .mini { font: 600 12px system-ui, sans-serif; padding: .3rem .7rem; border-radius: 5px; margin-top: .6rem;
           border: 1px solid #39404f; background: #1d212c; color: #e6e8ee; cursor: pointer; }
   .status { text-align: center; color: var(--dim); font-size: .85rem; min-height: 1.2rem; }
+  .mycars { display: flex; align-items: center; gap: .5rem; margin-top: .6rem; }
+  .mycars label { cursor: pointer; }
+  .mycars #carmsg { font: 500 12px system-ui, sans-serif; color: var(--dim); }
   code { font: 11px ui-monospace, Menlo, Consolas, monospace; background: #0b0d13; border: 1px solid var(--line); border-radius: 3px; padding: 0 .3em; }
 </style>
 </head>
@@ -127,6 +130,12 @@
       </div>
       <div class="facts"><span id="carclass"></span></div>
       <div class="bars" id="carbars"></div>
+      <div class="mycars">
+        <label class="mini" for="carfile">Import .rad</label>
+        <input type="file" id="carfile" accept=".rad,.txt,text/plain" hidden>
+        <button type="button" class="mini" id="cardel" hidden>Delete</button>
+        <span id="carmsg"></span>
+      </div>
     </section>
 
     <section class="card">
@@ -263,7 +272,8 @@
 
 <script type="module">
 import { initPreview, carNames, carStats, drawCar, loadStage, stageName, drawMinimap,
-         faceURL, drawStage3D, CAR_COUNT } from './web/preview.js';
+         faceURL, drawStage3D, CAR_COUNT, loadCustomCars } from './web/preview.js';
+import { writeCar, deleteCar, listStored } from './web/carstore.js';
 
 const $ = (id) => document.getElementById(id);
 const carSel = $('car'), stageSel = $('stage'), status = $('status');
@@ -282,7 +292,12 @@ const defaultAA = () => parseFloat($('res').value || '2') <= 1;
 function buildURL() {
   const p = new URLSearchParams();
   const car = carSel.value, stage = stageSel.value;
-  if (car !== '1') p.set('car', car);
+  // Custom cars occupy slots 16.., and which name lands in which slot depends
+  // on what is in browser storage. The game re-derives that from the same
+  // listing, so the URL carries the NAME -- a bare slot number would race a
+  // different car after you save another one.
+  if (+car >= CAR_COUNT) p.set('mycar', carSel.selectedOptions[0].dataset.name);
+  else if (car !== '1') p.set('car', car);
   if (stage !== '1') p.set('stage', stage);
   if ($('players').value !== '7') p.set('players', $('players').value);
   if ($('cars').value) p.set('cars', $('cars').value);
@@ -334,10 +349,59 @@ function showCar() {
   drawCar($('carview'), car, angle);
   const { cls, bars } = carStats(car);
   $('carclass').innerHTML = cls ? `Class <b>${cls}</b>` : '';
+  const name = carSel.selectedOptions[0]?.dataset.name;
+  $('cardel').hidden = !name || !storedNames.includes(name);
   $('carbars').innerHTML = bars.map(([name, v]) =>
     `<div class="bar"><span>${name}</span><span class="track"><span class="fill" style="width:${v}%"></span></span></div>`).join('');
   buildURL();
 }
+
+/**
+ * Reload the custom-car list into the picker. Slot numbers come from
+ * loadCustomCars(), which loads them into CarDefine exactly as the game will,
+ * so the preview and the stat bars read the real parsed car -- and a car whose
+ * .rad the parser rejects simply never appears, rather than appearing and then
+ * failing to race.
+ */
+let storedNames = [];
+async function refreshCustomCars() {
+  for (const o of [...carSel.options]) if (+o.value >= CAR_COUNT) o.remove();
+  const loaded = await loadCustomCars();
+  storedNames = await listStored();
+  loaded.forEach((name, i) => {
+    const o = new Option(`${name} (my car)`, CAR_COUNT + i);
+    o.dataset.name = name;
+    carSel.add(o);
+  });
+  return loaded;
+}
+
+$('carfile').onchange = async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const name = file.name.replace(/\.rad$/i, '');
+  await writeCar(name, await file.text());
+  const loaded = await refreshCustomCars();
+  e.target.value = '';
+  if (!loaded.includes(name)) {
+    $('carmsg').textContent = `${name}: not a loadable car`;
+    return;
+  }
+  carSel.value = String(CAR_COUNT + loaded.indexOf(name));
+  $('carmsg').textContent = `imported ${name}`;
+  showCar();
+};
+
+$('cardel').onclick = async () => {
+  const opt = carSel.selectedOptions[0];
+  const name = opt?.dataset.name;
+  if (!name) return;
+  await deleteCar(name);
+  await refreshCustomCars();
+  carSel.value = '1';
+  $('carmsg').textContent = `deleted ${name}`;
+  showCar();
+};
 
 function spin() {
   angle = (angle + 0.6) % 360;
@@ -384,6 +448,7 @@ const step = (sel, d, count) => {
 
     carNames().forEach((name, i) => carSel.add(new Option(name, i)));
     carSel.value = '1';
+    await refreshCustomCars();
 
     // Stage names come from the stage files themselves, fetched in parallel.
     const names = await Promise.all(
@@ -403,6 +468,12 @@ const step = (sel, d, count) => {
       else el.value = v;
     }
 
+    const wanted = new URLSearchParams(location.search).get('mycar');
+    if (wanted) {
+      const opt = [...carSel.options].find((o) => o.dataset.name === wanted);
+      if (opt) carSel.value = opt.value;
+    }
+
     showCar();
     await showStage();
     spinning = requestAnimationFrame(spin);
@@ -417,8 +488,8 @@ const step = (sel, d, count) => {
 
 carSel.onchange = showCar;
 stageSel.onchange = showStage;
-$('carprev').onclick = () => step(carSel, -1, CAR_COUNT);
-$('carnext').onclick = () => step(carSel, +1, CAR_COUNT);
+$('carprev').onclick = () => step(carSel, -1, carSel.length);
+$('carnext').onclick = () => step(carSel, +1, carSel.length);
 $('stageprev').onclick = () => step(stageSel, -1, stageSel.length);
 $('stagenext').onclick = () => step(stageSel, +1, stageSel.length);
 $('players').onchange = buildURL;

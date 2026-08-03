@@ -14,6 +14,7 @@
 #   nfm/web/vendor/     BassoonTracker, the MOD player web/music.js imports
 #   nfm/data/           models.zip, images.zip, sounds.zip, HUD gifs
 #   nfm/stages/         stage definitions
+#   nfm/mycars/         the four cars that ship with the game
 #   nfm/music/          the tracker modules, fetched per stage by web/music.js
 #
 # Keeping the same shape as the repo is what lets vfs.detectFpath() work
@@ -36,9 +37,17 @@ rm -f "$STAGE"/web/*.test.js
 # as a disallowed MIME type ("") rather than as a 404, which is a confusing
 # way to be told a file is absent.
 cp -r "$SRC/web/vendor" "$STAGE/web/"
+# web/careditor/ is a subdirectory too, and the same glob misses it. Copy it,
+# then drop the tests -- they import node:test and would 404 nothing, but they
+# are dead weight on a static host.
+mkdir -p "$STAGE/web/careditor"
+cp "$SRC"/web/careditor/*.js "$STAGE/web/careditor/"
+rm -f "$STAGE"/web/careditor/*.test.js
 # music/ holds the tracker modules web/music.js fetches per stage (3.3 MB).
 # Not needed before the soundtrack was wired up; very much needed now.
-cp -r "$SRC/data" "$SRC/stages" "$SRC/music" "$STAGE/"
+# mycars/ holds the four cars that ship with the game. The launcher lists them
+# alongside whatever is in browser storage, so they have to be fetchable.
+cp -r "$SRC/data" "$SRC/stages" "$SRC/music" "$SRC/mycars" "$STAGE/"
 
 # ---- cache busting ---------------------------------------------------------
 # The host sends no Cache-Control, so browsers apply heuristic freshness and an
@@ -52,8 +61,8 @@ cp -r "$SRC/data" "$SRC/stages" "$SRC/music" "$STAGE/"
 # imports. Asset fetches (data/, stages/) go through vfs.js and are
 # deliberately NOT stamped: they are the big files and they change far less
 # often.
-STAMP="$(cat "$STAGE"/web/*.js "$STAGE"/web/vendor/*.js "$STAGE"/web/*.html "$STAGE"/index.html | md5sum | cut -c1-8)"
-for f in "$STAGE"/web/*.js "$STAGE"/web/*.html "$STAGE"/index.html; do
+STAMP="$(cat "$STAGE"/web/*.js "$STAGE"/web/vendor/*.js "$STAGE"/web/careditor/*.js "$STAGE"/web/*.html "$STAGE"/index.html | md5sum | cut -c1-8)"
+for f in "$STAGE"/web/*.js "$STAGE"/web/careditor/*.js "$STAGE"/web/*.html "$STAGE"/index.html; do
   sed -i -E "s@(from '\./([A-Za-z0-9_.-]+/)?[A-Za-z0-9_.-]+\.js)'@\1?v=$STAMP'@g; \
              s@(src=\"\./([A-Za-z0-9_.-]+/)?[A-Za-z0-9_.-]+\.js)\"@\1?v=$STAMP\"@g" "$f"
 done

@@ -21,6 +21,7 @@ import { XtGraphics } from './XtGraphics.js';
 import { ContO } from './ContO.js';
 import { objArray, setSeed } from './java.js';
 import { readZip, readText, detectFpath } from './vfs.js';
+import { loadIntoCarDefine } from './carstore.js';
 
 /** Slot order loadbase() assigns; index here is the `?car=` value. */
 export const CAR_COUNT = 16;
@@ -86,6 +87,16 @@ export async function initPreview() {
 
   world = { medium, trackers, checkPoints, models, gs, cd, xt, record, placed, mads };
   return world;
+}
+
+/**
+ * Load the player's own cars (browser storage, then mycars/) into CarDefine
+ * slots 16.., exactly as the game does when you pick one to race, and return
+ * their names in slot order. `menu: false` because the preview world already
+ * has a stage's colours set up and loadcarmaker() would reset them.
+ */
+export async function loadCustomCars() {
+  return loadIntoCarDefine(world.cd, { menu: false });
 }
 
 /** Display names for cars 0..15, as the game shows them. */
@@ -183,7 +194,9 @@ export function drawCar(canvas, car, angle) {
   medium.cy = 225;
   medium.cz = 50;
 
-  const o = models[car];
+  // Custom cars are not base models: loadcar() puts them in CarDefine's own
+  // bco[] at slot 16 and up.
+  const o = car < CAR_COUNT ? models[car] : world.cd.bco[car];
   o.x = 0;
   o.z = 1000;
   o.y = 0;                          // as the car-select screen leaves it

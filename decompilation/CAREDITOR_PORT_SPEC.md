@@ -135,3 +135,15 @@ appear in the launcher's car picker and be raceable.
 
 This touches the live game's load path and the launcher, so it is written and
 tested here, not delegated.
+
+### Keep the `.rad` text the unit of exchange
+
+The longer-term plan is an `nfm_contrib` repo taking user submissions as pull
+requests, ideally opened from a button inside the editor, with the main game
+listing and loading what has been contributed. Nothing here needs to change for
+that, on one condition: **the editor must never reach for storage directly.**
+`savefile()` returns the `.rad` text and `loadfile(text)` takes it, exactly as
+`CarDefine.loadcar` already does, and `carstore.js` is one of several possible
+sinks for that string — a PR body and a fetch of a contributed file are two
+more. Any chunk that calls IndexedDB, `fetch`, or the GitHub API from inside a
+transpiled method is wrong, however convenient.
