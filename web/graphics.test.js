@@ -313,3 +313,26 @@ test('the trapezoid fill emits far less than the scanline fill it replaced', () 
   assert.ok(trap.vertexCount * 4 < scan.vertexCount,
             `trap ${trap.vertexCount} vs scan ${scan.vertexCount}`);
 });
+
+// setFont takes both shapes: the HUD's CSS string and the transpiled editor's
+// java.awt.Font. The editor call sites say `rd.setFont(new Font("Arial", 1, 12))`
+// because that is what CarMaker.java says, and §0 forbids rewriting them --
+// so the conversion has to live here. Before this, three call styles were in
+// the tree and none of them reached the canvas correctly.
+test('setFont accepts a CSS string, a Font object and three arguments', () => {
+  const rd = new Graphics2D(null, null, 800, 450);
+  const seen = [];
+  rd.text = { set font(v) { seen.push(v); } };
+
+  rd.setFont('bold 12px Arial');
+  rd.setFont({ name: 'Arial', style: 1, size: 13 });
+  rd.setFont('Arial', 0, 12);
+  rd.setFont('Arial', 3, 10);          // BOLD | ITALIC
+
+  assert.deepStrictEqual(seen, [
+    'bold 12px Arial',
+    'bold 13px "Arial"',
+    '12px "Arial"',
+    'italic bold 10px "Arial"',
+  ]);
+});

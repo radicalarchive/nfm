@@ -256,7 +256,6 @@ export function crash(cm, n) {
 }
 
 export function setheme(cm) {
-  if (!cm.editor) return;
   if (cm.cthm === 0) {
     cm.editor.setForeground(cm.deff);
     cm.editor.setBackground(cm.defb);

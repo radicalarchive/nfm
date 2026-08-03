@@ -236,7 +236,23 @@ export class Graphics2D {
   /** setRenderingHint is a no-op: WebGL antialiasing is set at context creation. */
   setRenderingHint() {}
 
-  setFont(spec) {
+  /**
+   * Two callers, two shapes, both legitimate.
+   *
+   * The HUD was written against the canvas and passes a CSS font string
+   * ('bold 12px Arial'). The transpiled editor passes what the Java passes --
+   * `new Font(name, style, size)`, or its three arguments -- because
+   * `rd.setFont(new Font("Arial", 1, 12))` is what CarMaker.java says and §0
+   * forbids rewriting the call site. Convert here rather than making either
+   * side lie: style is java.awt.Font's bitmask, BOLD = 1, ITALIC = 2.
+   */
+  setFont(spec, style, size) {
+    if (typeof spec !== 'string' || style !== undefined) {
+      const f = (typeof spec === 'object' && spec !== null)
+        ? spec : { name: spec, style, size };
+      const bits = f.style | 0;
+      spec = `${bits & 2 ? 'italic ' : ''}${bits & 1 ? 'bold ' : ''}${f.size}px "${f.name}"`;
+    }
     this.font = spec;
     this.text.font = spec;
   }
