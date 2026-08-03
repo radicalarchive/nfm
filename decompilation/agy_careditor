@@ -1,0 +1,225 @@
+#!/usr/bin/env bash
+#
+# agy_careditor — run ONE bounded chunk of the CarMaker port via `agy -p`.
+#
+# Usage:   ./agy_careditor <chunk>       e.g.  ./agy_careditor shape
+#          ./agy_careditor --list
+#
+# CarMaker.java is a single 5,839-line class, so the unit of delegation is a
+# LINE RANGE, not a file (that is the only difference from `agy_tmp`, which
+# takes a whole class). Chunks are declared in the CHUNKS table below; each one
+# names its line ranges in decompilation/java-src/CarMaker.java, the JS module
+# it produces, and any chunk-specific instructions.
+#
+# See decompilation/CAREDITOR_PORT_SPEC.md for what the chunks are and why the
+# boundaries fall where they do, and PORT_SPEC.md §"Using a subagent" /
+# §"Calibrate before batching" — both binding.
+#
+# WRITE ACCESS: --dangerously-skip-permissions is required. Without it `agy -p`
+# auto-denies every write and the job produces nothing. It auto-approves every
+# tool call the sub-agent makes; the prompt is the only scoping. Diff before
+# you trust it.
+#
+set -euo pipefail
+
+SKIP_PERMS="${SKIP_PERMS:---dangerously-skip-permissions}"
+
+# gemini draws on a SEPARATE quota from claude-*/gpt-oss (which share one
+# pool), so it is both the strongest option available and the one that
+# preserves Claude credits. See WORK.md.
+MODEL="${MODEL:-gemini-3.1-pro-high}"
+EFFORT="${EFFORT:-high}"
+TIMEOUT="${TIMEOUT:-45m}"
+
+REPO="/home/evan/games/nfm"
+SRC="$REPO/decompilation/java-src/CarMaker.java"
+OUT_DIR="$REPO/web/careditor"
+JAR="$REPO/java/Game.jar"
+JAR_DIR="/tmp/claude-1000/-home-evan-games-nfm/careditor/jar"
+SCRATCH="/tmp/claude-1000/-home-evan-games-nfm/careditor"
+
+# ---------------------------------------------------------------------------
+# CHUNKS
+#   name | line ranges (comma-separated a-b) | output module | extra rules
+# ---------------------------------------------------------------------------
+chunk_ranges() {
+  case "$1" in
+    shape)  echo "4682-4997" ;;
+    files)  echo "4352-4681,5473-5633" ;;
+    ui)     echo "5158-5232,5645-5795" ;;
+    input)  echo "5251-5398,5796-5839" ;;
+    tab0)   echo "430-691" ;;
+    tab1)   echo "692-877" ;;
+    tab2)   echo "878-2477" ;;
+    tab3)   echo "2478-2858" ;;
+    ctachm) echo "2921-4351" ;;
+    boot)   echo "355-429,2859-2920,4998-5157,5399-5472,5634-5644" ;;
+    *)      return 1 ;;
+  esac
+}
+
+chunk_out() {
+  case "$1" in
+    shape)  echo "shape.js" ;;
+    files)  echo "files.js" ;;
+    ui)     echo "ui.js" ;;
+    input)  echo "input.js" ;;
+    tab0)   echo "tab0.js" ;;
+    tab1)   echo "tab1.js" ;;
+    tab2)   echo "tab2.js" ;;
+    tab3)   echo "tab3.js" ;;
+    ctachm) echo "ctachm.js" ;;
+    boot)   echo "boot.js" ;;
+  esac
+}
+
+chunk_extra() {
+  case "$1" in
+    shape) cat <<'X'
+This chunk is the car-geometry deformation math: regx, regz, roofsqsh, crash,
+setheme, py, rot, xs, ys. It is the CALIBRATION chunk — it is deliberately the
+most numeric part of the class, and nothing else may be started until it comes
+back clean.
+
+  * `regx` opens with `this.hitmag += (int)a;` where `a` is a FLOAT parameter.
+    That is the exact §2 compound-assignment trap. Work out what the bytecode
+    does (`javap -p -c`) before you write the line, and report your reasoning.
+  * `regx`/`regz`/`roofsqsh` walk `this.o` — a `ContO`. `web/ContO.js` is
+    ALREADY PORTED and verified. Import it; do not re-transpile it, do not
+    stub it, and do not "fix" it.
+  * `crash` calls `.play()` on sound objects. Route those through the existing
+    `web/audio.js` seam if a matching call exists there; otherwise leave a
+    clearly-named no-op method on the sound object and list it in your report.
+  * `setheme` only sets AWT colours on widgets. Port it as a function that
+    records the same colour values on a plain theme object; do not invent a DOM.
+X
+;;
+    files) cat <<'X'
+This chunk is car file IO and the .rad text parser: setupo, loadfile, savefile,
+newcar, delcar, rencar, loadsettings, savesettings, checko, fixtext, getvalue,
+getSvalue, servervalue, serverSvalue, objvalue.
+
+  * IO SEAM: there is no disk. Follow the seam that `web/CarDefine.js:713`
+    already uses for `loadcar` — the function takes the file TEXT as a
+    parameter and returns the parsed result; it does not read anything itself.
+    Do the same here: `loadfile(text)`, and `savefile()` RETURNS the .rad text
+    instead of writing it. `newcar`/`delcar`/`rencar` take and return plain
+    data. NO fetch, NO IndexedDB, NO localStorage in this chunk — the storage
+    backend is written separately and is not your job.
+  * `getvalue`/`getSvalue`/`objvalue` are the parser the whole editor rests on.
+    They must round-trip the real files byte-for-byte. Verify against the REAL
+    car files in `mycars/*.rad` and `data/` — parse each one with both the Java
+    class (by reflection) and your JS, and diff every value.
+  * `Float.valueOf(string).intValue()` truncates toward zero and throws on
+    malformed input. Match both behaviours, including the throw.
+X
+;;
+    *) cat <<'X'
+Port this chunk verbatim. If it references a local variable declared outside
+your line range, do NOT invent one: list it in your report and take it as a
+parameter of the function you emit.
+X
+;;
+  esac
+}
+
+if [ "${1:-}" = "--list" ] || [ $# -lt 1 ]; then
+  echo "chunks: shape files ui input tab0 tab1 tab2 tab3 ctachm boot"
+  exit 0
+fi
+
+CHUNK="$1"
+RANGES="$(chunk_ranges "$CHUNK")" || { echo "no such chunk: $CHUNK" >&2; exit 2; }
+OUT="$(chunk_out "$CHUNK")"
+EXTRA="$(chunk_extra "$CHUNK")"
+
+# Materialise the chunk as its own file so the sub-agent cannot wander: it is
+# handed exactly the lines it owns, plus the full class for context.
+mkdir -p "$SCRATCH/chunks" "$OUT_DIR"
+CHUNK_FILE="$SCRATCH/chunks/$CHUNK.java"
+: > "$CHUNK_FILE"
+IFS=',' read -ra PARTS <<< "$RANGES"
+for part in "${PARTS[@]}"; do
+  A="${part%-*}"; B="${part#*-}"
+  echo "// ---- CarMaker.java lines $A-$B ----" >> "$CHUNK_FILE"
+  sed -n "${A},${B}p" "$SRC" >> "$CHUNK_FILE"
+  echo >> "$CHUNK_FILE"
+done
+LINES=$(wc -l < "$CHUNK_FILE")
+
+BASELINE_TESTS=$(cd "$REPO/web" && node --test 2>/dev/null | grep -oP '(?<=^# pass )\d+' | head -1 || true)
+BASELINE_TESTS="${BASELINE_TESTS:-105}"
+
+read -r -d '' PROMPT <<PROMPT_EOF || true
+You are transpiling Java to JavaScript for a browser port of the game "Need for Madness". Work in $REPO. Your job is ONE chunk of the car editor: chunk "$CHUNK", $LINES lines. Do that chunk and stop.
+
+STEP 1 — read, IN FULL and in this order:
+  $REPO/web/TRANSPILE_SPEC.md          the contract, not a suggestion
+  $REPO/decompilation/CAREDITOR_PORT_SPEC.md   what the car-editor port is, and where this chunk sits in it
+  $REPO/WORK.md                        gotchas; the delegated-job entries will save you a wasted run
+The rules that most often cause SILENT failure:
+  §0 transpile LINE BY LINE; keep procyon's local names (n, n2, b, array...); do not restructure, rename, modernise, simplify, or "fix" apparent bugs.
+  §1 numeric semantics: idiv / trunc / fr / Math.imul. Java float is 32-bit — apply fr() at EACH binary operation, not once at the end.
+  §2 procyon decompiles compound assignment WRONG. Before writing any code, grep your chunk for '+= (int)(' , '-= (int)(' , and any '+=' / '-=' / '*=' whose right-hand side is a float while the left-hand side is an int. List every hit and handle each per §2. Report them all.
+  §2b EVERY int operation wraps at 32 bits — the ADDITION as well as the multiply. Wrap the whole expression in i32(). Use Math.imul ONLY when BOTH operands are declared int in the Java; Math.imul on a float operand silently zeroes it.
+  §2c NEVER weaken a test to make it pass. If the probe disagrees with your code, YOUR CODE IS WRONG — disassemble and fix the code. If you cannot reconcile it, leave the test FAILING, mark it test.todo, and say so loudly in your report.
+  §3 preserve the game's own bugs verbatim, including (int) casts of float literals.
+  §4 PAINTER'S ALGORITHM. There is no depth buffer; submission order IS the depth. Never reorder, batch, or hoist a draw call.
+  §6 verification against the REAL Java class via a reflection probe is MANDATORY.
+
+STEP 2 — read these already-verified files and match their style and comment density exactly:
+  $REPO/web/java.js        the helper library you MUST use. Do NOT edit it.
+  $REPO/web/Plane.js  + Plane.test.js   reference transpilation and test
+  $REPO/web/ContO.js       the car object your chunk may touch — already ported, already verified
+  $REPO/web/CarDefine.js   note the IO seam comment at line 713
+
+STEP 3 — transpile this chunk:
+  source lines : CarMaker.java $RANGES   (extracted verbatim for you at $CHUNK_FILE)
+  full class   : $SRC   (read it for context — fields, callers — but port ONLY your lines)
+  output       : $OUT_DIR/$OUT   an ES module, same import style as web/Plane.js
+
+$EXTRA
+
+Shared state: CarMaker is one class with ~200 fields. Do NOT copy the field declarations into your module and do NOT invent a global. Emit functions that take the editor state object as their first parameter, named \`cm\`, and read/write \`cm.<field>\` exactly where the Java says \`this.<field>\`. Field NAMES must match the Java exactly. List in your report every field your chunk touches, with its declared Java type — that list is how the chunks get stitched together, so an omission costs a day.
+
+STEP 4 — verify against the REAL Java, not against your reading of it. Unpacked jar:
+  $JAR_DIR      (if missing: mkdir -p $JAR_DIR && cd $JAR_DIR && unzip -oq $JAR)
+Write a Java reflection probe driving the real CarMaker methods, compile and run it:
+  javac -cp $JAR_DIR -d $SCRATCH/probe YourProbe.java
+  java -cp $SCRATCH/probe:$JAR_DIR tools.YourProbe
+Fields are package-private: getDeclaredField/getDeclaredMethod + setAccessible(true). Probes declare 'package tools;'. Save the probe SOURCE under $REPO/web/tools/.
+CarMaker extends Applet and its constructor touches AWT — construct it with sun.misc.Unsafe.allocateInstance or reflection on the no-arg constructor under \`java -Djava.awt.headless=true\`, and set only the fields your method reads. If a method genuinely cannot be driven, say so EXPLICITLY and name it; do not quietly skip it.
+Choose inputs with NEGATIVE values and magnitudes large enough to overflow int32. Small all-positive inputs agree happily while the code is wrong.
+
+STEP 5 — write $OUT_DIR/${OUT%.js}.test.js, a node:test differential test using the literal numbers your probe printed as expected values, with a comment saying they came from the probe. Run:
+  cd $REPO/web && node --test
+$BASELINE_TESTS tests pass today; ALL must still pass.
+Do NOT modify any file other than $OUT_DIR/$OUT, $OUT_DIR/${OUT%.js}.test.js and your probe under web/tools/. Do NOT touch TASKS.md, WORK.md, AGENTS.md, any existing source, or any existing test.
+Do NOT start any other chunk.
+
+If a value disagrees, do not adjust the test. Disassemble:
+  javap -p -c -cp $JAR_DIR CarMaker | sed -n '/methodName/,/^  [a-z]/p'
+f2i / i2f / idiv / fdiv show exactly where truncation and float conversion happen.
+
+FINALLY report: files created; test pass/fail counts; EVERY compound-assignment site and how you handled each; every field you touched with its Java type; every local variable your range referenced but did not declare; every preserved bug; and everything you could NOT verify. Be explicit about gaps — a flagged gap is cheap, a papered-over one costs days. Do NOT report "gaps: none": a previous job did that while having silently stubbed a method to return its own failure code.
+PROMPT_EOF
+
+echo "=== agy_careditor ============================================="
+echo "chunk   : $CHUNK  ($RANGES, $LINES lines)"
+echo "output  : web/careditor/$OUT"
+echo "model   : $MODEL   (effort $EFFORT, timeout $TIMEOUT)"
+echo "perms   : $SKIP_PERMS"
+echo "==============================================================="
+
+cd "$REPO"
+
+EFFORT_ARG=(--effort "$EFFORT")
+case "$MODEL" in
+  *-thinking|*-high|*-medium|*-low) EFFORT_ARG=() ;;
+esac
+
+exec agy -p "$PROMPT" \
+  --model "$MODEL" \
+  "${EFFORT_ARG[@]}" \
+  --print-timeout "$TIMEOUT" \
+  $SKIP_PERMS
