@@ -21,9 +21,12 @@
 //   That is the same seam CarDefine.loadcar uses (web/CarDefine.js:713) --
 //   text in, no IO inside the transpiled code.
 //
-// No numeric helpers imported: this chunk has no float arithmetic, no
-// int division, and no expression wide enough to overflow int32.
+// No float arithmetic here and nothing wide enough to overflow int32 -- but
+// there IS int division: `stringWidth(s) / 2` truncates in Java, and the first
+// pass wrote it as JS `/`, which is half a pixel off on every odd-width label.
+// 13 sites, all idiv() now.
 
+import { idiv } from '../java.js';
 import { movefield, stringbutton, openlink, openhlink, openelink } from './ui.js';
 import { loadfile, fixtext } from './files.js';
 
@@ -163,17 +166,17 @@ export function tab0(cm, n) {
     else {
       cm.rd.setColor(0, 0, 0);
     }
-    cm.rd.drawString("For the Car Maker Homepage, Development Center and Forums :", 350 - cm.ftm.stringWidth("For the Car Maker Homepage, Development Center and Forums :") / 2, 480);
+    cm.rd.drawString("For the Car Maker Homepage, Development Center and Forums :", 350 - idiv(cm.ftm.stringWidth("For the Car Maker Homepage, Development Center and Forums :"), 2), 480);
     cm.rd.setColor(0, 128, 255);
     const str = "http://www.needformadness.com/developer/";
-    cm.rd.drawString(str, 350 - cm.ftm.stringWidth(str) / 2, 500);
+    cm.rd.drawString(str, 350 - idiv(cm.ftm.stringWidth(str), 2), 500);
     if (cm.mouseon === 2) {
       cm.rd.setColor(0, 128, 255);
     }
     else {
       cm.rd.setColor(0, 64, 128);
     }
-    cm.rd.drawLine(350 - cm.ftm.stringWidth(str) / 2, 501, 350 + cm.ftm.stringWidth(str) / 2, 501);
+    cm.rd.drawLine(350 - idiv(cm.ftm.stringWidth(str), 2), 501, 350 + idiv(cm.ftm.stringWidth(str), 2), 501);
     if (cm.mouseon === 2 && cm.mouses === -1) {
       openhlink(cm);
     }
@@ -184,7 +187,7 @@ export function tab0(cm, n) {
     cm.rd.setColor(0, 0, 0);
     cm.rd.drawRect(177 - n6, 202 + n4, 346 + n6 * 2, 167 + n6 / 5);
     if (cm.sfase === 0) {
-      cm.rd.drawString("Select Car to Edit", 350 - cm.ftm.stringWidth("Select Car to Edit") / 2, 230 + n4);
+      cm.rd.drawString("Select Car to Edit", 350 - idiv(cm.ftm.stringWidth("Select Car to Edit"), 2), 230 + n4);
       cm.slcar.move(250, 240 + n4);
       if (cm.slcar.getWidth() !== 200) {
         cm.slcar.setSize(200, 21);
@@ -211,7 +214,7 @@ export function tab0(cm, n) {
       }
     }
     if (cm.sfase === 1) {
-      cm.rd.drawString("Make a new Car", 350 - cm.ftm.stringWidth("Make a new Car") / 2, 230 + n4);
+      cm.rd.drawString("Make a new Car", 350 - idiv(cm.ftm.stringWidth("Make a new Car"), 2), 230 + n4);
       cm.rd.setFont("Arial", 1, 12);
       cm.rd.drawString("New car name :", 228, 266 + n4);
       movefield(cm, cm.srch, 335, 250 + n4, 129, 22);
@@ -224,7 +227,7 @@ export function tab0(cm, n) {
       stringbutton(cm, "  Cancel  ", 350, 346 + n4, 0, false);
     }
     if (cm.sfase === 2) {
-      cm.rd.drawString("Rename Car :  " + cm.carname + "", 350 - cm.ftm.stringWidth("Rename Car :  " + cm.carname + "") / 2, 230 + n4);
+      cm.rd.drawString("Rename Car :  " + cm.carname + "", 350 - idiv(cm.ftm.stringWidth("Rename Car :  " + cm.carname + ""), 2), 230 + n4);
       cm.rd.setFont("Arial", 1, 12);
       cm.rd.drawString("New name :", 239, 266 + n4);
       movefield(cm, cm.srch, 316, 250 + n4, 129, 22);
@@ -237,7 +240,7 @@ export function tab0(cm, n) {
       stringbutton(cm, "  Cancel  ", 350, 346 + n4, 0, false);
     }
     if (cm.sfase === 3) {
-      cm.rd.drawString("Import a Wavefront OBJ 3D Model", 350 - cm.ftm.stringWidth("Import a Wavefront OBJ 3D Model") / 2, 230 + n4);
+      cm.rd.drawString("Import a Wavefront OBJ 3D Model", 350 - idiv(cm.ftm.stringWidth("Import a Wavefront OBJ 3D Model"), 2), 230 + n4);
       if (cm.xm > 116 && cm.xm < 584 && cm.ym > 246 + n4 && cm.ym < 290 + n4) {
         if (cm.mouseon === -1) {
           cm.mouseon = 3;
@@ -255,17 +258,17 @@ export function tab0(cm, n) {
       else {
         cm.rd.setColor(0, 0, 0);
       }
-      cm.rd.drawString("Please read the important information about importing cars found at:", 350 - cm.ftm.stringWidth("Please read the important information about importing cars, found here :") / 2, 260 + n4);
+      cm.rd.drawString("Please read the important information about importing cars found at:", 350 - idiv(cm.ftm.stringWidth("Please read the important information about importing cars, found here :"), 2), 260 + n4);
       cm.rd.setColor(0, 128, 255);
       const str2 = "http://www.needformadness.com/developer/extras.html";
-      cm.rd.drawString(str2, 350 - cm.ftm.stringWidth(str2) / 2, 280 + n4);
+      cm.rd.drawString(str2, 350 - idiv(cm.ftm.stringWidth(str2), 2), 280 + n4);
       if (cm.mouseon === 3) {
         cm.rd.setColor(0, 128, 255);
       }
       else {
         cm.rd.setColor(0, 64, 128);
       }
-      cm.rd.drawLine(350 - cm.ftm.stringWidth(str2) / 2, 281 + n4, 350 + cm.ftm.stringWidth(str2) / 2, 281 + n4);
+      cm.rd.drawLine(350 - idiv(cm.ftm.stringWidth(str2), 2), 281 + n4, 350 + idiv(cm.ftm.stringWidth(str2), 2), 281 + n4);
       if (cm.mouseon === 3 && cm.mouses === -1) {
         openelink(cm);
       }
@@ -274,7 +277,7 @@ export function tab0(cm, n) {
       stringbutton(cm, "  Cancel  ", 350, 366 + n4, 0, false);
     }
     if (cm.sfase === 4) {
-      cm.rd.drawString("Select Car to Export", 350 - cm.ftm.stringWidth("Select Car to Export") / 2, 230 + n4);
+      cm.rd.drawString("Select Car to Export", 350 - idiv(cm.ftm.stringWidth("Select Car to Export"), 2), 230 + n4);
       cm.slcar.move(250, 240 + n4);
       if (cm.slcar.getWidth() !== 200) {
         cm.slcar.setSize(200, 21);
