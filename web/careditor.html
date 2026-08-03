@@ -9,59 +9,147 @@
   * { box-sizing: border-box; }
   body { margin: 0; background: radial-gradient(120% 90% at 50% 0%, #1d2130 0%, #0d0f16 60%);
          color: #e6e8ee; font: 500 14px system-ui, sans-serif; min-height: 100vh; }
-  header { display: flex; align-items: center; gap: 1rem; padding: .9rem 1.2rem; border-bottom: 1px solid var(--line); }
-  header h1 { font-size: 1rem; margin: 0; letter-spacing: .02em; }
+  header { display: flex; align-items: center; gap: 1rem; padding: .8rem 1.2rem; border-bottom: 1px solid var(--line); }
+  header h1 { font-size: 1rem; margin: 0; }
   header .grow { flex: 1; }
   a.back { color: var(--dim); text-decoration: none; font-size: .82rem; }
   a.back:hover { color: #e6e8ee; }
-  main { display: grid; grid-template-columns: minmax(320px, 1fr) minmax(360px, 1fr); gap: 1rem; padding: 1rem 1.2rem 2rem; align-items: start; }
-  @media (max-width: 860px) { main { grid-template-columns: 1fr; } }
+  #status { color: var(--dim); font-size: .82rem; }
+
+  main { display: grid; grid-template-columns: minmax(340px, 1fr) minmax(380px, 1.1fr); gap: 1rem; padding: 1rem 1.2rem 2rem; align-items: start; }
+  @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
   .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: .9rem; }
-  .card h2 { font-size: .74rem; text-transform: uppercase; letter-spacing: .09em; color: var(--dim); margin: 0 0 .6rem; }
-  textarea { width: 100%; height: 62vh; resize: vertical; background: #0b0d13; color: #cfd6e6; border: 1px solid var(--line);
-             border-radius: 8px; padding: .6rem .7rem; font: 13px/1.45 ui-monospace, Menlo, Consolas, monospace; tab-size: 2; }
-  .view { position: relative; background: #0b0d13; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; aspect-ratio: 16/9; }
+  .card h2 { font-size: .72rem; text-transform: uppercase; letter-spacing: .09em; color: var(--dim); margin: 0 0 .6rem; }
+
+  /* tab bar */
+  .tabs { display: flex; gap: .3rem; border-bottom: 1px solid var(--line); margin-bottom: .8rem; }
+  .tabs button { background: none; border: none; border-bottom: 2px solid transparent; color: var(--dim);
+                 font: 600 13px system-ui, sans-serif; padding: .5rem .8rem; cursor: pointer; }
+  .tabs button[aria-selected=true] { color: #e6e8ee; border-bottom-color: var(--accent); }
+
+  textarea { width: 100%; height: 56vh; resize: vertical; background: #0b0d13; color: #cfd6e6;
+             border: 1px solid var(--line); border-radius: 8px; padding: .6rem .7rem;
+             font: 13px/1.45 ui-monospace, Menlo, Consolas, monospace; tab-size: 2; }
+  .view { position: relative; background: #0b0d13; border: 1px solid var(--line); border-radius: 8px;
+          overflow: hidden; aspect-ratio: 700/550; touch-action: none; cursor: grab; }
+  .view.dragging { cursor: grabbing; }
   .view canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
-  .bar { display: flex; flex-wrap: wrap; gap: .45rem; align-items: center; margin-top: .7rem; }
-  button, select, input[type=text] { font: 600 12px system-ui, sans-serif; padding: .42rem .7rem; border-radius: 6px;
-           border: 1px solid #39404f; background: #12151d; color: #e6e8ee; cursor: pointer; }
+
+  .bar { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; margin-top: .7rem; }
+  button, select, input[type=text], input[type=number] {
+      font: 600 12px system-ui, sans-serif; padding: .4rem .65rem; border-radius: 6px;
+      border: 1px solid #39404f; background: #12151d; color: #e6e8ee; cursor: pointer; }
+  input[type=text], input[type=number], select { cursor: auto; }
   button:hover:not(:disabled) { border-color: var(--accent); }
-  button:disabled { opacity: .45; cursor: default; }
+  button:disabled { opacity: .4; cursor: default; }
   button.primary { background: var(--accent); border-color: var(--accent); color: #06121f; }
+  label.field { display: flex; align-items: center; gap: .4rem; font-size: 12px; color: var(--dim); }
+  label.field input, label.field select { width: 7rem; }
+
   .facts { display: flex; gap: 1rem; flex-wrap: wrap; color: var(--dim); font-size: .8rem; margin-top: .6rem; }
   .facts b { color: #e6e8ee; }
-  .err { color: #ff8f6b; font-size: .8rem; margin-top: .5rem; white-space: pre-wrap; min-height: 1.2em; }
+  .err { color: #ff8f6b; font-size: .8rem; margin-top: .5rem; white-space: pre-wrap; min-height: 1.1em; }
   .note { color: var(--dim); font-size: .78rem; margin-top: .8rem; line-height: 1.5; }
   .note code { background: #0b0d13; border: 1px solid var(--line); border-radius: 3px; padding: 0 .3em; }
+  fieldset { border: 1px solid var(--line); border-radius: 8px; padding: .6rem .7rem .7rem; margin: 0 0 .7rem; }
+  legend { font-size: .72rem; text-transform: uppercase; letter-spacing: .08em; color: var(--dim); padding: 0 .3rem; }
+  .grid { display: flex; flex-wrap: wrap; gap: .4rem; }
+  .stat-row { display: grid; grid-template-columns: 8rem 1fr 3rem; align-items: center; gap: .5rem; margin-bottom: .35rem; }
+  .stat-row input[type=range] { width: 100%; cursor: pointer; }
+  .stat-row span:last-child { text-align: right; color: var(--dim); font-variant-numeric: tabular-nums; }
 </style>
 </head>
 <body>
 <header>
   <h1>Car Maker</h1>
   <div class="grow"></div>
-  <span id="status" style="color:#8b93a7;font-size:.82rem">loading…</span>
+  <span id="status">loading…</span>
   <a class="back" href="../index.html">← back to the launcher</a>
 </header>
 
 <main>
   <section class="card">
-    <h2>Car source (.rad)</h2>
-    <textarea id="code" spellcheck="false"></textarea>
-    <div class="bar">
-      <select id="pick"></select>
-      <button id="new" type="button">New</button>
-      <button id="save" type="button" class="primary">Save</button>
-      <button id="saveas" type="button">Save as…</button>
-      <button id="del" type="button">Delete</button>
-      <label class="" for="file"><button id="importbtn" type="button">Import…</button></label>
-      <input type="file" id="file" accept=".rad,.txt,text/plain" hidden>
-      <button id="export" type="button">Export</button>
+    <div class="tabs" role="tablist">
+      <button role="tab" data-pane="files" aria-selected="false">Files</button>
+      <button role="tab" data-pane="code" aria-selected="true">Code</button>
+      <button role="tab" data-pane="edit" aria-selected="false">3D Edit</button>
+      <button role="tab" data-pane="stats" aria-selected="false">Stats</button>
+    </div>
+
+    <div id="pane-files" hidden>
+      <div class="bar">
+        <select id="pick"></select>
+        <button id="new" type="button">New</button>
+        <button id="saveas" type="button">Save as…</button>
+        <button id="del" type="button">Delete</button>
+        <button id="importbtn" type="button">Import…</button>
+        <input type="file" id="file" accept=".rad,.txt,text/plain" hidden>
+        <button id="export" type="button">Export</button>
+      </div>
+      <p class="note">
+        Cars live in this browser (IndexedDB). The four that ship with the game
+        are read-only until you save over them — a stored car of the same name
+        shadows the shipped one, and deleting your copy brings the original
+        back. Export writes a <code>.rad</code> the desktop game opens unchanged.
+      </p>
+    </div>
+
+    <div id="pane-code">
+      <textarea id="code" spellcheck="false"></textarea>
+      <div class="bar">
+        <label class="field">Font
+          <select id="font">
+            <option>Monospaced</option><option>Courier New</option>
+            <option>Consolas</option><option>Menlo</option><option>Arial</option>
+          </select>
+        </label>
+        <label class="field">Theme
+          <select id="theme">
+            <option value="0">Default</option><option value="1">Light grey</option>
+            <option value="2">Black</option><option value="3">Green screen</option>
+            <option value="4">Matrix</option><option value="5">Blueprint</option>
+            <option value="6">Hot rod</option><option value="7">Deep blue</option>
+          </select>
+        </label>
+        <label class="field">Find <input type="text" id="find" size="10"></label>
+        <label class="field">Replace <input type="text" id="repl" size="10"></label>
+        <button id="replace" type="button">Replace all</button>
+        <button id="mirror" type="button">Mirror selection in X</button>
+      </div>
+    </div>
+
+    <div id="pane-edit" hidden>
+      <fieldset><legend>Scale</legend>
+        <div class="grid" id="scale-buttons"></div>
+      </fieldset>
+      <fieldset><legend>Colours</legend>
+        <div class="grid">
+          <label class="field">1st <input type="color" id="col1"></label>
+          <label class="field">2nd <input type="color" id="col2"></label>
+          <button id="applycol" type="button">Apply to source</button>
+        </div>
+      </fieldset>
+      <fieldset><legend>Wheels</legend>
+        <div class="grid" id="wheel-fields"></div>
+      </fieldset>
+      <p class="note">
+        Every control here runs the ported <code>tab2</code> code — the same
+        1,600 lines the desktop editor runs, verified against the Java — with
+        the drawing switched off. The buttons are its own, read back out of the
+        pane it would have painted.
+      </p>
+    </div>
+
+    <div id="pane-stats" hidden>
+      <fieldset><legend>Stats</legend><div id="stat-rows"></div></fieldset>
+      <fieldset><legend>Physics</legend><div id="phys-rows"></div></fieldset>
+      <button id="applystats" type="button">Write to source</button>
     </div>
   </section>
 
   <section class="card">
     <h2>Preview</h2>
-    <div class="view"><canvas id="view" width="800" height="450"></canvas></div>
+    <div class="view" id="viewbox"><canvas id="view" width="700" height="550"></canvas></div>
     <div class="facts">
       <span><b id="npolys">0</b> polygons</span>
       <span><b id="wheels">0</b> wheels</span>
@@ -69,17 +157,15 @@
     </div>
     <div class="err" id="err"></div>
     <div class="bar">
+      <button id="save" type="button" class="primary">Save</button>
       <button id="drive" type="button" class="primary">Test drive</button>
       <button id="spin" type="button">Pause spin</button>
+      <button id="resetview" type="button">Reset view</button>
     </div>
     <p class="note">
-      The preview is the game's own renderer: your text is parsed by the ported
-      <code>ContO</code> exactly as the race does it, so what draws here is what
-      you will drive. Drag to rotate.
-      <br><br>
-      This is the source-level editor. The original Car Maker's point-and-click
-      tabs — colour picker, scale/align, wheels, stats, crash test — are being
-      ported chunk by chunk; see <code>decompilation/CAREDITOR_PORT_SPEC.md</code>.
+      Drag to turn and tilt, scroll to zoom. The preview is the game's own
+      renderer: your text is parsed by the ported <code>ContO</code> exactly as
+      the race parses it.
     </p>
   </section>
 </main>
