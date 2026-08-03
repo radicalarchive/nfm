@@ -32,6 +32,28 @@ Status key: `[x]` done · `[~]` in progress · `[ ]` not started · `[!]` blocke
 
 ---
 
+## Car editor + browser storage (branch `careditor`)
+
+See `decompilation/CAREDITOR_PORT_SPEC.md` for the chunk table and the
+delegation contract; `decompilation/agy_careditor <chunk>` runs one.
+
+- [x] Browser storage (`web/carstore.js`) — IndexedDB `name -> .rad text`,
+      stored cars shadow the four shipped in `mycars/`, and it supplies the
+      listing `CarDefine.loadcarmaker()` gets from `File.list()` on the desktop.
+- [x] Race a custom car: `web/main.html?mycar=<name>`, and the launcher lists,
+      previews, imports and deletes them.
+- [x] Chunk `shape` (calibration) — regx, regz, roofsqsh, crash, setheme, py, rot, xs, ys
+- [x] Chunk `files` — IO seam + the `.rad` parser
+- [x] Chunk `ui` — hidefields, movefield, drawms, stringbutton, ovbutton
+- [x] Chunk `ctachm` — the editor's draw and hit-testing pass
+- [ ] Chunk `tab2` (1,600 lines — split if it comes back thin), `tab0`, `tab1`,
+      `tab3`, `input`, `boot`
+- [ ] The editor shell: `web/careditor.html`, and one widget interface for the
+      `TextArea`/`TextField`/`Smenu` seam. The transpiled chunks currently
+      probe it with `typeof w.getText === 'function'`; that collapses once the
+      shell defines it.
+- [ ] Wire save -> `carstore.writeCar` and Test Drive -> `?mycar=`.
+
 ## Performance
 
 Measured on the target machine, stage 1, res=2. `simulate()` is 0.6–2.5 ms/tick
@@ -286,6 +308,21 @@ there is no backend of ours anywhere in this design.
         bit-identical across JS engines, and players will be on different ones.
       - Acceptance: two independently built worlds tick 1000 times to
         bit-identical state, asserted in a test.
+- [ ] **Reconsider lockstep before adding a 3rd player.** The original is
+      host-authoritative state sync: `UDPMistro.setinfo()` sends inputs AND
+      absolute state per car per tick, and the host simulates the bots
+      (`GameSparker.java:1348`). Lockstep gates every peer on the laggiest one,
+      needs an N(N-1)/2 mesh and can't do drop-in, and its one big win — the AI
+      syncing for free — is worth nothing once humans fill those slots.
+      Switching costs `netsync.js` and its 12 tests (~20-25% of the netplay
+      work); `netpeer.js`, the launcher UI, `browser2p.mjs` and every
+      determinism fix survive — determinism is what would make state sync's
+      dead reckoning accurate enough that corrections never show.
+      - Write the transport fresh in JS: `UDPMistro`/`udpServe`/`udpOnline` are
+        DatagramSocket plumbing and a stringly-typed relay protocol with no
+        browser analogue. But transcribe `setinfo`/`getinfo` closely — which
+        fields are authoritative per car, and how the receive side folds them
+        back into `Mad`/`ContO`, is real game logic.
 
 ## Known gaps / risks
 
