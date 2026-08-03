@@ -180,6 +180,10 @@ STEP 3 — transpile this chunk:
 
 $EXTRA
 
+TWO RULES ADDED AFTER THE CALIBRATION CHUNKS. Both are things a previous job got wrong; violating either fails review:
+  (a) ONE signature per function. Do NOT emit \`function f(aOrB, bOrC, ...)\` argument-shuffling shims that accept the state object OR raw values. Every exported function takes exactly the parameters listed below, in that order, and nothing else.
+  (b) Do NOT insert a bounds check, null check, or try/catch that the Java does not have. If the Java can throw StringIndexOutOfBoundsException or NumberFormatException on some input, the JS must throw too — 'i < s.length &&' added to a condition is a §0/§3 violation even when it looks obviously safer. Java's charAt() past the end THROWS; JS's s[i] returns undefined and silently concatenates "undefined". Make the JS throw.
+
 Shared state: CarMaker is one class with ~200 fields. Do NOT copy the field declarations into your module and do NOT invent a global. Emit functions that take the editor state object as their first parameter, named \`cm\`, and read/write \`cm.<field>\` exactly where the Java says \`this.<field>\`. Field NAMES must match the Java exactly. List in your report every field your chunk touches, with its declared Java type — that list is how the chunks get stitched together, so an omission costs a day.
 
 STEP 4 — verify against the REAL Java, not against your reading of it. Unpacked jar:
