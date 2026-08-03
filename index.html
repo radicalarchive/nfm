@@ -104,7 +104,8 @@
           border: 1px solid #39404f; background: #1d212c; color: #e6e8ee; cursor: pointer; }
   .status { text-align: center; color: var(--dim); font-size: .85rem; min-height: 1.2rem; }
   .mycars { display: flex; align-items: center; gap: .5rem; margin-top: .6rem; }
-  .mycars label { cursor: pointer; }
+  .mycars label, .mycars a { cursor: pointer; }
+  .mycars a { text-decoration: none; display: inline-block; }
   .mycars #carmsg { font: 500 12px system-ui, sans-serif; color: var(--dim); }
   code { font: 11px ui-monospace, Menlo, Consolas, monospace; background: #0b0d13; border: 1px solid var(--line); border-radius: 3px; padding: 0 .3em; }
 </style>
@@ -131,6 +132,7 @@
       <div class="facts"><span id="carclass"></span></div>
       <div class="bars" id="carbars"></div>
       <div class="mycars">
+        <a class="mini" id="editcar" href="./web/careditor.html">Open Car Maker</a>
         <label class="mini" for="carfile">Import .rad</label>
         <input type="file" id="carfile" accept=".rad,.txt,text/plain" hidden>
         <button type="button" class="mini" id="cardel" hidden>Delete</button>
@@ -351,6 +353,7 @@ function showCar() {
   $('carclass').innerHTML = cls ? `Class <b>${cls}</b>` : '';
   const name = carSel.selectedOptions[0]?.dataset.name;
   $('cardel').hidden = !name || !storedNames.includes(name);
+  syncEditLink();
   $('carbars').innerHTML = bars.map(([name, v]) =>
     `<div class="bar"><span>${name}</span><span class="track"><span class="fill" style="width:${v}%"></span></span></div>`).join('');
   buildURL();
@@ -487,6 +490,15 @@ const step = (sel, d, count) => {
 })();
 
 carSel.onchange = showCar;
+
+// "Open Car Maker" edits the car you are looking at, when that car is one of
+// yours. There is nothing to edit about a built-in.
+function syncEditLink() {
+  const name = carSel.selectedOptions[0]?.dataset.name;
+  $('editcar').href = name
+    ? `./web/careditor.html?car=${encodeURIComponent(name)}`
+    : './web/careditor.html';
+}
 stageSel.onchange = showStage;
 $('carprev').onclick = () => step(carSel, -1, carSel.length);
 $('carnext').onclick = () => step(carSel, +1, carSel.length);

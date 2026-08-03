@@ -25,21 +25,45 @@ import { ContO } from '../ContO.js';
 import { intArray } from '../java.js';
 
 // Helper mock state for CarMaker
+// Every widget hidefields() touches. The Java hides them unconditionally, so a
+// mock that omits one is a mock that hides a call from the test.
+const hideable = () => ({ _hidden: false, hide() { this._hidden = true; }, show() { this._hidden = false; } });
+
 function createMockCarMaker() {
   const cm = {
+    pubtyp: hideable(),
+    pubitem: hideable(),
+    tpass: hideable(),
+    witho: hideable(),
+    wv: Array.from({ length: 16 }, hideable),
+    simcar: hideable(),
+    engine: hideable(),
+    cls: hideable(),
+    compcar: hideable(),
+    fontsel: hideable(),
+    ctheme: hideable(),
+    srch: hideable(),
+    rplc: hideable(),
     editor: {
-      _text: '',
+      _text: '', _hidden: false,
       getText() { return this._text; },
-      setText(val) { this._text = val; }
+      setText(val) { this._text = val; },
+      hide() { this._hidden = true; },
+      show() { this._hidden = false; }
     },
     tnick: {
-      _text: '',
+      _text: '', _hidden: false,
       getText() { return this._text; },
-      setText(val) { this._text = val; }
+      setText(val) { this._text = val; },
+      hide() { this._hidden = true; },
+      show() { this._hidden = false; }
     },
     slcar: {
       _items: [],
       _selected: 0,
+      _hidden: false,
+      hide() { this._hidden = true; },
+      show() { this._hidden = false; },
       remove(s) {
         this._items = this._items.filter(item => item !== s);
       },

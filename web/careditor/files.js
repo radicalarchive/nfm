@@ -4,12 +4,13 @@
 
 import { idiv, trunc, fr, i32, intArray, floatArray, objArray } from '../java.js';
 import { ContO } from '../ContO.js';
+import { hidefields } from './ui.js';
 
 /**
  * Transpiled from CarMaker.java setupo() (lines 4352-4375)
  */
 export function setupo(cm) {
-  const text = cm.editor ? (typeof cm.editor.getText === 'function' ? cm.editor.getText() : cm.editor.text || '') : '';
+  const text = cm.editor.getText();
   const bytes = new TextEncoder().encode(text);
   cm.o = new ContO(bytes, cm.m, cm.t);
   cm.o.x = cm.ox;
@@ -26,9 +27,7 @@ export function setupo(cm) {
   cm.o.noline = false;
   cm.o.decor = false;
   if (cm.o.errd && (!cm.o.err.startsWith('Wheels Error:') || cm.forwheels)) {
-    if (typeof cm.showMessageDialog === 'function') {
-      cm.showMessageDialog(null, cm.o.err, 'Car Maker', 0);
-    }
+    cm.showMessageDialog(null, cm.o.err, 'Car Maker', 0);
   }
   if (cm.o.maxR === 0) {
     cm.o.maxR = 100;
@@ -56,17 +55,11 @@ export function loadfile(cm, text) {
     } catch (obj) {
       cm.loadedfile = false;
       cm.lastedo = '';
-      if (typeof cm.showMessageDialog === 'function') {
-        cm.showMessageDialog(null, 'Unable to load file! Error Details:\n' + obj, 'Car Maker', 1);
-      }
+      cm.showMessageDialog(null, 'Unable to load file! Error Details:\n' + obj, 'Car Maker', 1);
     }
   }
   if (cm.editor) {
-    if (typeof cm.editor.setText === 'function') {
-      cm.editor.setText(cm.lastedo);
-    } else {
-      cm.editor.text = cm.lastedo;
-    }
+    cm.editor.setText(cm.lastedo);
   }
 }
 
@@ -75,7 +68,7 @@ export function loadfile(cm, text) {
  * IO seam: returns the .rad text string instead of writing to disk.
  */
 export function savefile(cm) {
-  const text = cm.editor ? (typeof cm.editor.getText === 'function' ? cm.editor.getText() : cm.editor.text || '') : '';
+  const text = cm.editor.getText();
   let savedText = null;
   if (text !== '') {
     try {
@@ -83,9 +76,7 @@ export function savefile(cm) {
       cm.lastedo = text;
       savedText = text;
     } catch (obj) {
-      if (typeof cm.showMessageDialog === 'function') {
-        cm.showMessageDialog(null, 'Unable to save file! Error Details:\n' + obj, 'Car Maker', 1);
-      }
+      cm.showMessageDialog(null, 'Unable to save file! Error Details:\n' + obj, 'Car Maker', 1);
     }
   }
   savesettings(cm);
@@ -98,25 +89,19 @@ export function savefile(cm) {
  */
 export function newcar(cm, s) {
   if (s === '') {
-    if (typeof cm.showMessageDialog === 'function') {
-      cm.showMessageDialog(null, 'Please Enter a Car Name!\n', 'Car Maker', 1);
-    }
+    cm.showMessageDialog(null, 'Please Enter a Car Name!\n', 'Car Maker', 1);
     return { ok: false, error: 'empty' };
   } else {
     const string = '\n// car: ' + s + '\n---------------------\n\n// To start making you car you must start by reading the tutorial at:\n// http://www.needformadness.com/developer/simplecar.html\n\n\n<p>\nc(100,200,100)\n\np(-40,-50,80)\np(-40,-50,-70)\np(40,-50,-70)\np(40,-50,80)\n</p>\n\n<p>\nc(100,150,200)\n\np(-40,-20,-100)\np(-40,-50,-70)\np(40,-50,-70)\np(40,-20,-100)\n</p>\n\n\n\n';
     try {
       cm.carname = s;
       cm.sfase = 0;
-      if (typeof cm.hidefields === 'function') {
-        cm.hidefields();
-      }
+      hidefields(cm);
       cm.tabed = -1;
       return { ok: true, text: string, name: s };
     } catch (obj) {
       cm.carname = '';
-      if (typeof cm.showMessageDialog === 'function') {
-        cm.showMessageDialog(null, 'Unable to create file! Error Details:\n' + obj, 'Car Maker', 1);
-      }
+      cm.showMessageDialog(null, 'Unable to create file! Error Details:\n' + obj, 'Car Maker', 1);
       return { ok: false, error: String(obj) };
     }
   }
@@ -128,21 +113,17 @@ export function newcar(cm, s) {
  */
 export function delcar(cm, s) {
   if (s === '') {
-    if (typeof cm.showMessageDialog === 'function') {
-      cm.showMessageDialog(null, 'Please Select a Car to Delete!\n', 'Car Maker', 1);
-    }
+    cm.showMessageDialog(null, 'Please Select a Car to Delete!\n', 'Car Maker', 1);
     return { ok: false, error: 'empty' };
   } else {
     try {
       if (cm.slcar) {
-        if (typeof cm.slcar.remove === 'function') cm.slcar.remove(s);
-        if (typeof cm.slcar.select === 'function') cm.slcar.select(0);
+        cm.slcar.remove(s);
+        cm.slcar.select(0);
       }
       return { ok: true, name: s };
     } catch (obj) {
-      if (typeof cm.showMessageDialog === 'function') {
-        cm.showMessageDialog(null, 'Unable to delete file! Error Details:\n' + obj, 'Car Maker', 1);
-      }
+      cm.showMessageDialog(null, 'Unable to delete file! Error Details:\n' + obj, 'Car Maker', 1);
       return { ok: false, error: String(obj) };
     }
   }
@@ -154,24 +135,18 @@ export function delcar(cm, s) {
  */
 export function rencar(cm, str) {
   if (str === '') {
-    if (typeof cm.showMessageDialog === 'function') {
-      cm.showMessageDialog(null, 'Please Enter a New Car Name!\n', 'Car Maker', 1);
-    }
+    cm.showMessageDialog(null, 'Please Enter a New Car Name!\n', 'Car Maker', 1);
     return { ok: false, error: 'empty' };
   } else {
     try {
       const oldName = cm.carname;
       cm.carname = str;
       cm.sfase = 0;
-      if (typeof cm.hidefields === 'function') {
-        cm.hidefields();
-      }
+      hidefields(cm);
       cm.tabed = -1;
       return { ok: true, oldName, newName: str };
     } catch (obj) {
-      if (typeof cm.showMessageDialog === 'function') {
-        cm.showMessageDialog(null, 'Unable to rename file! Error Details:\n' + obj, 'Car Maker', 1);
-      }
+      cm.showMessageDialog(null, 'Unable to rename file! Error Details:\n' + obj, 'Car Maker', 1);
       return { ok: false, error: String(obj) };
     }
   }
@@ -192,10 +167,7 @@ export function loadsettings(cm, settingsText) {
       if (lines.length > 1 && lines[1] !== '') {
         cm.suser = lines[1];
         if (cm.suser !== 'Horaks') {
-          if (cm.tnick) {
-            if (typeof cm.tnick.setText === 'function') cm.tnick.setText(cm.suser);
-            else cm.tnick.text = cm.suser;
-          }
+          cm.tnick.setText(cm.suser);
         }
       }
       if (lines.length > 2 && lines[2] !== '') {
@@ -218,7 +190,7 @@ export function loadsettings(cm, settingsText) {
  * IO seam: returns settings text string.
  */
 export function savesettings(cm) {
-  const nickText = cm.tnick ? (typeof cm.tnick.getText === 'function' ? cm.tnick.getText() : cm.tnick.text || '') : cm.suser;
+  const nickText = cm.tnick.getText();
   if (cm.scar !== cm.carname || cm.suser !== nickText || cm.sfont !== cm.cfont || cm.cthm !== cm.sthm) {
     const string = '' + cm.carname + '\n' + nickText + '\n' + cm.cfont + '\n' + cm.cthm + '\n\n';
     cm.scar = cm.carname;
@@ -237,9 +209,7 @@ export function checko(cm, str, text) {
   loadfile(cm, text);
   setupo(cm);
   if (cm.o.colok < 2) {
-    if (typeof cm.showMessageDialog === 'function') {
-      cm.showMessageDialog(null, "Car is not ready for " + str + "!\nReason:\nFirst and Second colors not defined yet!\nPlease go to the 'Color Edit' tab to define the colors.\n", "Car Maker", 1);
-    }
+    cm.showMessageDialog(null, "Car is not ready for " + str + "!\nReason:\nFirst and Second colors not defined yet!\nPlease go to the 'Color Edit' tab to define the colors.\n", "Car Maker", 1);
     return false;
   }
   let b = true;
@@ -256,36 +226,26 @@ export function checko(cm, str, text) {
     b = false;
   }
   if (!b) {
-    if (typeof cm.showMessageDialog === 'function') {
-      cm.showMessageDialog(null, "Car is not ready for " + str + "!\nReason:\nCar Wheels not defined or not defined correctly!\nPlease go to the \u2018Wheels\u2019 tab and use  [ Apply ]  and  [ Save ]  to define correctly.\n", "Car Maker", 1);
-    }
+    cm.showMessageDialog(null, "Car is not ready for " + str + "!\nReason:\nCar Wheels not defined or not defined correctly!\nPlease go to the \u2018Wheels\u2019 tab and use  [ Apply ]  and  [ Save ]  to define correctly.\n", "Car Maker", 1);
     return false;
   }
   if (cm.o.npl <= 60) {
-    if (typeof cm.showMessageDialog === 'function') {
-      cm.showMessageDialog(null, "Car is not ready for " + str + "!\nReason:\nNo car seems to be designed!\nYou have not built a car yet please go to the \u2018Car\u2019 tab to find the tutorial on how to build a car.\n", "Car Maker", 1);
-    }
+    cm.showMessageDialog(null, "Car is not ready for " + str + "!\nReason:\nNo car seems to be designed!\nYou have not built a car yet please go to the \u2018Car\u2019 tab to find the tutorial on how to build a car.\n", "Car Maker", 1);
     return false;
   }
   if (cm.o.npl > 286) {
-    if (typeof cm.showMessageDialog === 'function') {
-      cm.showMessageDialog(null, "Car is not ready for " + str + "!\nReason:\nCar contains too many polygons (pieces).\nNumber of polygons used need to be less then 210.\nPlease use the counter in the \u2018Code Edit\u2019 to decrease the number of polygons (pieces).\n", "Car Maker", 1);
-    }
+    cm.showMessageDialog(null, "Car is not ready for " + str + "!\nReason:\nCar contains too many polygons (pieces).\nNumber of polygons used need to be less then 210.\nPlease use the counter in the \u2018Code Edit\u2019 to decrease the number of polygons (pieces).\n", "Car Maker", 1);
     return false;
   }
   if (cm.o.maxR > 400) {
-    if (typeof cm.showMessageDialog === 'function') {
-      cm.showMessageDialog(null, "Car is not ready for " + str + "!\nReason:\nCar scale size is too large!\nPlease use the \u2018Scale All\u2019 option in the \u2018Scale & Align\u2019 tab to resize your car to suitable size.       \nCompare it to other NFM cars using the \u2018Compare Car...\u2019 option.\nCurrently you car needs to be scaled down by " + trunc(fr(fr(fr(cm.o.maxR / 400.0) - 1.0) * 100.0)) + "%.\n", "Car Maker", 1);
-    }
+    cm.showMessageDialog(null, "Car is not ready for " + str + "!\nReason:\nCar scale size is too large!\nPlease use the \u2018Scale All\u2019 option in the \u2018Scale & Align\u2019 tab to resize your car to suitable size.       \nCompare it to other NFM cars using the \u2018Compare Car...\u2019 option.\nCurrently you car needs to be scaled down by " + trunc(fr(fr(fr(cm.o.maxR / 400.0) - 1.0) * 100.0)) + "%.\n", "Car Maker", 1);
     return false;
   }
   if (cm.o.maxR < 120) {
-    if (typeof cm.showMessageDialog === 'function') {
-      cm.showMessageDialog(null, "Car is not ready for " + str + "!\nReason:\nCar scale size is too small!\nPlease use the \u2018Scale All\u2019 option in the \u2018Scale & Align\u2019 tab to resize your car to suitable size.       \nCompare it to other NFM cars using the \u2018Compare Car...\u2019 option.\nCurrently you car needs to be scaled up by " + trunc(fr(fr(fr(120.0 / cm.o.maxR) - 1.0) * 100.0)) + "%.\n", "Car Maker", 1);
-    }
+    cm.showMessageDialog(null, "Car is not ready for " + str + "!\nReason:\nCar scale size is too small!\nPlease use the \u2018Scale All\u2019 option in the \u2018Scale & Align\u2019 tab to resize your car to suitable size.       \nCompare it to other NFM cars using the \u2018Compare Car...\u2019 option.\nCurrently you car needs to be scaled up by " + trunc(fr(fr(fr(120.0 / cm.o.maxR) - 1.0) * 100.0)) + "%.\n", "Car Maker", 1);
     return false;
   }
-  const editorText = cm.editor ? (typeof cm.editor.getText === 'function' ? cm.editor.getText() : cm.editor.text || '') : '';
+  const editorText = cm.editor.getText();
   const string = "" + editorText + "\n";
   let n = 0;
   let endIndex = string.indexOf("\n", 0);
@@ -366,21 +326,15 @@ export function checko(cm, str, text) {
     }
   }
   if (!b2) {
-    if (typeof cm.showMessageDialog === 'function') {
-      cm.showMessageDialog(null, "Car is not ready for " + str + "!\nReason:\nCar Stats & Class not defined correctly!\nPlease go to the 'Stats & Class' tab to define stats and don't forget to press  [ Save ]  when finished.\n", "Car Maker", 1);
-    }
+    cm.showMessageDialog(null, "Car is not ready for " + str + "!\nReason:\nCar Stats & Class not defined correctly!\nPlease go to the 'Stats & Class' tab to define stats and don't forget to press  [ Save ]  when finished.\n", "Car Maker", 1);
     return false;
   }
   if (!b3) {
-    if (typeof cm.showMessageDialog === 'function') {
-      cm.showMessageDialog(null, "Car is not ready for " + str + "!\nReason:\nCar Physics not defined correctly!\nPlease go to the 'Physics' tab and complete the car physics definition until it is saved.\n", "Car Maker", 1);
-    }
+    cm.showMessageDialog(null, "Car is not ready for " + str + "!\nReason:\nCar Physics not defined correctly!\nPlease go to the 'Physics' tab and complete the car physics definition until it is saved.\n", "Car Maker", 1);
     return false;
   }
   if (!b4 && str === "Publishing") {
-    if (typeof cm.showMessageDialog === 'function') {
-      cm.showMessageDialog(null, "Car is not ready for " + str + "!\nReason:\nCar Handling not rated.\nPlease Test Drive your car to rate its handling before publishing!\n", "Car Maker", 1);
-    }
+    cm.showMessageDialog(null, "Car is not ready for " + str + "!\nReason:\nCar Handling not rated.\nPlease Test Drive your car to rate its handling before publishing!\n", "Car Maker", 1);
     return false;
   }
   return true;

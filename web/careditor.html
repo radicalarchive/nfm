@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Need for Madness — Car Maker</title>
+<style>
+  :root { --bg:#0d0f16; --panel:#151925; --line:#262b36; --dim:#8b93a7; --accent:#3aa0ff; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: radial-gradient(120% 90% at 50% 0%, #1d2130 0%, #0d0f16 60%);
+         color: #e6e8ee; font: 500 14px system-ui, sans-serif; min-height: 100vh; }
+  header { display: flex; align-items: center; gap: 1rem; padding: .9rem 1.2rem; border-bottom: 1px solid var(--line); }
+  header h1 { font-size: 1rem; margin: 0; letter-spacing: .02em; }
+  header .grow { flex: 1; }
+  a.back { color: var(--dim); text-decoration: none; font-size: .82rem; }
+  a.back:hover { color: #e6e8ee; }
+  main { display: grid; grid-template-columns: minmax(320px, 1fr) minmax(360px, 1fr); gap: 1rem; padding: 1rem 1.2rem 2rem; align-items: start; }
+  @media (max-width: 860px) { main { grid-template-columns: 1fr; } }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: .9rem; }
+  .card h2 { font-size: .74rem; text-transform: uppercase; letter-spacing: .09em; color: var(--dim); margin: 0 0 .6rem; }
+  textarea { width: 100%; height: 62vh; resize: vertical; background: #0b0d13; color: #cfd6e6; border: 1px solid var(--line);
+             border-radius: 8px; padding: .6rem .7rem; font: 13px/1.45 ui-monospace, Menlo, Consolas, monospace; tab-size: 2; }
+  .view { position: relative; background: #0b0d13; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; aspect-ratio: 16/9; }
+  .view canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .bar { display: flex; flex-wrap: wrap; gap: .45rem; align-items: center; margin-top: .7rem; }
+  button, select, input[type=text] { font: 600 12px system-ui, sans-serif; padding: .42rem .7rem; border-radius: 6px;
+           border: 1px solid #39404f; background: #12151d; color: #e6e8ee; cursor: pointer; }
+  button:hover:not(:disabled) { border-color: var(--accent); }
+  button:disabled { opacity: .45; cursor: default; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #06121f; }
+  .facts { display: flex; gap: 1rem; flex-wrap: wrap; color: var(--dim); font-size: .8rem; margin-top: .6rem; }
+  .facts b { color: #e6e8ee; }
+  .err { color: #ff8f6b; font-size: .8rem; margin-top: .5rem; white-space: pre-wrap; min-height: 1.2em; }
+  .note { color: var(--dim); font-size: .78rem; margin-top: .8rem; line-height: 1.5; }
+  .note code { background: #0b0d13; border: 1px solid var(--line); border-radius: 3px; padding: 0 .3em; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Car Maker</h1>
+  <div class="grow"></div>
+  <span id="status" style="color:#8b93a7;font-size:.82rem">loading…</span>
+  <a class="back" href="../index.html">← back to the launcher</a>
+</header>
+
+<main>
+  <section class="card">
+    <h2>Car source (.rad)</h2>
+    <textarea id="code" spellcheck="false"></textarea>
+    <div class="bar">
+      <select id="pick"></select>
+      <button id="new" type="button">New</button>
+      <button id="save" type="button" class="primary">Save</button>
+      <button id="saveas" type="button">Save as…</button>
+      <button id="del" type="button">Delete</button>
+      <label class="" for="file"><button id="importbtn" type="button">Import…</button></label>
+      <input type="file" id="file" accept=".rad,.txt,text/plain" hidden>
+      <button id="export" type="button">Export</button>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Preview</h2>
+    <div class="view"><canvas id="view" width="800" height="450"></canvas></div>
+    <div class="facts">
+      <span><b id="npolys">0</b> polygons</span>
+      <span><b id="wheels">0</b> wheels</span>
+      <span id="ready"></span>
+    </div>
+    <div class="err" id="err"></div>
+    <div class="bar">
+      <button id="drive" type="button" class="primary">Test drive</button>
+      <button id="spin" type="button">Pause spin</button>
+    </div>
+    <p class="note">
+      The preview is the game's own renderer: your text is parsed by the ported
+      <code>ContO</code> exactly as the race does it, so what draws here is what
+      you will drive. Drag to rotate.
+      <br><br>
+      This is the source-level editor. The original Car Maker's point-and-click
+      tabs — colour picker, scale/align, wheels, stats, crash test — are being
+      ported chunk by chunk; see <code>decompilation/CAREDITOR_PORT_SPEC.md</code>.
+    </p>
+  </section>
+</main>
+
+<script type="module" src="./careditor/shell.js"></script>
+</body>
+</html>

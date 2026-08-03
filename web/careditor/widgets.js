@@ -33,6 +33,7 @@ class TextWidget {
     this._end = 0;
     this._showing = true;
     this._enabled = true;
+    this.bounds = { x: 0, y: 0, w: 0, h: 0 };
   }
 
   /** Put this widget into the page. Until then it is a string in memory. */
@@ -119,6 +120,14 @@ class TextWidget {
     this.mouseListener = fn;
     if (this.el) this.el.addEventListener('mousedown', fn);
   }
+
+  // movefield() compares the current bounds before setting them, so these
+  // four have to answer even before the widget is in the page.
+  getX() { return this.bounds.x; }
+  getY() { return this.bounds.y; }
+  getWidth() { return this.bounds.w; }
+  getHeight() { return this.bounds.h; }
+  hasFocus() { return !!this.el && document.activeElement === this.el; }
 
   /** Place the widget the way CarMaker.movefield() does, in game pixels. */
   setBounds(x, y, w, h) {

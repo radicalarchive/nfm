@@ -5,26 +5,24 @@ import { idiv, i32, trunc, fr } from '../java.js';
 import { Madness } from '../Madness.js';
 
 export function hidefields(cm) {
-  if (cm.pubtyp) cm.pubtyp.hide();
-  if (cm.pubitem) cm.pubitem.hide();
-  if (cm.tpass) cm.tpass.hide();
-  if (cm.tnick) cm.tnick.hide();
-  if (cm.slcar) cm.slcar.hide();
-  if (cm.witho) cm.witho.hide();
-  if (cm.wv) {
-    for (let i = 0; i < 16; ++i) {
-      if (cm.wv[i]) cm.wv[i].hide();
-    }
+  cm.pubtyp.hide();
+  cm.pubitem.hide();
+  cm.tpass.hide();
+  cm.tnick.hide();
+  cm.slcar.hide();
+  cm.witho.hide();
+  for (let i = 0; i < 16; ++i) {
+    cm.wv[i].hide();
   }
-  if (cm.simcar) cm.simcar.hide();
-  if (cm.engine) cm.engine.hide();
-  if (cm.cls) cm.cls.hide();
-  if (cm.compcar) cm.compcar.hide();
-  if (cm.editor) cm.editor.hide();
-  if (cm.fontsel) cm.fontsel.hide();
-  if (cm.ctheme) cm.ctheme.hide();
-  if (cm.srch) cm.srch.hide();
-  if (cm.rplc) cm.rplc.hide();
+  cm.simcar.hide();
+  cm.engine.hide();
+  cm.cls.hide();
+  cm.compcar.hide();
+  cm.editor.hide();
+  cm.fontsel.hide();
+  cm.ctheme.hide();
+  cm.srch.hide();
+  cm.rplc.hide();
 }
 
 export function movefield(cm, component, x, y, width, height) {
