@@ -10,7 +10,7 @@
 # for (the jar, the decompiled sources, the tests):
 #
 #   nfm/index.html      the launcher
-#   nfm/web/            main.html + the port modules
+#   nfm/web/            main.html, careditor.html + the port modules
 #   nfm/web/vendor/     BassoonTracker, the MOD player web/music.js imports
 #   nfm/data/           models.zip, images.zip, sounds.zip, HUD gifs
 #   nfm/stages/         stage definitions
@@ -29,7 +29,7 @@ trap 'rm -rf "$STAGE"' EXIT
 
 mkdir -p "$STAGE/web"
 cp "$SRC"/index.html "$STAGE/"
-cp "$SRC"/web/*.js "$SRC"/web/main.html "$STAGE/web/"
+cp "$SRC"/web/*.js "$SRC"/web/*.html "$STAGE/web/"
 rm -f "$STAGE"/web/*.test.js
 # web/vendor/ is a SUBDIRECTORY, so the glob above misses it. Leaving it out
 #404s bassoonplayer.js, and because a failed ES module import throws, boot()
