@@ -79,6 +79,14 @@ export function openhlink(cm) {
   cm.openurl("http://www.needformadness.com/developer/");
 }
 
+// CarMaker.java:5233-5235. Missed by the chunk table: the `ui` chunk stopped at
+// 5232 and `input` began at 5251, leaving openelink and the applet's
+// start()/stop() in the gap. start()/stop() are the Thread lifecycle and
+// belong to the shell, not here.
+export function openelink(cm) {
+  cm.openurl("http://www.needformadness.com/developer/extras.html");
+}
+
 export function stringbutton(cm, str, n, n2, n3, b) {
   cm.rd.setFont({ name: "Arial", style: 1, size: 12 });
   {

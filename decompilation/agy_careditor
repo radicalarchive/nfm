@@ -24,10 +24,10 @@ set -euo pipefail
 
 SKIP_PERMS="${SKIP_PERMS:---dangerously-skip-permissions}"
 
-# gemini draws on a SEPARATE quota from claude-*/gpt-oss (which share one
-# pool), so it is both the strongest option available and the one that
-# preserves Claude credits. See WORK.md.
-MODEL="${MODEL:-gemini-3.1-pro-high}"
+# gemini is out of credits as of 2026-08-03, so this runs on claude-sonnet-4-6.
+# That draws on the pool SHARED with gpt-oss, which five parallel jobs once
+# exhausted (WORK.md) -- keep concurrency to two.
+MODEL="${MODEL:-claude-sonnet-4-6}"
 EFFORT="${EFFORT:-high}"
 TIMEOUT="${TIMEOUT:-45m}"
 
@@ -46,7 +46,7 @@ chunk_ranges() {
   case "$1" in
     shape)  echo "4682-4997" ;;
     files)  echo "4352-4681,5473-5633" ;;
-    ui)     echo "5158-5232,5645-5795" ;;
+    ui)     echo "5158-5235,5645-5795" ;;
     input)  echo "5251-5398,5796-5839" ;;
     tab0)   echo "430-691" ;;
     tab1)   echo "692-877" ;;
@@ -208,6 +208,17 @@ f2i / i2f / idiv / fdiv show exactly where truncation and float conversion happe
 
 FINALLY report: files created; test pass/fail counts; EVERY compound-assignment site and how you handled each; every field you touched with its Java type; every local variable your range referenced but did not declare; every preserved bug; and everything you could NOT verify. Be explicit about gaps — a flagged gap is cheap, a papered-over one costs days. Do NOT report "gaps: none": a previous job did that while having silently stubbed a method to return its own failure code.
 PROMPT_EOF
+
+# PROMPT_FILE=/path writes the prompt out and exits instead of running the job.
+# That is how a chunk gets handed to an already-signed-in interactive `agy`
+# sitting in a screen session: `agy -p` cannot complete the OAuth flow
+# headlessly (it prints a URL, waits 60s and dies), but a live session is
+# already authenticated, so the prompt goes to it as a file to read.
+if [ -n "${PROMPT_FILE:-}" ]; then
+  printf '%s\n' "$PROMPT" > "$PROMPT_FILE"
+  echo "$PROMPT_FILE"
+  exit 0
+fi
 
 echo "=== agy_careditor ============================================="
 echo "chunk   : $CHUNK  ($RANGES, $LINES lines)"
