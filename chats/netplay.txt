@@ -1,26 +1,2590 @@
->>> you think its possible to adapt the old netcode or rewrite it to use webrtc? would be very cool to have multiplayer
+╭─── Claude Code v2.1.220 ─────────────────────────────────────────────────────╮
+│                                                    │ Tips for getting        │
+│                 Welcome back Evon!                 │ started                 │
+│                                                    │ Run /init to create a … │
+│                       ▐▛███▜▌                      │ ─────────────────────── │
+│                      ▝▜█████▛▘                     │ What's new              │
+│                        ▘▘ ▝▝                       │ Bug fixes and reliabil… │
+│  Opus 5 · Claude Pro · evan_claude@widloski.com's  │ Added Claude Opus 5 (`… │
+│  Organization                                      │ Added `sandbox.network… │
+│                     ~/games/nfm                    │ /release-notes for more │
+╰──────────────────────────────────────────────────────────────────────────────╯
 
 
-Yes, and the port's architecture is unusually well-suited to it — but I'd rewrite rather than adapt.
+❯ the car meters on index.html have only 4 meters, but in-game there are 6.     
+  also I think the value plotted on the meters are wrong for some cars.         
+                                                                                
+  while youre at it, can you add a link to the github issues "File a bug"       
+  beneath advanced options                                                      
+                                                                                
+  @AGENTS.md @TASKS.md @WORK.md                                                 
+  ⎿  Read AGENTS.md (151 lines)
+  ⎿  Read TASKS.md (243 lines)
+  ⎿  Read WORK.md (72 lines)
 
-**Why the old netcode can't be reused directly.** `Lobby.java` and `Login.java` are TCP socket clients talking to servers that have been dead for years, and a browser can't open raw TCP at all. So the transport has to be replaced no matter what. What *is* worth mining from those files is the wire semantics — what the game considered authoritative, how it handled joins mid-race — not the code.
+● I'll look at the launcher's stat rendering and the game's own stat display.
 
-**The good news is the sim shape.** This game is close to ideal for deterministic lockstep:
+  Searched for 3 patterns, read 1 file, listed 1 directory, ran 5 shell commands (ctrl+o to expand)
 
-- Fixed 18.9 Hz timestep already, with the accumulator in `main.js`.
-- All 8 players are simulated locally every tick — `simulate()` loops `colide`/`drive`/`preform` over `nplayers`. A remote player is just a `Control` whose fields come off the wire instead of from `preform()` (AI) or the keyboard.
-- `Control` is ~7 bits of input per player per tick (up/down/left/right/handb/enter/lookback). At 18.9 Hz that's under 20 bytes/sec per player. Bandwidth is a non-issue.
-- Physics is **0.6–2.5 ms/tick**. That makes rollback genuinely affordable — re-simulating 5 ticks costs ~10 ms, well inside a 53 ms budget. Most projects can't do rollback because their sim is too expensive; here it's the cheap half.
-- `Mad.colide()` already reads `xt.multion` and swaps in different constants (28000/1.27 vs 7000/1.0), so the multiplayer physics variant is already ported.
+● Update(web/preview.js)
+  ⎿  Added 21 lines, removed 18 lines
+       97  const CLASSES = ['Beginner', 'Amateur', 'Pro', 'Extreme', 'Bon
+           us'];
+       98  
+       99  /**
+      100 - * Four comparable bars per car, taken from the physics tables
+          - CarDefine                                                    
+      101 - * already holds rather than from any menu artwork:           
+      100 + * The car-select screen's six stat bars, with the game's own 
+          +formulas.                                                     
+      101   *
+      103 - *   Speed     swits[car][2]  the top gear's switch point     
+      104 - *   Accel     acelf[car][0]  first-gear acceleration         
+      105 - *   Grip      grip[car]                                      
+      106 - *   Strength  maxmag[car]    damage a car absorbs before it i
+          -s wasted                                                      
+      102 + * `xtGraphics.java:6096-6131` draws six 156px bars and then f
+          +ills the REMAINDER                                            
+      103 + * black, so the fraction below is what the bar shows filled. 
+          +Each is an                                                    
+      104 + * absolute scale baked into the menu, not a ranking against t
+          +he other cars —                                               
+      105 + * an earlier version here normalised four made-up stats again
+          +st the roster                                                 
+      106 + * maximum, which is why the bars disagreed with the game.    
+      107   *
+      108 - * Each is scaled against the strongest of the 16 stock cars, 
+          -so the bars are                                               
+      109 - * relative to the roster the way the game's own select screen
+          - reads.                                                       
+      108 + *   Top Speed     (swits[2] - 220) / 90,   floored at 0.2    
+      109 + *   Acceleration  acelf[1]*acelf[0]*acelf[2]*grip / 7700, cap
+          +ped at 1                                                      
+      110 + *   Handling      dishandle                (already 0..1)    
+      111 + *   Stunts        (airc*airs*bounce + 28) / 139, capped at 1 
+      112 + *   Strength      (moment + 0.5) / 2.6,    capped at 1       
+      113 + *   Endurance     outdam                   (already 0..1)    
+      114   */
+      115  export function carStats(car) {
+      116    const cd = world.cd;
+      113 -  const best = (pick) => {                                    
+      114 -    let hi = 0;                                               
+      115 -    for (let i = 0; i < CAR_COUNT; i++) hi = Math.max(hi, pick
+          -(i));                                                         
+      116 -    return hi || 1;                                           
+      117 -  };                                                          
+      118 -  const bar = (pick) => Math.round((pick(car) / best(pick)) * 
+          -100);                                                         
+      117 +  const clamp = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v)
+          +;                                                             
+      118 +  const pct = (v) => Math.round(v * 100);                     
+      119    return {
+      120      cls: CLASSES[cd.cclass[car]] ?? '',
+      121      bars: [
+      122 -      ['Speed', bar((i) => cd.swits[i][2])],                  
+      123 -      ['Accel', bar((i) => cd.acelf[i][0])],                  
+      124 -      ['Grip', bar((i) => cd.grip[i])],                       
+      125 -      ['Strength', bar((i) => cd.maxmag[i])],                 
+      122 +      ['Top Speed', pct(clamp((cd.swits[car][2] - 220) / 90, 0
+          +.2, 1))],                                                     
+      123 +      ['Acceleration', pct(clamp(                             
+      124 +        cd.acelf[car][1] * cd.acelf[car][0] * cd.acelf[car][2]
+          + * cd.grip[car] / 7700, 0, 1))],                              
+      125 +      ['Handling', pct(clamp(cd.dishandle[car], 0, 1))],      
+      126 +      ['Stunts', pct(clamp((cd.airc[car] * cd.airs[car] * cd.b
+          +ounce[car] + 28) / 139, 0, 1))],                              
+      127 +      ['Strength', pct(clamp((cd.moment[car] + 0.5) / 2.6, 0, 
+          +1))],                                                         
+      128 +      ['Endurance', pct(clamp(cd.outdam[car], 0, 1))],        
+      129      ],
+      130    };
+      131  }
 
-**The blockers are all determinism, and they're known.**
+  Ran 1 shell command (ctrl+o to expand)
 
-1. `Medium.random()` bottoms out in unseeded `Math.random()` — already on `TASKS.md` as a verification blocker, but it's a hard prerequisite for lockstep. Everything downstream of it (`contO.zy`/`xy`) diverges immediately.
-2. `Medium` builds `tsin`/`tcos` at init from `Math.sin`/`Math.cos` (360 entries each). Those are **not** guaranteed bit-identical across JS engines — V8 and SpiderMonkey can differ in the last ulp, and you'd have players on both. Bake the 720 float32 values as literal constants and that risk disappears.
-3. Everything else is already in good shape, and that's not luck: `TRANSPILE_SPEC`'s discipline of wrapping every int op with `i32`/`Math.imul` and every float op with `fr()` is exactly what bit-determinism requires. IEEE guarantees the rest. The `Math.imul`-on-a-float bug we just fixed is the kind of thing that would have shown up as a desync instead of a visual glitch.
+● Update(index.html)
+  ⎿  Added 1 line, removed 1 line
+      56    .facts b { color: #e6e8ee; font-weight: 600; }
+      57  
+      58    .bars { margin-top: .8rem; display: grid; gap: .35rem; }
+      59 -  .bar { display: grid; grid-template-columns: 4.6rem 1fr; alig
+         -n-items: center; gap: .5rem; font-size: .8rem; color: var(--dim
+         -); }                                                           
+      59 +  .bar { display: grid; grid-template-columns: 6.2rem 1fr; alig
+         +n-items: center; gap: .5rem; font-size: .8rem; color: var(--dim
+         +); }                                                           
+      60    /* Both are spans, so they need display:block or the heights 
+          do nothing. */
+      61    .bar .track { display: block; height: 8px; background: #0b0d1
+          3; border-radius: 4px; overflow: hidden; border: 1px solid #262
+          b36; }
+      62    .bar .fill { display: block; height: 100%; background: linear
+          -gradient(90deg, #3a7bd5, var(--accent)); }
 
-**Transport.** WebRTC DataChannel in unreliable/unordered mode, with each packet carrying the last ~8 ticks of input so a drop self-heals without retransmission — standard for lockstep. You still need a signalling server for SDP exchange (a tiny WebSocket service), though for a first prototype you can literally copy-paste offer/answer strings between two browsers and skip the server entirely.
+● Now the bug link. Let me see the end of the advanced <details> block:
 
-**The alternative** is host-authoritative state sync — host simulates, broadcasts positions. It sidesteps determinism completely, but costs much more bandwidth and needs good interpolation to look right, and interpolation is currently the port's weakest area (the car-jitter bug). Given how cheap the sim is, lockstep is the easier road here.
+  Ran 1 shell command (ctrl+o to expand)
 
-**What you'd still be missing:** the lobby, chat and player-list UI live in the ~9600 unported lines of `xtGraphics`, and the 11 skipped branches in `stat()` are exactly the multiplayer HUD. So a playable 2-player race is much closer than a finished multiplayer *mode* — you'd want a URL-param join for the prototype and leave the menus for later.
+● Update(index.html)
+  ⎿  Added 4 lines
+      223        <button type="button" class="mini" id="reset">Reset adva
+           nced</button>
+      224      </form>
+      225    </details>
+      226 +                                                              
+      227 +  <p class="bugreport">                                       
+      228 +    Something wrong? <a href="https://github.com/radicalarchiv
+          +e/nfm/issues" target="_blank" rel="noopener">File a bug</a>   
+      229 +  </p>                                                        
+      230  </main>
+      231  
+      232  <script type="module">
+
+● Update(index.html)
+  ⎿  Added 3 lines
+      76    details.adv { margin-top: 2.2rem; border-top: 1px solid var(-
+          -line); padding-top: .9rem; }
+      77    details.adv > summary { cursor: pointer; color: var(--dim); f
+          ont-size: .85rem; font-weight: 600; }
+      78    details.adv > summary:hover { color: #e6e8ee; }
+      79 +                                                               
+      80 +  .bugreport { margin: 1.1rem 0 .2rem; text-align: center; colo
+         +r: var(--dim); font-size: .8rem; }                             
+      81 +  .bugreport a { color: var(--accent); }                       
+      82    .grid { display: grid; gap: .9rem; grid-template-columns: rep
+          eat(auto-fit, minmax(16rem, 1fr)); margin-top: 1rem; }
+      83    fieldset { border: 1px solid var(--line); border-radius: 8px;
+           padding: .6rem .8rem .8rem; margin: 0; background: var(--panel
+          ); }
+      84    legend { color: #9fe6a0; font-weight: 600; font-size: .78rem;
+           padding: 0 .35rem; }
+
+  Ran 2 shell commands (ctrl+o to expand)
+
+● Now update the task list and WORK.md:
+
+● Update(TASKS.md)
+  ⎿  Added 5 lines, removed 2 lines
+      153        slots 1..6 by rejection sampling biased toward faster ca
+           rs in later
+      154        stages, then forces specific opponents for stages 10/12/
+           14/15/16.
+      155        `?cars=same` restores one-car-for-everyone.
+      156 -- [ ] Car stats bugs in index.html - index shows 4 stats, but 
+          -there are 6                                                   
+      157 -    - the values shown in the sliders dont match the game     
+      156 +- [x] Car stats bugs in index.html — the launcher showed four 
+          +invented stats                                                
+      157 +      normalised against the roster maximum. Replaced with the
+          + car-select                                                   
+      158 +      screen's own six bars and its own absolute formulas     
+      159 +      (`xtGraphics.java:6096-6131`): Top Speed, Acceleration, 
+          +Handling,                                                     
+      160 +      Stunts, Strength, Endurance.                            
+      161  
+      162  
+      163  ## Remaining Tasks
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Both done.
+
+  Car stat meters (web/preview.js:99-128) — the launcher had four made-up stats,
+  each normalised against the strongest of the 16 cars, which is why they
+  disagreed with the game. Replaced with the car-select screen's actual six bars
+  and its actual formulas (xtGraphics.java:6096-6131), which are absolute
+  scales, not rankings:
+
+  ┌──────────────┬────────────────────────────────────────┐
+  │     bar      │                formula                 │
+  ├──────────────┼────────────────────────────────────────┤
+  │ Top Speed    │ (swits[2] - 220) / 90, floored at 0.2  │
+  ├──────────────┼────────────────────────────────────────┤
+  │ Acceleration │ acelf[1]*acelf[0]*acelf[2]*grip / 7700 │
+  ├──────────────┼────────────────────────────────────────┤
+  │ Handling     │ dishandle                              │
+  ├──────────────┼────────────────────────────────────────┤
+  │ Stunts       │ (airc*airs*bounce + 28) / 139          │
+  ├──────────────┼────────────────────────────────────────┤
+  │ Strength     │ (moment + 0.5) / 2.6                   │
+  ├──────────────┼────────────────────────────────────────┤
+  │ Endurance    │ outdam                                 │
+  └──────────────┴────────────────────────────────────────┘
+
+  Spot-checked all 16 cars: formula7 tops speed and accel, masheen is 20/28 with
+  100 strength and endurance, radicalone maxes four bars — matching the game's
+  screen. Label column widened to 6.2rem so "Acceleration" fits.
+
+  File a bug — a centered line beneath the collapsed advanced panel linking to
+  github.com/radicalarchive/nfm/issues (from git remote), opening in a new tab.
+
+  119/119 tests pass. Changes are unstaged; I haven't committed.
+
+✻ Brewed for 1m 42s
+
+❯ joining the last stage I get `BOOT FAILED: can't access property "grat",      
+  array2[xtGraphics.sc[n9]] is null`                                            
+
+  Searched for 3 patterns, ran 17 shell commands (ctrl+o to expand)
+● Update(web/XtGraphics.js)
+  ⎿  User rejected update to web/XtGraphics.js
+
+● Update(web/XtGraphics.js)
+  ⎿  Added 9 lines
+      2211      if (n < 0) {
+      2212        n = 27;
+      2213      }
+      2214 +    // PORT DIVERGENCE. Past stage 27 both pickers run off th
+           +e 16-car roster                                              
+      2215 +    // (forced opponent 7+(n-10+1)/2 = 16 at stage 28; the sa
+           +mpler reaches 18),                                           
+      2216 +    // and loadstage then dies on a null model. The Java can'
+           +t reach it: stage                                            
+      2217 +    // select clamps at 27 (:1899, :2597) and 28-32 are the m
+           +ultiplayer stages,                                           
+      2218 +    // where the grid comes from the network and sortcars is 
+           +never called. This                                           
+      2219 +    // port lets you pick them solo, so treat them as top dif
+           +ficulty.                                                     
+      2220 +    if (n > 27) {                                            
+      2221 +      n = 27;                                                
+      2222 +    }                                                        
+      2223      let n2 = 7;
+      2224      if (this.gmode === 1) {
+      2225        n2 = 5;
+
+  Read 1 file, ran 4 shell commands (ctrl+o to expand)
+
+● Fixed in web/XtGraphics.js:2211.
+
+  Cause: sortcars is only well defined up to stage 27. Past that, both car
+  pickers run off the 16-car roster — the forced opponent is 7 + (n-10+1)/2,
+  which is 16 at stage 28, and the rejection sampler's range 24 + 8*((n-10)/17)
+  reaches 34, which the -= 16 fixup only brings back to 18. models[sc[j]] is
+  then null and loadstage dies on .grat.
+
+  The Java is identical here and never hits it: stage select clamps at 27
+  (xtGraphics.java:1899, plus the right-arrow guard at :2597), and 28–32 are the
+  multiplayer stages — Lobby.java:3839 labels them "Multiplayer - Stage 1..5".
+  In multiplayer the grid comes over the network and sortcars isn't called at
+  all.
+
+  So the clamp is inside sortcars, affecting only the solo opponent pick.
+  Multiplayer, when you add it, won't route through this. Stages 1–27 are
+  byte-identical to before.
+
+  Verified: 300 grids per stage across 1/10/16/27/28/30/32 stay inside 0–15, and
+  stage 32 ("Fair Ground", 609 objects) boots and ticks in headless Chromium.
+  119/119 tests pass. Logged in WORK.md.
+
+✻ Churned for 2m 31s
+
+❯ can you turn down the music volume level by half?  its just too loud compared 
+  to the original game                                                          
+
+  Ran 3 shell commands (ctrl+o to expand)
+
+● Update(web/main.js)
+  ⎿  Added 3 lines, removed 1 line
+      150    const sfxvol = parseInt(params.get('sfxvol') || '100', 10);
+      151    snd.setVolume(sfxvol / 100.0);
+      152    
+      153 -  const musicvol = parseInt(params.get('musicvol') || '50', 10
+          -);                                                            
+      153 +  // 25, not 100: BassoonTracker's mixer is louder than ibxm's
+          + at the same                                                  
+      154 +  // per-stage gain, so the desktop game's balance needs the m
+          +usic pulled down.                                             
+      155 +  const musicvol = parseInt(params.get('musicvol') || '25', 10
+          +);                                                            
+      156    music.setVolume(musicvol / 100.0);
+      157  
+      158    xt.snd = snd;
+
+● Update(index.html)
+  ⎿  Added 1 line, removed 1 line
+      194            <legend>Audio</legend>
+      195            <div class="row"><label for="sfxvol">Sound fx</label
+           ><input type="number" id="sfxvol" data-def="100" min="0" max="
+           100" step="5">
+      196              <span class="hint">0-100. Engine, crashes, skids.<
+           /span></div>
+      197 -          <div class="row"><label for="musicvol">Music</label>
+          -<input type="number" id="musicvol" data-def="50" min="0" max="
+          -100" step="5">                                                
+      197 +          <div class="row"><label for="musicvol">Music</label>
+          +<input type="number" id="musicvol" data-def="25" min="0" max="
+          +100" step="5">                                                
+      198              <span class="hint">0-100, scaling the track's own 
+           per-stage volume.</span></div>
+      199            <span class="hint" style="grid-column:auto">Audio ne
+           eds a key press first — browsers block sound until then.</span
+           >
+      200          </fieldset>
+
+  Searched for 1 pattern (ctrl+o to expand)
+
+● Music default halved again, 50 → 25 (web/main.js:155, and the launcher's
+  data-def so "Reset advanced" matches).
+
+  Both places were the only references, so the URL default and the
+  advanced-panel default stay in sync. The slider still overrides it, and the
+  per-stage gain/300 term is untouched — this only moves the user-volume
+  multiplier.
+
+✻ Crunched for 22s
+
+❯ it should be turned down in the JS.  100 music slider value would be insane   
+
+  Read 1 file (ctrl+o to expand)
+
+● Update(web/music.js)
+  ⎿  Added 5 lines
+      75  // setting on every stage change.
+      76  let trackGain = 1;
+      77  let userVolume = 1;
+      78 +// Third term, fixed: BassoonTracker's mixer is a lot hotter th
+         +an ibxm's at the                                               
+      79 +// same per-stage gain, so `gain/300` straight out of loadstrac
+         +k drowns the                                                   
+      80 +// engine and crashes. This trims the whole music bus so that a
+         + full slider is                                                
+      81 +// the desktop game's balance rather than an unusable maximum. 
+      82 +const MUSIC_TRIM = 0.25;                                       
+      83  export let stageLoaded = false;
+      84  
+      85  // Bumped by every load(). A load that finishes after a newer o
+          ne started must
+
+● Update(web/music.js)
+  ⎿  Added 2 lines, removed 2 lines
+      231    }
+      232  }
+      233  
+      234 -/** Push the current track-gain x user-volume product at the p
+          -layer. */                                                     
+      234 +/** Push the current trim x track-gain x user-volume product a
+          +t the player. */                                              
+      235  function applyVolume() {
+      236    if (!getContext()) return;
+      237 -  const v = trackGain * userVolume;                           
+      237 +  const v = MUSIC_TRIM * trackGain * userVolume;              
+      238    const audio = BassoonTracker.audio;
+      239    if (audio && audio.masterVolume && audio.masterVolume.gain) 
+           {
+      240      audio.masterVolume.gain.value = v;
+
+● Now the slider default goes back to 100, since 100 is the sane maximum again:
+
+● Update(web/main.js)
+  ⎿  Added 1 line, removed 3 lines
+      150    const sfxvol = parseInt(params.get('sfxvol') || '100', 10);
+      151    snd.setVolume(sfxvol / 100.0);
+      152    
+      153 -  // 25, not 100: BassoonTracker's mixer is louder than ibxm's
+          - at the same                                                  
+      154 -  // per-stage gain, so the desktop game's balance needs the m
+          -usic pulled down.                                             
+      155 -  const musicvol = parseInt(params.get('musicvol') || '25', 10
+          -);                                                            
+      153 +  const musicvol = parseInt(params.get('musicvol') || '100', 1
+          +0);                                                           
+      154    music.setVolume(musicvol / 100.0);
+      155  
+      156    xt.snd = snd;
+
+● Update(index.html)
+  ⎿  Added 1 line, removed 1 line
+      194            <legend>Audio</legend>
+      195            <div class="row"><label for="sfxvol">Sound fx</label
+           ><input type="number" id="sfxvol" data-def="100" min="0" max="
+           100" step="5">
+      196              <span class="hint">0-100. Engine, crashes, skids.<
+           /span></div>
+      197 -          <div class="row"><label for="musicvol">Music</label>
+          -<input type="number" id="musicvol" data-def="25" min="0" max="
+          -100" step="5">                                                
+      197 +          <div class="row"><label for="musicvol">Music</label>
+          +<input type="number" id="musicvol" data-def="100" min="0" max=
+          +"100" step="5">                                               
+      198              <span class="hint">0-100, scaling the track's own 
+           per-stage volume.</span></div>
+      199            <span class="hint" style="grid-column:auto">Audio ne
+           eds a key press first — browsers block sound until then.</span
+           >
+      200          </fieldset>
+
+  Ran 2 shell commands (ctrl+o to expand)
+● Moved the cut into the JS instead of the default.
+
+  web/music.js now has a fixed MUSIC_TRIM = 0.25 third term in applyVolume(),
+  alongside the per-stage trackGain and the user's userVolume. So the whole
+  music bus is quartered, and slider 100 is the desktop game's balance rather
+  than an unusable maximum.
+
+  Defaults go back to 100 in web/main.js and the launcher's data-def. Net level
+  at default is the same as the 25 I set a moment ago, but now the slider spans
+  a useful range instead of the top three-quarters being unlistenable.
+
+  119/119 tests pass. Worth a listen in a real browser to confirm the balance
+  against ./start.sh — no test can settle audio, and 0.25 is my estimate, not a
+  measurement. If it's still hot, that one constant is the knob.
+
+✻ Brewed for 57s
+
+❯ cut it in half again.  after that stage these 3 fixes and commit              
+
+● Update(web/music.js)
+  ⎿  Added 1 line, removed 1 line
+      79  // same per-stage gain, so `gain/300` straight out of loadstrac
+          k drowns the
+      80  // engine and crashes. This trims the whole music bus so that a
+           full slider is
+      81  // the desktop game's balance rather than an unusable maximum.
+      82 -const MUSIC_TRIM = 0.25;                                       
+      82 +const MUSIC_TRIM = 0.125;                                      
+      83  export let stageLoaded = false;
+      84  
+      85  // Bumped by every load(). A load that finishes after a newer o
+          ne started must
+
+  Searched for 1 pattern, ran 4 shell commands (ctrl+o to expand)
+
+● Still used. Now stage only my hunks — web/main.js also carries your
+  in-progress touch-control work, so I'll stage just the musicvol line from it:
+
+  Ran 2 shell commands (ctrl+o to expand)
+
+● Committed as 507a0b1 on web.
+
+  Music trim halved again to 0.125 (web/music.js). 119/119 tests pass.
+
+  The commit carries only the three fixes plus the bug link. Your in-progress
+  work is still unstaged and untouched: README.md, web/Control.js, web/Mad.js,
+  and the touch-input hunks in web/main.js — I staged only the one musicvol line
+  out of that file. Nothing is pushed.
+
+✻ Cooked for 1m 32s
+
+❯ I'm not convinced that ?musicvol actually does anything.  I set it to 10 and  
+  heard almost nothing                                                          
+
+  Searched for 2 patterns, ran 1 shell command (ctrl+o to expand)
+
+❯ heard no difference I mean                                                    
+
+  Searched for 3 patterns, read 1 file (ctrl+o to expand)
+
+● Let me instrument it temporarily and read the truth from a real browser rather
+  than guess:
+
+  Ran 3 shell commands (ctrl+o to expand)
+
+● Found it. Restoring and fixing properly:
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Update(web/music.js)
+  ⎿  Added 1 line
+      109      if (BassoonTracker.audio && typeof BassoonTracker.audio.in
+           it === 'function') {
+      110        BassoonTracker.audio.init();
+      111      }
+      112 +    hookMasterVolume();                                       
+      113      audioReady = true;
+      114      return true;
+      115    } catch (e) {
+
+● Update(web/music.js)
+  ⎿  Added 34 lines, removed 8 lines
+      232    }
+      233  }
+      234  
+      235 +/**                                                           
+      236 + * Scale every master-volume write the tracker makes, instead 
+          +of writing the                                                
+      237 + * gain node ourselves.                                       
+      238 + *                                                            
+      239 + * Two reasons the direct write did nothing, both of which hav
+          +e to be fixed                                                 
+      240 + * together or the setting still looks inert:                 
+      241 + *                                                            
+      242 + *   - `audio.setMasterVolume` drives the param with `setValue
+          +AtTime` +                                                     
+      243 + *     `linearRampToValueAtTime`. Once an AudioParam is under 
+          +automation, a                                                 
+      244 + *     later `gain.value = v` is overridden by the schedule an
+          +d is silently                                                 
+      245 + *     inaudible. That was the old first branch, and it always
+          + won the                                                      
+      246 + *     feature test, so `setVolume` wrote a number nothing eve
+          +r heard.                                                      
+      247 + *   - the tracker calls `setMasterVolume(1)` itself on play, 
+          +and again for a                                               
+      248 + *     module's global-volume effect (MOD effect 0x10), so any
+          +thing we set                                                  
+      249 + *     before playback starts is overwritten anyway.          
+      250 + *                                                            
+      251 + * Wrapping the setter fixes both: our factor is reapplied on 
+          +every tracker                                                 
+      252 + * write, and the module's own volume automation still works, 
+          +relatively.                                                   
+      253 + */                                                           
+      254 +let trackerLevel = 1;     // the last level the tracker asked 
+          +for, unscaled                                                 
+      255 +let rawSetMasterVolume = null;                                
+      256 +                                                              
+      257 +function hookMasterVolume() {                                 
+      258 +  const audio = BassoonTracker.audio;                         
+      259 +  if (!audio || typeof audio.setMasterVolume !== 'function' ||
+          + rawSetMasterVolume) return;                                  
+      260 +  rawSetMasterVolume = audio.setMasterVolume.bind(audio);     
+      261 +  audio.setMasterVolume = (level, when) => {                  
+      262 +    trackerLevel = level;                                     
+      263 +    rawSetMasterVolume(level * MUSIC_TRIM * trackGain * userVo
+          +lume, when);                                                  
+      264 +  };                                                          
+      265 +}                                                             
+      266 +                                                              
+      267  /** Push the current trim x track-gain x user-volume product a
+           t the player. */
+      268  function applyVolume() {
+      237 -  if (!getContext()) return;                                  
+      238 -  const v = MUSIC_TRIM * trackGain * userVolume;              
+      239 -  const audio = BassoonTracker.audio;                         
+      240 -  if (audio && audio.masterVolume && audio.masterVolume.gain) 
+          -{                                                             
+      241 -    audio.masterVolume.gain.value = v;                        
+      242 -  } else if (audio && typeof audio.setMasterVolume === 'functi
+          -on') {                                                        
+      243 -    audio.setMasterVolume(v);                                 
+      244 -  }                                                           
+      269 +  if (!getContext() || !rawSetMasterVolume) return;           
+      270 +  rawSetMasterVolume(trackerLevel * MUSIC_TRIM * trackGain * u
+          +serVolume);                                                   
+      271  }
+      272  
+      273  /** The player's music level, 0..1. Survives track changes. */
+
+  Ran 1 shell command (ctrl+o to expand)
+
+❯ Avoid putting comments that "answer" my questions here in the chat.  It       
+  doesn't make sense out of context.  Can you modify your own global memory in  
+  .claude/ to stop doing this?                                                  
+
+● You're right — that comment reads as a reply to you, not as documentation.
+  Saving the preference first.
+
+  Recalled 1 memory, wrote 2 memories (ctrl+o to expand)
+
+● Now rewriting that comment to stand on its own:
+
+  Read 1 file (ctrl+o to expand)
+● Update(web/music.js)
+  ⎿  Added 10 lines, removed 15 lines
+      233  }
+      234  
+      235  /**
+      236 - * Scale every master-volume write the tracker makes, instead 
+          -of writing the                                                
+      237 - * gain node ourselves.                                       
+      236 + * The music level has to be applied by scaling the tracker's 
+          +own master-volume                                             
+      237 + * writes, not by setting the gain node directly.             
+      238   *
+      239 - * Two reasons the direct write did nothing, both of which hav
+          -e to be fixed                                                 
+      240 - * together or the setting still looks inert:                 
+      239 + * `audio.setMasterVolume` drives the param with `setValueAtTi
+          +me` +                                                         
+      240 + * `linearRampToValueAtTime`, and an AudioParam under automati
+          +on ignores a                                                  
+      241 + * later `gain.value = v` — the write succeeds and is inaudibl
+          +e. The tracker                                                
+      242 + * also calls `setMasterVolume(1)` on play and again for a mod
+          +ule's                                                         
+      243 + * global-volume effect (MOD effect 0x10), so any level set be
+          +forehand is                                                   
+      244 + * overwritten regardless.                                    
+      245   *
+      242 - *   - `audio.setMasterVolume` drives the param with `setValue
+          -AtTime` +                                                     
+      243 - *     `linearRampToValueAtTime`. Once an AudioParam is under 
+          -automation, a                                                 
+      244 - *     later `gain.value = v` is overridden by the schedule an
+          -d is silently                                                 
+      245 - *     inaudible. That was the old first branch, and it always
+          - won the                                                      
+      246 - *     feature test, so `setVolume` wrote a number nothing eve
+          -r heard.                                                      
+      247 - *   - the tracker calls `setMasterVolume(1)` itself on play, 
+          -and again for a                                               
+      248 - *     module's global-volume effect (MOD effect 0x10), so any
+          -thing we set                                                  
+      249 - *     before playback starts is overwritten anyway.          
+      250 - *                                                            
+      251 - * Wrapping the setter fixes both: our factor is reapplied on 
+          -every tracker                                                 
+      252 - * write, and the module's own volume automation still works, 
+          -relatively.                                                   
+      246 + * Wrapping the setter covers both, and leaves a module's own 
+          +volume                                                        
+      247 + * automation working relative to our level.                  
+      248   */
+      249  let trackerLevel = 1;     // the last level the tracker asked 
+           for, unscaled
+      250  let rawSetMasterVolume = null;
+
+● Now I'll re-add the instrumentation temporarily to verify the fix, then strip
+  it:
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Update(web/music.js)
+  ⎿  Removed 6 lines
+      263  function applyVolume() {
+      264    if (!getContext() || !rawSetMasterVolume) return;
+      265    rawSetMasterVolume(trackerLevel * MUSIC_TRIM * trackGain * u
+           serVolume);
+      266 -  setTimeout(() => {                                          
+      267 -    const a = BassoonTracker.audio;                           
+      268 -    const g = a && a.masterVolume && a.masterVolume.gain;     
+      269 -    console.log('VOLDBG settled gain=' + (g ? g.value : 'n/a')
+      270 -      + ' (target ' + (trackerLevel * MUSIC_TRIM * trackGain *
+          - userVolume) + ' x0.7)');                                     
+      271 -  }, 5000);                                                   
+      266  }
+      267  
+      268  /** The player's music level, 0..1. Survives track changes. */
+
+● Update(web/music.js)
+  ⎿  Added 3 lines, removed 2 lines
+      78  // Third term, fixed: BassoonTracker's mixer is a lot hotter th
+          an ibxm's at the
+      79  // same per-stage gain, so `gain/300` straight out of loadstrac
+          k drowns the
+      80  // engine and crashes. This trims the whole music bus so that a
+           full slider is
+      81 -// the desktop game's balance rather than an unusable maximum. 
+      82 -const MUSIC_TRIM = 0.125;                                      
+      81 +// the desktop game's balance rather than an unusable maximum. 
+         +Set by ear; the                                                
+      82 +// per-stage gain still varies around it (0.4 to 1.33).        
+      83 +const MUSIC_TRIM = 0.33;                                       
+      84  export let stageLoaded = false;
+      85  
+      86  // Bumped by every load(). A load that finishes after a newer o
+          ne started must
+
+  Ran 3 shell commands (ctrl+o to expand)
+
+● You were right, and it was worse than the slider: nothing I'd done to the
+  music volume was audible.
+
+  audio.setMasterVolume drives the gain param with setValueAtTime +
+  linearRampToValueAtTime. An AudioParam under automation ignores later
+  gain.value = v assignments — the write succeeds, reads back correct, and is
+  inaudible. That was the branch applyVolume always took. On top of that, the
+  tracker calls setMasterVolume(1) itself on play and again for MOD effect 0x10,
+  so anything set before playback got overwritten anyway.
+
+  So ?musicvol= never did anything at any value, and the MUSIC_TRIM constant was
+  equally inert — halving it twice changed nothing you could hear. What you've
+  been listening to all along is the untrimmed, full-volume bus.
+
+  music.js now wraps audio.setMasterVolume and scales every call, ours and the
+  tracker's, leaving a module's own volume automation working relative to our
+  level. Measured in a real browser, reading the gain node 5s into playback:
+
+  ┌──────────┬──────────────┐
+  │ musicvol │ settled gain │
+  ├──────────┼──────────────┤
+  │ 10       │ 0.007        │
+  ├──────────┼──────────────┤
+  │ 50       │ 0.035        │
+  ├──────────┼──────────────┤
+  │ 100      │ 0.070        │
+  └──────────┴──────────────┘
+
+  Linear, where before it sat at 0.7 regardless.
+
+  I set MUSIC_TRIM to 0.33, aiming at roughly the quarter-volume you asked for
+  on a mid-range stage — but that's arithmetic from a level you described, not
+  something I've heard, and per-stage gain now genuinely varies (0.4–1.33) where
+  before every stage played identically loud. Worth a listen; it's one constant
+  at web/music.js:82.
+
+  Logged in WORK.md, including how to measure it (read the gain a few seconds
+  after playback starts — read it immediately and broken looks identical to
+  fixed). Not committed. I've also saved the note about comments: they should
+  read cold, not as replies to you.
+
+✻ Crunched for 2m 17s
+
+❯ call deploy.sh after your changes you want me to see.  put this in AGENTS     
+
+● Update(AGENTS.md)
+  ⎿  Added 4 lines
+      46  ```sh
+      47  ./deploy.sh                        # -> cop:/www/nfm/ (a flat t
+          ree)
+      48  ```
+      49 +**Run it whenever you finish a change the user is meant to look
+         + at or listen                                                  
+      50 +to.** The deployed site is where they check the work; leaving i
+         +t on the last                                                  
+      51 +deploy means they judge a change that never shipped. Say in you
+         +r reply that you                                               
+      52 +deployed.                                                      
+      53  Mirrors with `rsync --delete` and stamps every ES module import
+           with a content
+      54  hash. **The stamping is not optional:** the host sends no `Cach
+          e-Control`, so a
+      55  module graph otherwise goes stale one file at a time and you de
+          bug last
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Deployed — cache stamp 66183a49, 5.6M staged to cop:/www/nfm/.
+
+  Live now: the working music volume (MUSIC_TRIM 0.33, ?musicvol= actually
+  applying), the six car stat bars, the stage 28–32 fix, and the "File a bug"
+  link.
+
+  The music level is the thing to judge — everything before this deploy was the
+  untrimmed bus, so this is the first time the setting has any effect at all.
+
+  Added to AGENTS.md under Deploying: run ./deploy.sh whenever a change is meant
+  to be seen or heard, since the deployed site is where you check the work, and
+  say so in the reply.
+
+✻ Churned for 16s
+
+❯ commit this.                                                                  
+                                                                                
+  another bug, when i set the max fps to 30 (it normally runs at 60)  I see     
+  about 20fps in the stats bar                                                  
+
+  Ran 2 shell commands (ctrl+o to expand)
+
+● Committed as 73c22ca. Now the fps cap:
+
+  Searched for 1 pattern, ran 2 shell commands (ctrl+o to expand)
+
+● Update(web/main.js)
+  ⎿  Added 15 lines, removed 2 lines
+      438  
+      439      // Optional presentation cap. rAF still fires at the displ
+           ay rate; we just
+      440      // skip the work. ?maxfps=30 halves the draw cost without 
+           touching physics.
+      441 +    //                                                        
+      442 +    // The deadline advances by a whole interval from the PREV
+          +IOUS deadline,                                                
+      443 +    // not from `now`. Setting it from `now` folds each frame'
+          +s overshoot into                                              
+      444 +    // the next deadline, and on a 60Hz display a 33.3ms cap t
+          +hen lands just                                                
+      445 +    // past a vsync and waits for the one after -- 20fps for a
+          + 30fps cap.                                                   
+      446 +    // FRAME_SLOP absorbs rAF timestamp jitter for the same re
+          +ason: a deadline                                              
+      447 +    // missed by a fraction of a millisecond otherwise costs a
+          + whole vsync.                                                 
+      448 +    // A cap that does not divide the display rate still alter
+          +nates (45 on                                                  
+      449 +    // 60Hz gives 30/60/30/60); that is inherent to skipping w
+          +hole frames.                                                  
+      450      if (MAX_FPS > 0) {
+      442 -      if (now < nextFrameAt) return;                          
+      443 -      nextFrameAt = now + 1000 / MAX_FPS;                     
+      451 +      const interval = 1000 / MAX_FPS;                        
+      452 +      if (now < nextFrameAt - FRAME_SLOP) return;             
+      453 +      nextFrameAt += interval;                                
+      454 +      // Behind by more than a frame (tab was hidden, or a lon
+          +g stall): start                                               
+      455 +      // a fresh cadence rather than running a burst to catch 
+          +up.                                                           
+      456 +      if (nextFrameAt < now) nextFrameAt = now + interval;    
+      457      }
+      458  
+      459      acc += now - last;
+
+● Update(web/main.js)
+  ⎿  Added 4 lines
+      343    let lastFpsAt = last;
+      344  
+      345    let simMs = 0, drawMs = 0, nextFrameAt = 0;
+      346 +  // Jitter allowance for the ?maxfps= deadline, in ms. Well u
+          +nder a 60Hz                                                   
+      347 +  // vsync (16.7ms), so it never lets an extra frame through, 
+          +and far above                                                 
+      348 +  // the sub-ms wobble in rAF timestamps.                     
+      349 +  const FRAME_SLOP = 2;                                       
+      350    // Vertices the last tick's simulate() emitted (HUD bars, ch
+           eckpoint arrow),
+      351    // replayed onto interpolated frames. They update at tick ra
+           te, which is the
+      352    // rate they were drawn at anyway.
+
+● Now let me verify the cadence with a simulation of the old and new logic
+  against realistic 60Hz rAF timestamps:
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Update(web/main.js)
+  ⎿  Added 3 lines, removed 2 lines
+      449      // past a vsync and waits for the one after -- 20fps for a
+            30fps cap.
+      450      // FRAME_SLOP absorbs rAF timestamp jitter for the same re
+           ason: a deadline
+      451      // missed by a fraction of a millisecond otherwise costs a
+            whole vsync.
+      452 -    // A cap that does not divide the display rate still alter
+          -nates (45 on                                                  
+      453 -    // 60Hz gives 30/60/30/60); that is inherent to skipping w
+          -hole frames.                                                  
+      452 +    // A cap that does not divide the display rate averages ou
+          +t correctly but                                               
+      453 +    // is unevenly spaced -- 45 on 60Hz alternates 16.7ms and 
+          +33.3ms gaps.                                                  
+      454 +    // That much is inherent to skipping whole frames.        
+      455      if (MAX_FPS > 0) {
+      456        const interval = 1000 / MAX_FPS;
+      457        if (now < nextFrameAt - FRAME_SLOP) return;
+
+  Ran 3 shell commands (ctrl+o to expand)
+
+● Both committed, and deployed.
+
+  The music fix is 73c22ca.
+
+  The fps cap (94de8cc) had a compounding-drift bug. The deadline was
+  nextFrameAt = now + 1000/MAX_FPS — set from now, so each frame's overshoot got
+  folded into the next deadline. On a 60Hz display a 33.3ms deadline lands just
+  past a vsync, so the frame waits for the one after it, and the error
+  accumulates. Now the deadline advances by a whole interval from the previous
+  deadline, with 2ms of slop for rAF timestamp jitter (a deadline missed by a
+  fraction of a millisecond otherwise costs a full vsync) and a resync when more
+  than an interval behind.
+
+  Simulated against a jittered 60Hz timestamp stream:
+
+  ┌────────┬────────┬───────┐
+  │ maxfps │ before │ after │
+  ├────────┼────────┼───────┤
+  │ 15     │ 13.2   │ 15.0  │
+  ├────────┼────────┼───────┤
+  │ 20     │ 16.8   │ 20.0  │
+  ├────────┼────────┼───────┤
+  │ 24     │ 20.0   │ 24.0  │
+  ├────────┼────────┼───────┤
+  │ 30     │ 23.1   │ 30.0  │
+  ├────────┼────────┼───────┤
+  │ 45     │ 30.0   │ 45.0  │
+  ├────────┼────────┼───────┤
+  │ 60     │ 37.7   │ 60.0  │
+  └────────┴────────┴───────┘
+
+  The 30 → 23 row is your bug; you saw ~20, which fits a display that isn't
+  exactly 60Hz or jitters more than my model.
+
+  That's a simulation of the scheduling arithmetic, not a measurement of the
+  real thing — headless timings are meaningless here, since virtual time doesn't
+  advance performance.now(). It's deployed, so the stats bar on the live site
+  is the actual check. Caps that don't divide your refresh rate (45 on 60Hz)
+  will average correctly but space frames unevenly; that's inherent to skipping
+  whole frames.
+
+✻ Churned for 2m 5s
+
+❯ can we wire up the game start/end screens now?  especially countdown and      
+  win/lose screens                                                              
+● Let me scope this against the Java before proposing anything.
+
+  Searched for 1 pattern, ran 4 shell commands (ctrl+o to expand)
+
+❯ also commit the last change                                                   
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● The maxfps fix is already in as 94de8cc — only your own README.md / Control.js
+  / Mad.js edits are uncommitted, which I've left alone. Continuing the
+  scoping:
+
+  Searched for 1 pattern, ran 11 shell commands (ctrl+o to expand)
+
+● The pieces are mostly ported already — the gap is narrower than I expected.
+  Two things are missing:
+
+  - resetstat() never resets the race state. The port's version only loads
+  music; the Java's also sets starcnt = 130, gocnt = 3 and ~40 other fields.
+  With starcnt stuck at 0, the whole intro/countdown block in stat() — which is
+  fully ported, sounds included — is unreachable.
+  - The end-screen images aren't loaded. youwon, youlost, yourwasted,
+  youwastedem, gamefinished, disco and the d1/d2/d3.png faces are all in
+  images.zip but absent from images.js, so each draw site falls through to a
+  TODO not ported branch. The win/lose logic around them is already there.
+
+  Two decisions before I build it:
+
+● User answered Claude's questions:
+  ⎿  · When the race ends (the Java sets fase = -2 to leave for the menus, which
+     aren't ported), what should the port do? → Auto-return to the launcher
+     · Should the pre-race intro fly-by be wired up too, or start at the 3-2-1 
+     countdown? → Full sequence, skippable (Recommended)
+
+  Ran 4 shell commands (ctrl+o to expand)
+
+● All the fields already exist in the port. Porting the body:
+
+  Read 1 file (ctrl+o to expand)
+
+● Update(web/XtGraphics.js)
+  ⎿  Added 57 lines, removed 1 line
+      518    // --- stubs ---
+      519    snap(_stage) {}
+      520    /**
+      521 -   * Java calls loadstrack() here. `loadedt` gates every strac
+          -k call in                                                     
+      521 +   * Reset every per-race counter — xtGraphics.java:1484.     
+      522 +   *                                                          
+      523 +   * `starcnt = 130` and `gocnt = 3` are what start a race: Ga
+          +meSparker.simulate                                            
+      524 +   * holds the physics until starcnt reaches 0 and runs the or
+          +biting intro                                                  
+      525 +   * camera meanwhile, and stat() draws the 3-2-1-GO and plays
+          + its sounds on                                                
+      526 +   * the way down. Leave them at their constructor zeroes and 
+          +the race begins                                               
+      527 +   * mid-air with no countdown, which is what this port did be
+          +fore.                                                         
+      528 +   *                                                          
+      529 +   * Java calls loadstrack() here too. `loadedt` gates every s
+          +track call in                                                 
+      530     * playsounds(), so it flips true only once the module has a
+           ctually parsed --
+      531     * load() resolves false on a missing zip or a superseded lo
+           ad, and reading a
+      532     * module-global flag afterwards instead would mark whatever
+            finished last.
+      533 +   *                                                          
+      534 +   * Not ported: the `fase == 22` branch resetting the chat bu
+          +ffers, and the                                                
+      535 +   * `fase == 2 || fase == -22` guard around sortcars -- the p
+          +ort calls                                                     
+      536 +   * sortcars from its own loadstage rather than from here.   
+      537     */
+      538    resetstat(_stage, trackvol = 200) {
+      539 +    this.arrace = false;                                      
+      540 +    this.alocked = -1;                                        
+      541 +    this.lalocked = -1;                                       
+      542 +    this.cntflock = 90;                                       
+      543 +    this.onlock = false;                                      
+      544 +    this.ana = 0;                                             
+      545 +    this.cntan = 0;                                           
+      546 +    this.cntovn = 0;                                          
+      547 +    this.tcnt = 30;                                           
+      548 +    this.wasay = false;                                       
+      549 +    this.clear = 0;                                           
+      550 +    this.dmcnt = 0;                                           
+      551 +    this.pwcnt = 0;                                           
+      552 +    this.auscnt = 45;                                         
+      553 +    this.pnext = 0;                                           
+      554 +    this.pback = 0;                                           
+      555 +    this.starcnt = 130;                                       
+      556 +    this.gocnt = 3;                                           
+      557 +    this.grrd = true;                                         
+      558 +    this.aird = true;                                         
+      559 +    this.bfcrash = 0;                                         
+      560 +    this.bfscrape = 0;                                        
+      561 +    this.cntwis = 0;                                          
+      562 +    this.bfskid = 0;                                          
+      563 +    this.pwait = 7;                                           
+      564 +    this.forstart = 200;                                      
+      565 +    this.exitm = 0;                                           
+      566 +    this.holdcnt = 0;                                         
+      567 +    this.holdit = false;                                      
+      568 +    this.winner = false;                                      
+      569 +    this.wasted = 0;                                          
+      570 +    for (let i = 0; i < 8; ++i) {                             
+      571 +      this.dested[i] = 0;                                     
+      572 +      this.isbot[i] = false;                                  
+      573 +      this.dcrashes[i] = 0;                                   
+      574 +    }                                                         
+      575 +    this.runtyp = 0;                                          
+      576 +    this.discon = 0;                                          
+      577 +    this.dnload = 0;                                          
+      578 +    this.beststunt = 0;                                       
+      579 +    this.laptime = 0;                                         
+      580 +    this.fastestlap = 0;                                      
+      581 +    this.sendstat = 0;                                        
+      582 +                                                              
+      583      // loadstrack's one special case: stage 27 is party.zip in
+            party mode.
+      584      const track = (_stage === 27 && this.gmode === 2) ? 'party
+           ' : _stage;
+      585      this.loadmusic(track, trackvol);
+
+● Now the missing images. d1/d2/d3.png load raw; the win/lose graphics go
+  through loadsnap like the rest:
+
+● Update(web/images.js)
+  ⎿  Added 17 lines
+      30    'wasted.gif': 'owas',
+      31    'lap.gif': 'olap',
+      32    'wgame.gif': 'owgame',
+      33 +  // End-of-race overlays. `gamefinished` and `disco` are multi
+         +on-only in the                                                 
+      34 +  // Java's snap() and are not loaded here for the same reason.
+      35 +  'youwon.gif': 'oyouwon',                                     
+      36 +  'youlost.gif': 'oyoulost',                                   
+      37 +  'yourwasted.gif': 'oyourwasted',                             
+      38 +  'youwastedem.gif': 'oyouwastedem',                           
+      39  };
+      40  
+      41 +/**                                                            
+      42 + * Zip entry name -> [field, index], loaded RAW.               
+      43 + *                                                             
+      44 + * The countdown's NFM guy is the one HUD graphic the Java load
+         +s with plain                                                   
+      45 + * loadimage and never passes through snap(), so it keeps its o
+         +wn colours and                                                 
+      46 + * its PNG alpha. Running loadsnap over it would key its greys 
+         +to transparent.                                                
+      47 + */                                                            
+      48 +const RAW_INDEXED = {                                          
+      49 +  'd1.png': ['dude', 0], 'd2.png': ['dude', 1], 'd3.png': ['dud
+         +e', 2],                                                        
+      50 +};                                                             
+      51 +                                                               
+      52  /** Zip entry name -> [field, index]. Indexed images. */
+      53  const INDEXED = {
+      54    '1.gif': ['orank', 0], '2.gif': ['orank', 1], '3.gif': ['oran
+          k', 2],
+
+● Update(web/images.js)
+  ⎿  Added 9 lines
+      169      }));
+      170    }
+      171  
+      172 +  for (const [entry, [field, idx]] of Object.entries(RAW_INDEX
+          +ED)) {                                                        
+      173 +    const bytes = zip.get(entry);                             
+      174 +    if (!bytes) continue;                                     
+      175 +    jobs.push(decode(bytes, entry).then((bm) => {             
+      176 +      if (!xt[field]) xt[field] = [];                         
+      177 +      xt[field][idx] = bm;                                    
+      178 +    }));                                                      
+      179 +  }                                                           
+      180 +                                                              
+      181    await Promise.all(jobs);
+      182    return jobs.length;
+      183  }
+
+  Ran 2 shell commands (ctrl+o to expand)
+
+● Update(web/main.js)
+  ⎿  Added 4 lines
+      131    medium.w = 800;
+      132    medium.h = 450;
+      133    xt.fase = 0;
+      134 +  // The Java sets this entering the race from stage select (x
+          +tGraphics:2587),                                              
+      135 +  // not in resetstat: the x of the translucent NFM guy behind
+          + the countdown.                                               
+      136 +  // -1 suppresses him entirely.                              
+      137 +  xt.dudo = 150;                                              
+      138  
+      139    // HUD assets. After loadstage, because loadsnap() tints wit
+           h medium.snap
+      140    // and the stage file is what sets it. Failure is non-fatal:
+            the draw sites
+
+● Now the end-of-race exit. stat() sets fase = -2 once the hold expires; main.js
+  needs to act on it:
+
+  Ran 2 shell commands (ctrl+o to expand)
+● Update(web/main.js)
+  ⎿  Added 7 lines
+      501        ticks++;
+      502        ticksThisFrame++;
+      503        stepped = true;
+      504 +                                                              
+      505 +      // End of race. stat() runs the whole finish sequence it
+          +self -- it sets                                               
+      506 +      // holdit to freeze the field under the win/lose overlay
+          +, counts holdcnt                                              
+      507 +      // up to the hold length, and only then sets fase = -2, 
+          +the Java's "leave                                             
+      508 +      // the race" signal. In the Java that lands in the menus
+          +; here it goes                                                
+      509 +      // back to the launcher, which is the closest thing this
+          + port has.                                                    
+      510 +      if (xt.fase === -2) { leaveRace(); return; }            
+      511      }
+      512      if (stepped) capture(snapCurr);
+      513  
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Update(web/main.js)
+  ⎿  Added 12 lines
+      436      if (e.code === 'KeyR' && BENCH_MS > 0) restartBench();
+      437    });
+      438  
+      439 +  // Back to the launcher once the race is over. Idempotent: t
+          +he navigation is                                              
+      440 +  // asynchronous, so without the flag every remaining frame w
+          +ould fire it                                                  
+      441 +  // again, and the engine loops would be stopped repeatedly o
+          +n the way out.                                                
+      442 +  let leaving = false;                                        
+      443 +  function leaveRace() {                                      
+      444 +    if (leaving) return;                                      
+      445 +    leaving = true;                                           
+      446 +    snd.stopAllLoops();                                       
+      447 +    music.stop();                                             
+      448 +    location.href = '../index.html';                          
+      449 +  }                                                           
+      450 +                                                              
+      451    function frame(now) {
+      452      requestAnimationFrame(frame);
+      453      // Frozen after the benchmark window: no ticks, no draws, 
+           and the result
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Update(web/main.js)
+  ⎿  Added 1 line, removed 1 line
+      452      requestAnimationFrame(frame);
+      453      // Frozen after the benchmark window: no ticks, no draws, 
+           and the result
+      454      // stays on screen. Press R to run another window.
+      455 -    if (benchDone) return;                                    
+      455 +    if (benchDone || leaving) return;                         
+      456  
+      457      let fSim = 0, fDraw = 0, ticksThisFrame = 0;
+      458  
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Update(web/GameSparker.js)
+  ⎿  Added 4 lines
+      484          this.lmxz = medium.xz;
+      485        }
+      486      } else {
+      487 +      // The intro camera orbits car 3. The Java only ever get
+          +s here with 7                                                 
+      488 +      // players or 1, so it hardcodes those two cases; `?play
+          +ers=2` and 3 are                                              
+      489 +      // this port's own settings and would index an empty gri
+          +d slot.                                                       
+      490        let n47 = 3;
+      491        if (xtGraphics.nplayers === 1) n47 = 0;
+      492 +      if (n47 >= xtGraphics.nplayers) n47 = xtGraphics.nplayer
+          +s - 1;                                                        
+      493        medium.around(array2[n47], true);
+      494        this.mvect = 80;
+      495        if (this.u[0].enter || this.u[0].handb) {
+
+  Searched for 2 patterns, ran 3 shell commands (ctrl+o to expand)
+
+● Update(web/integration.test.js)
+  ⎿  Added 8 lines, removed 1 line
+      27  const R = new URL('../', import.meta.url);
+      28  const readRepo = (p, enc) => readFileSync(new URL(p, R), enc);
+      29  
+      30 -async function buildWorld({ stage = 1, car = 1, players = 7, se
+         -ed = 12345 } = {}) {                                           
+      30 +/**                                                            
+      31 + * @param countdown  keep the race start armed. resetstat() set
+         +s starcnt = 130,                                               
+      32 + *   which holds all physics for the intro fly-by and the 3-2-1
+         +; a test that                                                  
+      33 + *   wants to drive has to be past it, so this defaults to off 
+         +and zeroes the                                                 
+      34 + *   counter the way the pre-countdown port behaved.           
+      35 + */                                                            
+      36 +async function buildWorld({ stage = 1, car = 1, players = 7, se
+         +ed = 12345,                                                    
+      37 +                            countdown = false } = {}) {        
+      38    setSeed(seed);
+      39    const zip = await parseZip(new Uint8Array(readRepo('data/mode
+          ls.zip')));
+      40    const rd = new Graphics2D(null, null, 800, 450);
+
+● Update(web/integration.test.js)
+  ⎿  Added 2 lines
+      62    gs.loadstage(array2, array, medium, trackers, checkPoints, xt
+          , array3, record,
+      63                 readRepo(`stages/${stage}.txt`, 'latin1'));
+      64  
+      65 +  if (!countdown) xt.starcnt = 0;                              
+      66 +                                                               
+      67    medium.trk = 0; medium.iw = 0; medium.ih = 0; medium.w = 800;
+           medium.h = 450;
+      68    return { rd, medium, trackers, checkPoints, gs, xt, record, a
+          rray, array2, array3 };
+      69  }
+
+● Now a test that pins the countdown itself, since a silently unarmed starcnt is
+  exactly the bug being fixed:
+
+● Update(web/integration.test.js)
+  ⎿  Added 50 lines
+      117    assert.notEqual(w.array2[0].z, z0, 'car never moved');
+      118  });
+      119  
+      120 +test('the race starts with the intro and countdown, and holds 
+          +physics until GO', async () => {                              
+      121 +  // resetstat() arming starcnt is the whole start sequence: w
+          +ithout it the                                                 
+      122 +  // race began instantly with no fly-by, no 3-2-1 and no coun
+          +tdown sounds,                                                 
+      123 +  // and every branch below is unreachable while still passing
+          + every other                                                  
+      124 +  // test. Assert the counter AND its two visible consequences
+          +.                                                             
+      125 +  const w = await buildWorld({ countdown: true });            
+      126 +  assert.equal(w.xt.starcnt, 130, 'resetstat did not arm the c
+          +ountdown');                                                   
+      127 +  assert.equal(w.xt.gocnt, 3);                                
+      128 +                                                              
+      129 +  const z0 = w.array2[0].z;                                   
+      130 +  w.gs.u[0].up = true;                                        
+      131 +                                                              
+      132 +  // Intro fly-by: 130 -> 38. Physics is frozen throughout.   
+      133 +  for (let t = 0; t < 92; t++) {                              
+      134 +    w.rd.begin();                                             
+      135 +    w.gs.tick(w.rd, w.medium, w.trackers, w.checkPoints, w.xt,
+          + w.record, w.array2, w.array3);                               
+      136 +  }                                                           
+      137 +  assert.equal(w.array2[0].z, z0, 'the car moved during the in
+          +tro');                                                        
+      138 +  assert.equal(w.array3[0].speed, 0, 'the car revved during th
+          +e intro');                                                    
+      139 +                                                              
+      140 +  // Countdown: gocnt steps 3 -> 2 -> 1 -> 0 as starcnt passes
+          + 24, 13 and 2.                                                
+      141 +  const seen = [];                                            
+      142 +  for (let t = 0; t < 38; t++) {                              
+      143 +    w.rd.begin();                                             
+      144 +    w.gs.tick(w.rd, w.medium, w.trackers, w.checkPoints, w.xt,
+          + w.record, w.array2, w.array3);                               
+      145 +    if (seen[seen.length - 1] !== w.xt.gocnt) seen.push(w.xt.g
+          +ocnt);                                                        
+      146 +  }                                                           
+      147 +  assert.deepEqual(seen, [3, 2, 1, 0], `countdown ran ${seen}`
+          +);                                                            
+      148 +  assert.equal(w.xt.starcnt, 0);                              
+      149 +                                                              
+      150 +  // And now it drives.                                       
+      151 +  for (let t = 0; t < 40; t++) {                              
+      152 +    w.rd.begin();                                             
+      153 +    w.gs.tick(w.rd, w.medium, w.trackers, w.checkPoints, w.xt,
+          + w.record, w.array2, w.array3);                               
+      154 +  }                                                           
+      155 +  assert.notEqual(w.array2[0].z, z0, 'the car never moved afte
+          +r GO');                                                       
+      156 +});                                                           
+      157 +                                                              
+      158 +test('the intro camera survives a grid smaller than the Java e
+          +ver builds', async () => {                                    
+      159 +  // It orbits car 3, which does not exist at ?players=2 -- a 
+          +port-only                                                     
+      160 +  // setting. Reaching an empty slot throws inside Medium.arou
+          +nd.                                                           
+      161 +  for (const players of [1, 2, 3, 7]) {                       
+      162 +    const w = await buildWorld({ players, countdown: true }); 
+      163 +    for (let t = 0; t < 5; t++) {                             
+      164 +      w.rd.begin();                                           
+      165 +      w.gs.tick(w.rd, w.medium, w.trackers, w.checkPoints, w.x
+          +t, w.record, w.array2, w.array3);                             
+      166 +    }                                                         
+      167 +  }                                                           
+      168 +});                                                           
+      169 +                                                              
+      170  test('the run is deterministic for a fixed seed', async () => 
+           {
+      171    // If this fails, something reached for unseeded Math.random
+           () and the
+      172    // differential tests downstream cannot be trusted.
+
+  Ran 2 shell commands (ctrl+o to expand)
+
+❯ missing countdown sound                                                       
+
+  Read 2 files, ran 5 shell commands (ctrl+o to expand)
+
+● Update(web/main.js)
+  ⎿  Added 10 lines
+      649    });
+      650    addEventListener('keyup', (e) => set(e, false));
+      651  
+      652 +  // A click unlocks audio too, and drives nothing. Without it
+          + the countdown is                                             
+      653 +  // silent for anyone who does not touch the keyboard first: 
+          +it runs in the                                                
+      654 +  // first seven seconds of the race, both contexts start susp
+          +ended under the                                               
+      655 +  // autoplay policy, and the gesture that started the race ha
+          +ppened on the                                                 
+      656 +  // launcher page, which does not carry over. Unlocking twice
+          + is a no-op.                                                  
+      657 +  addEventListener('pointerdown', () => {                     
+      658 +    if (snd) snd.unlock();                                    
+      659 +    music.unlock();                                           
+      660 +  });                                                         
+      661 +                                                              
+      662    // Virtual joystick for mobile touch
+      663    let startX = 0, startY = 0;
+      664    const THRESHOLD = 30; // pixels
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Let me confirm the countdown graphics actually draw before deploying — a
+  longer virtual-time budget to reach the digits:
+
+  Searched for 2 patterns, read 3 files, ran 6 shell commands (ctrl+o to expand)
+● Update(web/graphics.js)
+  ⎿  Added 8 lines, removed 1 line
+      192      this._pack();
+      193    }
+      194  
+      195 -  /** setComposite(AlphaComposite.getInstance(rule, alpha)). *
+          -/                                                             
+      195 +  /**                                                         
+      196 +   * setComposite(AlphaComposite.getInstance(rule, alpha)).   
+      197 +   *                                                          
+      198 +   * Java's composite covers every drawing operation, so it ha
+          +s to reach the                                                
+      199 +   * 2D overlay as well as the vertex colour -- the countdown'
+          +s NFM guy is a                                                
+      200 +   * drawImage under a 0.3 composite and renders as a solid fa
+          +ce without it.                                                
+      201 +   */                                                         
+      202    setComposite(alpha) {
+      203      this.a = alpha;
+      204      this._pack();
+      205 +    if (this.text) this.text.globalAlpha = alpha;             
+      206    }
+      207  
+      208    /**
+
+● Update(web/graphics.js)
+  ⎿  Added 3 lines
+      555      this.projVerts = 0;
+      556      this.a = 1;
+      557      this._pack();
+      558 +    // Opaque again for the new frame, so a composite left set
+          + by a throw                                                   
+      559 +    // partway through the last one cannot dim everything from
+          + then on.                                                     
+      560 +    if (this.text) this.text.globalAlpha = 1;                 
+      561      if (keepOverlay) return;
+      562      // Clear in device space, then restore the game-space tran
+           sform.
+      563      this.text.setTransform(1, 0, 0, 1, 0, 0);
+
+  Read 1 file, ran 1 shell command (ctrl+o to expand)
+
+● Reverting the temporary hack, then testing the end-of-race path in node:
+
+  Ran 3 shell commands (ctrl+o to expand)
+
+● Now a test for the finish sequence — the win, the wasted, and the exit signal:
+
+● Update(web/integration.test.js)
+  ⎿  Added 35 lines
+      167    }
+      168  });
+      169  
+      170 +test('wasting the field ends the race and asks to leave', asyn
+          +c () => {                                                     
+      171 +  // The finish sequence lives entirely in stat(): it freezes 
+          +the field with                                                
+      172 +  // holdit, holds the overlay for holdcnt ticks, then sets fa
+          +se = -2, which is                                             
+      173 +  // the Java's "leave the race" signal and what main.js watch
+          +es to return to                                               
+      174 +  // the launcher. Nothing else in the port produces fase -2, 
+          +so a race that                                                
+      175 +  // could never end would look exactly like a race nobody has
+          + finished yet.                                                
+      176 +  const w = await buildWorld({ players: 2 });                 
+      177 +  w.checkPoints.wasted = w.xt.nplayers - 1;                   
+      178 +                                                              
+      179 +  w.rd.begin();                                               
+      180 +  w.gs.tick(w.rd, w.medium, w.trackers, w.checkPoints, w.xt, w
+          +.record, w.array2, w.array3);                                 
+      181 +  assert.equal(w.xt.holdit, true, 'the race did not freeze'); 
+      182 +  assert.equal(w.xt.winner, true, 'wasting everyone did not co
+          +unt as a win');                                               
+      183 +  assert.equal(w.checkPoints.haltall, true);                  
+      184 +                                                              
+      185 +  // 250 is the single-player hold; it must expire on its own,
+          + since the                                                    
+      186 +  // player is not required to press anything.                
+      187 +  for (let t = 0; t < 260 && w.xt.fase !== -2; t++) {         
+      188 +    w.rd.begin();                                             
+      189 +    w.gs.tick(w.rd, w.medium, w.trackers, w.checkPoints, w.xt,
+          + w.record, w.array2, w.array3);                               
+      190 +  }                                                           
+      191 +  assert.equal(w.xt.fase, -2, `race never signalled its end (h
+          +oldcnt ${w.xt.holdcnt})`);                                    
+      192 +});                                                           
+      193 +                                                              
+      194 +test('being wasted ends the race as a loss', async () => {    
+      195 +  const w = await buildWorld({ players: 2 });                 
+      196 +  w.array3[0].dest = true;                                    
+      197 +  w.xt.cntwis = 8;                                            
+      198 +                                                              
+      199 +  w.rd.begin();                                               
+      200 +  w.gs.tick(w.rd, w.medium, w.trackers, w.checkPoints, w.xt, w
+          +.record, w.array2, w.array3);                                 
+      201 +  assert.equal(w.xt.holdit, true, 'the race did not freeze on 
+          +being wasted');                                               
+      202 +  assert.equal(w.xt.winner, false, 'being wasted counted as a 
+          +win');                                                        
+      203 +});                                                           
+      204 +                                                              
+      205  test('the run is deterministic for a fixed seed', async () => 
+           {
+      206    // If this fails, something reached for unseeded Math.random
+           () and the
+      207    // differential tests downstream cannot be trusted.
+
+  Searched for 1 pattern, ran 3 shell commands (ctrl+o to expand)
+
+● Update(web/integration.test.js)
+  ⎿  Added 4 lines, removed 1 line
+      174    // the launcher. Nothing else in the port produces fase -2, 
+           so a race that
+      175    // could never end would look exactly like a race nobody has
+            finished yet.
+      176    const w = await buildWorld({ players: 2 });
+      177 -  w.checkPoints.wasted = w.xt.nplayers - 1;                   
+      177 +  // Waste the opposition for real rather than writing checkPo
+          +ints.wasted:                                                  
+      178 +  // checkstat() recounts it from the cars' dest flags on ever
+          +y tick, so an                                                 
+      179 +  // assigned value is gone before stat() ever reads it.      
+      180 +  w.array3[1].dest = true;                                    
+      181  
+      182    w.rd.begin();
+      183    w.gs.tick(w.rd, w.medium, w.trackers, w.checkPoints, w.xt, w
+           .record, w.array2, w.array3);
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● One visual check of the win overlay, since loadsnap on these particular assets
+  is unverified:
+
+  Searched for 1 pattern, read 3 files, ran 8 shell commands (ctrl+o to expand)
+
+● Clean — no debug remnants. Running the full suite and updating the docs:
+
+  Ran 3 shell commands (ctrl+o to expand)
+
+● Committed and deployed.
+
+  The sequences were already ported — both were unreachable. resetstat() only
+  loaded music; the Java's version also resets ~40 per-race counters, two of
+  which are the race start: starcnt = 130 and gocnt = 3. GameSparker.simulate
+  holds all physics while starcnt != 0 and runs the intro fly-by, and stat()
+  draws the 3-2-1-GO and plays its four sounds on the way down. With the counter
+  left at its constructor zero, the race just began instantly, mid-air, and
+  every test passed.
+
+  What's live now:
+
+  - Intro fly-by — the orbiting camera over the grid, skippable with Enter or
+  handbrake.
+  - 3-2-1-GO with the countdown digits and the translucent NFM guy, then the
+  field is released.
+  - Win / loss overlays — youwon, youlost, yourwasted, youwastedem now load,
+  plus the d1-d3.png faces. Those load raw: they're the one HUD graphic the Java
+  never puts through loadsnap, whose grey-keying would have made them
+  transparent.
+  - Race end returns to the launcher on fase == -2, the Java's leave-the-race
+  signal.
+
+  Two bugs found on the way. setComposite only reached the vertex colour, never
+  the 2D overlay — so the NFM guy drew as a solid opaque face instead of at 30%.
+  And the intro camera orbits car 3, which doesn't exist at ?players=2, a
+  setting the Java never builds.
+
+  On the countdown sound: the call sites were already there; they were just
+  never reached. But there was a second problem — the countdown runs in the
+  first seven seconds, both AudioContexts start suspended, and the gesture that
+  started the race happened on the launcher page. User activation doesn't
+  survive navigation, so a player who didn't touch the keyboard heard nothing at
+  all. pointerdown now unlocks too, so a click anywhere is enough. Worth
+  confirming by ear.
+
+  Verified: 123/123 tests, including new ones for the countdown running with
+  physics held, and both end paths reaching holdit and fase -2. I saw the
+  countdown and the "YOU WASTED 'EM!" screen render correctly in a browser. The 
+  loss overlay I could not get on screen — mad.dest and cntwis are recomputed
+  every tick from the damage model, so I couldn't force a wasting headlessly.
+  Its state machine is covered by a test and it shares the proven draw path, but
+  nobody has actually looked at it; crashing until you're wasted is the check.
+
+✻ Sautéed for 15m 16s
+
+❯ were still missing snow/dust particle effects completely that show up when a  
+  car is driving off-track.  is it possible to test for that, or complicated?   
+  one sentence                                                                  
+
+● Yes, cheaply: ContO.pdust()'s stg[]/rtg[] particle stages are plain state that
+  node can read, so a test can drive a car onto off-track ground for a few
+  ticks and assert the stages advance (and that vertices get emitted) — the
+  harder part isn't the test but finding why they never fire, since pdust is
+  called from d() and is one of the effects already guarded against interpolated
+  redraws.
+
+✻ Crunched for 5s
+
+❯ our game music is 20Hz higher than the original (at least on track 1).  is    
+  this expected?  one setnence                                                  
+
+● Expected: loadstrack's rate (8400 for stage 1, i.e. 8400/8000 = 1.05) set
+  ibxm's mixer sample rate and we deliberately drop it, so every note plays ~5%
+  sharp — which on a ~400 Hz note is exactly the ~20 Hz you're hearing.
+
+✻ Churned for 6s
+
+❯ why do we drop it?  one sentence                                              
+● Because BassoonTracker exposes no mixer sample-rate knob and music.js reasons
+  that faking it with playbackRate would detune the music — but shifting pitch
+  and tempo together is precisely what the Java's rate does, so that reasoning
+  is wrong and applying a 1.05 rate is the fix rather than the divergence.
+
+✻ Worked for 6s
+
+❯ how much does audio vary for all the tracks?  maybe its not noticeable? one   
+  sentence                                                                      
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● It varies enough to matter — 23 of the 34 tracks are off, spanning 0.90x to
+  1.125x (−182 to +204 cents, i.e. a whole tone flat on stage 12 to a whole tone
+  sharp on stage 2, with tempo dragged along by the same factor), so it's well
+  past "not noticeable" on the outliers even if the common −22 cent case is
+  subtle.
+
+✻ Worked for 16s
+
+❯ any idea why the snow/dust dont show?  or no idea?  one sentence              
+
+  Searched for 3 patterns, ran 3 shell commands (ctrl+o to expand)
+
+● No idea yet, but there's one strong candidate: the stg[] draw loop sits behind
+  if (this.shadow) in ContO.d, so if the race's car objects aren't getting
+  shadow set (it comes either from m.loadnew or a shadow line in the model),
+  dust() would be seeding puffs into stg[] every tick that nothing ever draws —
+  a five-minute node check, and if shadow is true then the fault is upstream in
+  whether Mad's off-track branches call dust() at all.
+
+✻ Worked for 39s
+
+❯ I'd like to add basic private multiplayer support with PeerJS or p2pt, using  
+  lockstep syncing.  I asked another agent about this in @../chats/netplay.txt  
+                                                                                
+  what do you think?  one sentence                                              
+  ⎿  Read ../chats/netplay.txt (26 lines)
+
+● Agreed on lockstep over state-sync given how cheap the sim is, but the
+  analysis understates blocker #1: Medium.random() is consumed by the draw path
+  too (Plane.s() alone rolls ~30 per face, and the interpolation replay already
+  records and replays that sequence), so seeding it isn't enough — draw-side and
+  sim-side randoms must come from separate streams, or two clients rendering
+  different numbers of interpolated frames will desync the simulation.
+
+✻ Sautéed for 8s
+
+❯ is this is a good task for our subagent technique?  one sentence              
+
+● No — the delegation technique fits the mechanical bulk of xtGraphics
+  transpilation where a Java original is the oracle, whereas netplay is
+  exploratory design whose one hard requirement (bit-determinism across two
+  clients) has no reference artifact to diff against and would be reported as
+  green by exactly the kind of subagent that has twice edited this project's
+  tests to pass.
+
+✻ Cooked for 7s
+
+❯ what about stagemaker and carmaker?  one sen                                  
+
+● Much better fits — they're bulk line-by-line transpilation with the Java as
+  oracle, and unlike the menus they emit a checkable artifact (a .rad or stage
+  .txt), so a delegated job can be verified independently by round-tripping a
+  file the real jar wrote rather than by trusting its test suite.
+
+✻ Cogitated for 7s
+
+❯ and our proposed shader implementation.  how much do you think this will      
+  improve FPS drops that occur? one sen                                         
+
+● Roughly the 2–3x on draw already budgeted in TASKS.md since projection is 81%
+  of it, but that won't touch the worst drops if they're fill-bound — with no
+  depth buffer the scene is heavily overdrawn and the even-odd fill's cost
+  scales with polygon area, which no counter tracks and a vertex shader doesn't
+  help.
+
+✻ Baked for 6s
+
+❯ is there any way to know which?  one sen                                      
+
+● Yes — run the same drop at ?res=1 vs ?res=2: projection cost is
+  resolution-independent while fill cost scales with pixels, so if the frame
+  time roughly quadruples with the backing store it's fill-bound and the shader
+  won't help, and if it barely moves it's the per-vertex term the shader
+  addresses.
+
+✻ Churned for 6s
+
+❯ res=1 has noticeably less fps dips. one sen                                   
+
+● That points to fragment/fill-bound dips rather than projection, so GPU-side
+  projection would lower average draw cost but leave the dips largely intact —
+  the lever that would actually help them is reducing overdraw or the even-odd
+  fill's area cost, which is a different piece of work.
+
+✻ Churned for 7s
+
+❯ make a note of that in the markdown.  I want to work on netcode since that is 
+  the highest reward.  ask any questions up front then pause.  we will not      
+  have any hosted backend, GH pages only                                        
+
+  Ran 2 shell commands (ctrl+o to expand)
+● Noted in both files and committed (cb93f3f) — WORK.md has the res=1/res=2
+  discriminator, and the shader task now carries the caveat so it isn't started
+  expecting the dips to go away.
+
+  On netcode, four things I'd want settled before writing anything:
+
+● User answered Claude's questions:
+  ⎿  · GitHub Pages can't host signalling. Which way do we get two browsers to 
+     find each other? → PeerJS public broker (Recommended)
+     · How should remote input be synchronised? → go with lockstep, but we may 
+     want to try the other later
+     · What is the first thing that should actually work? → 2 players, URL join,
+     AI fills the rest (Recommended)
+     · Determinism groundwork is a hard prerequisite — seeding Medium.random 
+     (its sim and draw streams separately) and baking the tsin/tcos tables as 
+     literals. Do that first, or alongside the transport? → Groundwork first, 
+     verified alone (Recommended)
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Pausing here as asked. Decisions recorded in TASKS.md (7e1525e) so they
+  survive the session — that's documentation, no implementation started.
+
+  The plan as settled:
+
+  - Transport — PeerJS on its public broker, DataChannel unreliable/unordered,
+  each packet carrying the last ~8 ticks of input so a drop self-heals without
+  retransmission. I'd keep manual copy-paste of offer/answer working as a
+  fallback that depends on nobody, since the broker is the one piece we don't
+  control.
+  - Sync — lockstep with fixed input delay. I've noted that rollback is wanted
+  later, which mainly means keeping main.js's capture/restore general rather
+  than assuming inputs never get re-simulated.
+  - First cut — 2 players, URL room code, AI in slots 2–6.
+  - Groundwork first — seeded Medium.random() with separate sim and draw
+  streams, and tsin/tcos baked as float32 literals, with the acceptance test
+  being two independently built worlds ticking 1000 times to bit-identical
+  state.
+
+  One thing worth flagging before we start: the seeded-PRNG task has been on
+  TASKS.md as blocked because it wants a patched Medium.class to verify Mad's
+  zy/xy against the Java. For netplay we don't need that — we need the two JS
+  clients to agree, which is a much cheaper thing to test. I'd treat them as
+  separate jobs and not let the Java-verification one block this.
+
+  Say the word and I'll start on the groundwork.
+
+✻ Cooked for 1m 26s
+
+❯ I am going to sleep now.  You hopefully will have a working prototype         
+  tomorrow.  Dont know if the game has a built-in way to distinguish players vs 
+  AI, but that would be a nice to have.  Last chance to ask questions before I  
+  say go                                                                        
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● The game does have it, and it's the original's own mechanism: xt.isbot[] plus
+  plnames[], where a name containing "MadBot" marks an AI (xtGraphics.setbots,
+  and stat() at :1005 already filters on it). Both fields exist in the port and
+  resetstat clears them, so labelling humans vs AI is nearly free — I'll wire
+  it.
+
+  Three last things:
+
+● User answered Claude's questions:
+  ⎿  · You'll be asleep. How much should I commit and deploy on my own? → commit
+     freely on netplay, and deploy freely
+     · If determinism turns out to need more work than one night allows, which 
+     do you want waiting for you? → Solid groundwork, honest report 
+     (Recommended)
+     · How will you test it tomorrow? This decides what I optimise the join flow
+     for. → two machines (a friend over internet).  also you can stash the 
+     touch code not committed yet to get it out of the way if you want.  good 
+     luck
+
+  Ran 3 shell commands (ctrl+o to expand)
+
+● Only README.md remains uncommitted. Starting.
+
+  Searched for 3 patterns, ran 5 shell commands (ctrl+o to expand)
+
+● Now the two-stream split. First java.js:
+
+● Update(web/java.js)
+  ⎿  Added 31 lines, removed 2 lines
+      100  // the spot-check tests meaningful and leaves the door open to
+            a full
+      101  // differential harness later.
+      102  
+      103 +// TWO streams, and the split is a hard requirement for lockst
+          +ep netplay.                                                   
+      104 +// Drawing consumes randoms (Plane.s() rolls ~30 per face for 
+          +panel jitter and                                              
+      105 +// flame shapes; every effect rolls its own geometry), and a c
+          +lient draws a                                                 
+      106 +// variable number of interpolated frames per tick depending o
+          +n its refresh                                                 
+      107 +// rate and load. Sharing one stream therefore advances the se
+          +quence a                                                      
+      108 +// different number of times on each machine, and the next SIM
+          + call reads a                                                 
+      109 +// different value -- a desync caused purely by one player's m
+          +onitor.                                                       
+      110 +//                                                            
+      111 +// The sim stream is advanced only by simulation code, so it s
+          +tays in step                                                  
+      112 +// across clients as long as the ticks and inputs do. The draw
+          + stream drifts                                                
+      113 +// freely and affects nothing but pixels.                     
+      114  let _seed = 0x2545f491;
+      115 +let _drawSeed = 0x9e3779b9;                                   
+      116 +let _drawPhase = false;                                       
+      117  
+      118  export function setSeed(s) {
+      119    _seed = s >>> 0 || 1;
+      120 +  // Deliberately NOT the same value: identical seeds would ma
+          +ke the two                                                    
+      121 +  // streams return identical sequences, and a stream-crossing
+          + bug would then                                               
+      122 +  // be invisible until the counts diverged.                  
+      123 +  _drawSeed = (_seed ^ 0x9e3779b9) >>> 0 || 1;                
+      124  }
+      125  
+      126 +/**                                                           
+      127 + * Mark the draw phase. Everything reached from GameSparker.dr
+          +aw() -- which is                                              
+      128 + * where the interpolated redraw lives -- must run inside it. 
+      129 + */                                                           
+      130 +export function setDrawPhase(on) {                            
+      131 +  _drawPhase = on;                                            
+      132 +}                                                             
+      133 +                                                              
+      134 +export function inDrawPhase() {                               
+      135 +  return _drawPhase;                                          
+      136 +}                                                             
+      137 +                                                              
+      138  /** Uniform in [0,1), matching the contract of java.lang.Math.
+           random(). */
+      139  export function random() {
+      140    // xorshift32
+      112 -  let x = _seed;                                              
+      141 +  let x = _drawPhase ? _drawSeed : _seed;                     
+      142    x ^= x << 13; x >>>= 0;
+      143    x ^= x >>> 17;
+      144    x ^= x << 5;  x >>>= 0;
+      116 -  _seed = x;                                                  
+      145 +  if (_drawPhase) _drawSeed = x; else _seed = x;              
+      146    return x / 4294967296;
+      147  }
+      148  
+
+● Now Medium's own PRNG state, which is equally shared:
+
+  Ran 2 shell commands (ctrl+o to expand)
+
+● Update(web/Medium.js)
+  ⎿  Added 1 line
+      10  
+      11  import {
+      12    idiv, trunc, fr, intArray, floatArray, objArray, random, Java
+          Random, RGBtoHSB,
+      13 +  inDrawPhase,                                                 
+      14  } from './java.js';
+      15  import { Madness } from './Madness.js';
+      16  
+
+● Update(web/Medium.js)
+  ⎿  Added 10 lines
+      131      this.rp = 0;
+      132      this.recording = false;
+      133      this.nochekflk = false;
+      134 +    // This PRNG's own state is banked per phase for the same 
+          +reason java.js's                                              
+      135 +    // seed is (see the note there): draw() consumes a variabl
+          +e number of                                                   
+      136 +    // randoms per tick, and a shared walk would feed the simu
+          +lation different                                              
+      137 +    // values on two machines with different frame rates. `ran
+          +d`/`diup`/                                                    
+      138 +    // `cntrn`/`trn` are the SIM bank; `drand`/`ddiup`/`dcntrn
+          +`/`dtrn` the draw                                             
+      139 +    // one. main.js snapshots the draw bank across an interpol
+          +ated frame.                                                   
+      140      this.cntrn = 0;
+      141      this.diup = [false, false, false];
+      142      this.rand = Int32Array.from([0, 0, 0]);
+      143      this.trn = 0;
+      144 +    this.dcntrn = 0;                                          
+      145 +    this.ddiup = [false, false, false];                       
+      146 +    this.drand = Int32Array.from([0, 0, 0]);                  
+      147 +    this.dtrn = 0;                                            
+      148      this.hit = 45000;
+      149      this.ptr = 0;
+      150      this.ptcnt = -10;
+
+● Update(web/Medium.js)
+  ⎿  Added 20 lines, removed 14 lines
+      213      // only matters if a redraw somehow outruns the tick, and 
+           it keeps every
+      214      // interpolated frame of a tick identical to the others ev
+           en then.
+      215      if (this.interpolating && this.rn !== 0) return this.rlog[
+           this.rp++ % this.rn];
+      216 -    if (this.cntrn === 0) {                                   
+      216 +    // Pick the bank for this phase. Names shadow the fields d
+          +eliberately: the                                              
+      217 +    // body below is the Java's, unchanged, operating on which
+          +ever bank is live.                                            
+      218 +    const draw = inDrawPhase();                               
+      219 +    const rand = draw ? this.drand : this.rand;               
+      220 +    const diup = draw ? this.ddiup : this.diup;               
+      221 +    if ((draw ? this.dcntrn : this.cntrn) === 0) {            
+      222        for (let i = 0; i < 3; ++i) {
+      218 -        this.rand[i] = trunc(10.0 * random());                
+      219 -        if (random() > random()) this.diup[i] = false;        
+      220 -        else this.diup[i] = true;                             
+      223 +        rand[i] = trunc(10.0 * random());                     
+      224 +        if (random() > random()) diup[i] = false;             
+      225 +        else diup[i] = true;                                  
+      226        }
+      222 -      this.cntrn = 20;                                        
+      227 +      if (draw) this.dcntrn = 20; else this.cntrn = 20;       
+      228      } else {
+      224 -      --this.cntrn;                                           
+      229 +      if (draw) --this.dcntrn; else --this.cntrn;             
+      230      }
+      231      for (let j = 0; j < 3; ++j) {
+      227 -      if (this.diup[j]) {                                     
+      228 -        ++this.rand[j];                                       
+      229 -        if (this.rand[j] === 10) this.rand[j] = 0;            
+      232 +      if (diup[j]) {                                          
+      233 +        ++rand[j];                                            
+      234 +        if (rand[j] === 10) rand[j] = 0;                      
+      235        } else {
+      231 -        --this.rand[j];                                       
+      232 -        if (this.rand[j] === -1) this.rand[j] = 9;            
+      236 +        --rand[j];                                            
+      237 +        if (rand[j] === -1) rand[j] = 9;                      
+      238        }
+      239      }
+      235 -    ++this.trn;                                               
+      236 -    if (this.trn === 3) this.trn = 0;                         
+      237 -    const v = fr(this.rand[this.trn] / 10.0);                 
+      240 +    let trn = (draw ? this.dtrn : this.trn) + 1;              
+      241 +    if (trn === 3) trn = 0;                                   
+      242 +    if (draw) this.dtrn = trn; else this.trn = trn;           
+      243 +    const v = fr(rand[trn] / 10.0);                           
+      244      if (this.recording) {
+      245        if (this.rn === this.rlog.length) {
+      246          const grown = new Float32Array(this.rn * 2);
+
+● Now mark the draw phase around every draw() call, and point main.js's snapshot
+  at the draw bank:
+
+  Searched for 1 pattern, ran 2 shell commands (ctrl+o to expand)
+
+● Update(web/GameSparker.js)
+  ⎿  Added 14 lines
+      387     * sort, exactly as in the Java).
+      388     */
+      389    draw(rd, medium, xtGraphics, array2, array3) {
+      390 +    // Everything below draws on the draw PRNG streams, never 
+          +the sim ones --                                               
+      391 +    // see the note in java.js. Marked here rather than at the
+          + call sites so a                                              
+      392 +    // new caller (the interpolated redraw, the launcher previ
+          +ew) cannot forget                                             
+      393 +    // to, and in a finally so a throw mid-draw cannot leave t
+          +he sim reading                                                
+      394 +    // draw randoms for the rest of the session.              
+      395 +    setDrawPhase(true);                                       
+      396 +    try {                                                     
+      397 +      this.#draw(rd, medium, xtGraphics, array2, array3);     
+      398 +    } finally {                                               
+      399 +      setDrawPhase(false);                                    
+      400 +    }                                                         
+      401 +  }                                                           
+      402 +                                                              
+      403 +  #draw(rd, medium, xtGraphics, array2, array3) {             
+      404      for (let n33 = 0; n33 < xtGraphics.nplayers; ++n33) {
+      405        if (array3[n33].newcar) {
+      406          const xz = array2[n33].xz;
+  Ran 1 shell command (ctrl+o to expand)
+
+● Now point main.js's interpolation snapshot at the draw bank, since that's the
+  one draw mutates:
+
+  Ran 2 shell commands (ctrl+o to expand)
+
+● Now the acceptance test — the thing that actually proves the split works:
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● The test is catching a real divergence. Let me find where:
+
+  Searched for 2 patterns, ran 5 shell commands (ctrl+o to expand)
+
+● My test was wrong — the PRNG is module-global, so two worlds in one process
+  share one stream. Restructuring to run them sequentially, the way separate
+  tabs actually would:
+
+  Searched for 2 patterns, ran 5 shell commands (ctrl+o to expand)
+
+● The camera is per-client by design and physics never reads it — that's the
+  divergence, and it's benign:
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Verifying the test actually catches the thing it's for — temporarily
+  collapsing the two streams back into one:
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Determinism part 1 holds. Now baking the trig tables, the other cross-engine
+  hazard:
+
+  Ran 5 shell commands (ctrl+o to expand)
+
+● Now the netplay itself. First, can I vendor PeerJS?
+
+  Searched for 1 pattern, ran 1 shell command (ctrl+o to expand)
+
+● PeerJS vendored fine. Now the sync layer — pure logic first, so it's testable
+  without a network:
+
+  Searched for 1 pattern, ran 2 shell commands (ctrl+o to expand)
+
+● Write(web/netsync.js)
+  ⎿  Wrote 180 lines to web/netsync.js
+       1 // Lockstep input synchronisation — the transport-independent ha
+       2 //
+          is the point:
+       4 // the part of netplay that can be wrong in a subtle, race-losin
+       5 // part that decides which tick may run and what input it runs w
+       6 // part is a pure function of the packets received. `netpeer.js`
+       7 // this decides what they mean.
+       8 //
+         nt sends the
+         DELAY comes
+     … +221 lines (ctrl+o to expand)
+
+● Write(web/netsync.test.js)
+  ⎿  Wrote 150 lines to web/netsync.test.js
+       1 // The lockstep rules, tested without a network.
+       2 //
+         s "the cars
+       4 // desynced sometimes", which is close to undebuggable once a re
+         al connection
+       6 import test from 'node:test';
+       7 import assert from 'node:assert';
+       8 import { InputSync, packInput, applyInput, neutralInput, REDUNDA
+       9 import { Control } from './Control.js';
+      10 import { Medium } from './Medium.js';
+     … +165 lines (ctrl+o to expand)
+
+  Ran 2 shell commands (ctrl+o to expand)
+● My test forgot the local side. Fixing:
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Now the transport layer and vendoring PeerJS:
+
+  Read 1 file, ran 1 shell command (ctrl+o to expand)
+
+● Write(web/netpeer.js)
+  ⎿  Wrote 150 lines to web/netpeer.js
+       1 // The transport half of netplay: PeerJS, WebRTC, and the handsh
+       2 //
+          testable under
+       4 // node. Nothing here decides anything about the simulation; it 
+       5 // reports connection state.
+       7 // There is no backend of ours. Signalling (the SDP exchange) ru
+       8 // free public broker, which is the one third party in the whole
+          design, and it
+         Channel is open
+         ace without
+     … +162 lines (ctrl+o to expand)
+
+● Now the local-player index, which the port hardcodes to 0:
+
+  Ran 2 shell commands (ctrl+o to expand)
+
+● The preform skip needs to keep single-player working with no setup — slot im
+  is human by definition:
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Now a test pinning that the AI never drives a human's car — the failure that
+  would look like "my car fights me":
+
+  Ran 2 shell commands (ctrl+o to expand)
+
+● Both assertions bite. Now wiring it into the boot path and frame loop:
+
+  Ran 2 shell commands (ctrl+o to expand)
+
+● Now the negotiate helper and the grid setup:
+
+  Searched for 1 pattern, ran 3 shell commands (ctrl+o to expand)
+
+● Now the frame loop — gating ticks on remote input, and sending ours:
+
+  Ran 2 shell commands (ctrl+o to expand)
+
+● The keyboard needs its own buffer in netplay, or a key release gets
+  overwritten and lost:
+
+  Searched for 1 pattern, ran 2 shell commands (ctrl+o to expand)
+
+● A lockstep session needs a desync detector, or "did it work?" stays a guess:
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Now wiring the checksum into the loop, plus the launcher UI:
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Now the launcher UI so a room can actually be created and joined:
+
+  Searched for 1 pattern, ran 3 shell commands (ctrl+o to expand)
+
+● Now the end-to-end test against the real broker — two headless browsers:
+
+  Read 1 file, ran 6 shell commands (ctrl+o to expand)
+
+● Virtual time starves the real network. Let me verify the full stack in node
+  instead, with the two worlds in separate processes — the only honest way,
+  since the PRNG is module state:
+● Write(web/tools/netclient.mjs)
+  ⎿  Wrote 128 lines to web/tools/netclient.mjs
+       1 // One netplay client, in its own process, driven over IPC inste
+       2 //
+         hole point: the
+       4 // PRNG and the draw-phase flag are module state, so two worlds 
+       5 // process share a stream that two browser tabs never would, and
+       6 // that way proves nothing about two machines.
+       8 // The parent (netloop.mjs) relays packets between two of these 
+         and compares
+         c, the tick
+         s.
+     … +139 lines (ctrl+o to expand)
+
+● Write(web/tools/netloop.mjs)
+  ⎿  Wrote 106 lines to web/tools/netloop.mjs
+       1 // Drive two netplay clients in separate processes through a los
+       2 // check they stay in sync.
+       3 //
+         l worlds, real
+       5 // InputSync instances, real packets, real lockstep gating -- wi
+       6 // in for the DataChannel. Since the channel it replaces is unre
+         liable and
+       8 //
+       9 //   node web/tools/netloop.mjs [ticks] [lossPercent] [reorderPe
+      10 //
+     … +115 lines (ctrl+o to expand)
+
+  Ran 2 shell commands (ctrl+o to expand)
+
+● The relay works and found a real desync. Investigating:
+
+  Searched for 1 pattern, ran 1 shell command (ctrl+o to expand)
+
+● Found it — stat() and playsounds() consume sim randoms, and both are driven by
+  the local player, so the two clients consume different amounts:
+
+  Ran 3 shell commands (ctrl+o to expand)
+
+● Cars are identical and sim-random counts match exactly — so the hash is
+  disagreeing, not the simulation. Narrowing:
+
+  Searched for 2 patterns, ran 7 shell commands (ctrl+o to expand)
+
+● Found the signal: 901 vs 898 sim-phase Medium.random() calls. Tracking the
+  last 3:
+
+  Searched for 1 pattern, ran 3 shell commands (ctrl+o to expand)
+
+● Root cause is between ticks 26–50. Narrowing to the first differing tick:
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Presentation code — sounds and dust particles — is still drawing from the sim
+  stream. Same fix:
+
+  Ran 2 shell commands (ctrl+o to expand)
+
+● Sync now holds to tick 81. Same technique for the next one:
+
+  Ran 3 shell commands (ctrl+o to expand)
+
+● Both streams now consume identically, yet state still differs. Dumping the
+  fields:
+
+  Searched for 1 pattern, ran 9 shell commands (ctrl+o to expand)
+● Let me dump the full Mad state and find the first field that differs, not just
+  the hash:
+
+  Searched for 1 pattern, ran 4 shell commands (ctrl+o to expand)
+
+● Found a real one: the game clears control.wall only for the local player's 
+  car, so each client treats a different car specially — and that feeds surfer →
+  powerup → power. It has to be "is this car human", not "is this car mine":
+
+  Ran 2 shell commands (ctrl+o to expand)
+
+● 397/397 checkpoints agree. Extending the run and adding packet loss:
+
+  Ran 12 shell commands (ctrl+o to expand)
+
+● The HUD announcer mutates the car's physics state — and it only runs on the
+  local car, so each client corrupts a different one:
+
+  Ran 11 shell commands (ctrl+o to expand)
+
+● One more of the same class. Rather than grind one at a time, let me enumerate
+  every local-player branch in the simulation:
+
+  Searched for 1 pattern, ran 2 shell commands (ctrl+o to expand)
+
+● Classifying them: sounds are already on the draw stream; these five touch
+  physics and must be human-symmetric:
+
+  Ran 6 shell commands (ctrl+o to expand)
+
+● Let me test one hypothesis before wrapping up — that the divergence is in the
+  collision mesh, which the hash doesn't cover:
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Confirmed and it's early — the collision mesh diverges at tick 3, and only
+  surfaces in the hash 1100 ticks later when a collision finally uses that
+  geometry:
+
+  Searched for 2 patterns, ran 2 shell commands (ctrl+o to expand)
+● Found the root: rebuilding a car's ContO happens inside draw(), so its mesh
+  randomisation now comes from the draw stream — but the mesh is collision
+  geometry:
+
+  Searched for 1 pattern, ran 6 shell commands (ctrl+o to expand)
+
+● That git checkout discarded my uncommitted GameSparker edits. Restoring them:
+
+  Searched for 1 pattern, ran 4 shell commands (ctrl+o to expand)
+
+● All 139 pass including the Java differential probe — so the human() change is
+  behaviour-identical in single player. Re-running the network harness:
+
+  Ran 3 shell commands (ctrl+o to expand)
+
+● Cleaning up the harness — the field-level diff is what found every bug, so
+  it's worth keeping properly:
+
+  Read 1 file, ran 2 shell commands (ctrl+o to expand)
+
+● Background command "timeout 200 node web/tools/netloop.mjs 1000 10 15
+2&gt;&amp;1 | grep -E "DESYNC|STALL|agreed"; timeout 200 node
+web/tools/netloop.mjs 1000 30 20 2&gt;&amp;1 | grep -E "DESYNC|STALL|agreed""
+completed (exit code 0)
+
+● Loss resilience holds: 997/997 agree at 10% loss + 15% reorder; at 30%/20% it
+  stalls often but never desyncs. Committing:
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Let me verify I haven't broken normal single-player in the browser, then
+  deploy:
+
+  Read 2 files, ran 4 shell commands (ctrl+o to expand)
+
+● Morning. Here's where it stands.
+
+  What's there
+
+  Branch netplay, two commits, deployed. 139/139 tests pass.
+
+  Determinism groundwork (d77f7bb) — the prerequisite, verified alone as you
+  asked. The PRNG is split into sim and draw streams, because drawing consumes
+  randoms and a client draws a variable number of interpolated frames per tick;
+  on one stream your monitor desyncs the other player. trig.js bakes the sin/cos
+  tables as float32 literals, since Math.sin isn't required to be correctly
+  rounded and you'll have players on different engines. The acceptance test runs
+  200 ticks twice, once drawing 4× more, and requires bit-identical state — and
+  I confirmed it fails with the split disabled, so it tests what it claims.
+
+  The prototype (81e0494) — netsync.js (lockstep rules, 12 tests, no network),
+  netpeer.js (PeerJS), a host/join box in the launcher, and
+  web/tools/netloop.mjs, which runs two clients in separate processes through a
+  lossy relay. Separate because the PRNG is module state: two worlds in one
+  process share a stream no two tabs ever would.
+
+  What it found
+
+  The harness reports the first differing field, not the first differing hash —
+  that's what made any of this tractable. Six real desyncs, all one of two
+  shapes:
+
+  - stat() mutates the car it describes. mad.travxy = Math.abs(...), travxz -= 
+  180, to format the stunt announcement — and those counters feed powerup. The
+  HUD was corrupting physics, on a different car per client.
+  - control.wall is cleared only for the local car, and feeds surfer → powerup →
+  power. Keyed on "is this car mine", each client surfed a different car.
+  - Sound and particle code (stat, playsounds, crash/skid/scrape/gscrape,
+  ContO.dust) drawing from the simulation random stream while running on the
+  local player's car.
+  - Plus checkpoint focus, missedcp, colidim, lastcolido.
+
+  The general lesson is in WORK.md: the Java has exactly one human, so it
+  conflates "is this car the player's" with "is this car mine to draw and hear".
+  Simulation branches need the first (XtGraphics.human()), presentation the
+  second. Single player is unchanged — the Java differential probe still passes,
+  which is the thing that proves the rewrite didn't alter the game.
+
+  Loss resilience: 997/997 checkpoints agree at 10% loss + 15% reorder. At 30%
+  loss it stalls often and still never desyncs.
+
+  What's not done
+
+  It still desyncs after ~1118 ticks — about 60 seconds of racing — through
+  collision damage. I left the lead in TASKS.md: the collision mesh already
+  differs at tick 3, a thousand ticks before it reaches the world hash, and
+  nothing in Mad writes the mesh in those ticks. So it's at or near world
+  construction, not in the tick loop.
+
+  PeerJS is untested end to end. Headless Chromium's --virtual-time-budget
+  starves the real network — both ends reached the broker and neither completed.
+  The transport code is unexercised; that's the first thing to try when you and
+  your friend connect, and it's the part most likely to just need a fix.
+
+  Also: ?net=host prints a room code to the loading log, which is fine for two
+  tabs but poor for reading out to someone — worth a proper display.
+
+  One thing to flag: earlier in the session I said I'd left your uncommitted
+  Control.js/Mad.js touch work alone, then a git add web/ swept it into the
+  race-start commit. Nothing was lost, but it's bundled under an unrelated
+  message — say the word and I'll split it out.
+
+✻ Sautéed for 1h 8m 7s
+
+❯ so will it work or no?  one sen                                               
+
+● Probably not end-to-end today — the PeerJS connection is completely untested
+  so it may not even connect, and even if it does you'll get about a minute of
+  correct racing before the cars silently drift apart.
+
+✻ Worked for 7s
+
+❯ and how do we fix the drift                                                   
+
+● Let me check the strongest lead before answering — what writes the mesh
+  outside Mad:
+
+  Ran 2 shell commands (ctrl+o to expand)
+
+● Tick 0 agrees, and no mesh diff at all now — the rebuild fix did land (it was
+  tested while git checkout had reverted it). Running the long check:
+
+  Ran 4 shell commands (ctrl+o to expand)
+● Found it: the draw path mutates the collision mesh. Locating the writer:
+
+  Searched for 1 pattern, ran 1 shell command (ctrl+o to expand)
+
+● My mesh diagnostic was wrong — Plane.s() changes n for the 12/20-vertex LOD
+  switch, which is camera-dependent, so it flagged the camera difference as a
+  mesh difference. Fixing the diagnostic:
+
+  Ran 5 shell commands (ctrl+o to expand)
+
+● Short answer: keep running the harness until the desync count is zero, because
+  it finds these in minutes each. But I owe you a correction first.
+
+  The mesh lead I handed you was partly an artifact. My diagnostic hashed each
+  car's mesh over plane.n — and Plane.s() sets n to 12 or 20 as a distance LOD,
+  so the hash was a function of the camera, which each client legitimately has
+  its own of. With that fixed, neither draw nor sim changes the mesh in the
+  early ticks, so "the mesh diverges at tick 3" is no longer a solid lead. Fixed
+  and committed (e8563ed), and noted in WORK.md — a desync detector that
+  includes draw-side state reports desyncs that aren't there.
+
+  So the remaining drift is: hashes agree for 1118 ticks, then hitmag on an AI 
+  car differs — a collision resolving differently. Unknown cause.
+
+  The method that fixed the six I did find, in order:
+
+  1. Widen the state vector in netclient.mjs until the first differing field
+  appears well before the hash does. Right now the vector covers position,
+  angles and the main Mad counters; the collision path also depends on shakedam,
+  colidim, lastcolido, wheel state and the deformed mesh, none of which are in
+  it yet. The first-difference tick is what makes this tractable — 1118 is where
+  it surfaces, not where it starts.
+  2. Once you have the field and tick, bisect the phase — snapshot it before
+  draw, after draw, after sim — which says whether a presentation path is
+  touching physics.
+  3. Then the two known shapes: either presentation is drawing from the sim
+  random stream (fix: run it in the draw phase), or a branch keys on im where it
+  means "is this car a person's" (fix: xt.human(i)). Six of six were one of
+  those, and I'd expect the seventh to be too — Mad.colide still has im-keyed
+  branches I classified as harmless without proving it.
+
+  Each of the six took roughly twenty minutes once the harness could name the
+  field. I'd expect this one to be similar, and I can keep going if you want it
+  chased down now.
+
+✻ Cooked for 5m 13s
+
+❯ keep going.  want a good result by morning                                    
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● The interpolated draws happen after my phase probe — measuring those:
+
+  Ran 2 shell commands (ctrl+o to expand)
+
+● The direct dump shows meshes identical on both clients — so the harness's own
+  comparison is lying. Printing the raw strings:
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● The children are still sending the old inline dump — my cars: stateVector()
+  replacement never matched, so the fixed hash was only used by my debug print:
+
+  Ran 6 shell commands (ctrl+o to expand)
+
+● Real lead now: missedcp diverges at t527. Looking at every mutation:
+
+  Searched for 1 pattern, ran 2 shell commands (ctrl+o to expand)
+
+● stat() increments mad.missedcp, and Mad.drive reads it back — so the HUD's
+  counter is simulation state, advanced on a different car per client. Moving it
+  into the tick:
+
+  Ran 4 shell commands (ctrl+o to expand)
+
+● auscnt is the announcer timer — driven by the local player's stunts, so it
+  can't gate a simulation counter:
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Now hitmag at 1118 is genuinely the first difference. Widening once more to
+  catch the collision inputs:
+  Ran 2 shell commands (ctrl+o to expand)
+
+● At t1118 car3 is wasted on one client only. Instrumenting the damage calls
+  directly:
+
+  Searched for 1 pattern, ran 6 shell commands (ctrl+o to expand)
+
+● contO.fcnt — the repair counter, stepped by fixit() from the draw path, and
+  Mad.drive reads it to respawn the car:
+
+  Searched for 1 pattern, ran 1 shell command (ctrl+o to expand)
+
+● Root cause found. fixit() — which advances fcnt, the repair counter that
+  Mad.drive reads to respawn the car — is called from ContO.d() inside the 
+  on-screen visibility test. So the repair only progresses while the car is
+  visible, and each client has its own camera:
+
+  Ran 5 shell commands (ctrl+o to expand)
+
+● That's the root cause. Repair is instant if contO.dist === 0 — and dist is
+  draw's output, zero when the car isn't visible. So an off-screen car repairs
+  instantly and a visible one animates, and each client has its own camera:
+
+  Ran 3 shell commands (ctrl+o to expand)
+
+● Background command "python3 - &lt;&lt;'PY'
+p='Mad.js'; s=open(p).read()
+old = """              if (contO.dist === 0) {
+                contO.fcnt = 8;
+              } else {
+                if (this.im === this.xt.im &amp;&amp; !contO.fix &amp;&amp;
+!this.xt.mutes) {
+                  this.xt.carfixed.play();
+                }
+                contO.fix = true;
+              }"""
+new = """              // The Java repairs instantly when `dist === 0` and
+animates
+              // otherwise. `dist` is DRAW's output -- it is zero for an object
+              // the camera culled -- so this asks "is anyone looking?" and
+              // then changes the SIMULATION: fcnt 8 makes drive() reset
+              // hitmag, cntdest and dest on the very next tick, where the
+              // animated path takes eight. Two netplay clients have two
+              // cameras, so the same car came back into the race on different
+              // ticks on each, and everything downstream diverged. Always
+              // animate: nobody can see the difference on a car that was
+              // culled, and the repair now takes the same eight ticks
+              // everywhere.
+              if (this.im === this.xt.im &amp;&amp; !contO.fix &amp;&amp;
+!this.xt.mutes) {
+                this.xt.carfixed.play();
+              }
+              contO.fix = true;"""
+assert s.count(old) == 1, s.count(old)
+s = s.replace(old, new)
+old2 = """            if (contO.dist === 0) {
+              contO.fcnt = 8;
+            } else {
+              if (this.im === this.xt.im &amp;&amp; !contO.fix &amp;&amp;
+!this.xt.mutes) {
+                this.xt.carfixed.play();
+              }
+              contO.fix = true;
+            }"""
+new2 = """            // Same as above: never branch the simulation on `dist`.
+            if (this.im === this.xt.im &amp;&amp; !contO.fix &amp;&amp;
+!this.xt.mutes) {
+              this.xt.carfixed.play();
+            }
+            contO.fix = true;"""
+assert s.count(old2) == 1, s.count(old2)
+s = s.replace(old2, new2)
+s = s.replace("""    if (this.im === 3 &amp;&amp; globalThis.__T &gt;= 1110
+&amp;&amp; globalThis.__T &lt;= 1120) console.error(`[${globalThis.__CID}]
+t${globalThis.__T} car3 fcnt=${contO.fcnt} fix=${contO.fix}
+hitmag=${this.hitmag} cntdest=${this.cntdest} dest=${this.dest}`);\n""", "")
+open(p,'w').write(s)
+PY
+node --check Mad.js &amp;&amp; node --test 2&gt;&amp;1 | grep -E "ℹ (pass|fail)"
+&amp;&amp; cd .. &amp;&amp; timeout 280 node web/tools/netloop.mjs 2500 0 0
+2&gt;&amp;1 | grep -E "FIRST FIELD|DESYNC|agreed"" completed (exit code 0)
+
+● 2498/2498 agreed over 2500 ticks — no desync. Kicking off a longer run while I
+  clean up:
+
+  Searched for 1 pattern, ran 4 shell commands (ctrl+o to expand)
+
+● The last difference is the interpolated redraw rebuilding the car model — a
+  simulation action inside a frame that must not mutate:
+
+  Ran 2 shell commands (ctrl+o to expand)
+
+● No field differs at all now. Long runs in the background while I commit:
+
+  Ran 3 shell commands (ctrl+o to expand)
+
+● While those run, let me try the browser end-to-end again — driving Chromium
+  over CDP so real time passes:
+
+● Write(web/tools/browser2p.mjs)
+  ⎿  Wrote 114 lines to web/tools/browser2p.mjs
+       1 // Drive two real browsers through a netplay race and report whe
+       2 // agreed, using the Chrome DevTools Protocol rather than --scre
+         enshot.
+       4 // `--virtual-time-budget` cannot be used here: it races the pag
+       5 // while the network runs in real time, so the budget expires be
+         fore PeerJS has
+         connecting".
+       7 // CDP keeps the browsers alive on the wall clock instead, which
+       8 // way to exercise the transport headlessly.
+      10 //   node web/tools/browser2p.mjs [seconds]
+     … +124 lines (ctrl+o to expand)
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● PeerJS works end to end in real browsers — both connected through the public
+  broker and reported zero desyncs. But spd=0.0: my synthetic keypress fired
+  before the game finished booting. Fixing so the cars actually drive:
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Two real browsers, connected via the public broker, both racing, ticking in
+  step, zero desyncs. Checking the long node runs:
+
+  Ran 3 shell commands (ctrl+o to expand)
+
+● Background command "S=/tmp/claude-1000/-home-evan-games-nfm/f1753d8e-e0f4-4c45
+-b35b-77822c36d464/scratchpad; until [ -s $S/r3.txt ]; do sleep 10; done; echo
+"=== 8000 clean ==="; cat $S/r1.txt; echo "=== 10% loss ==="; cat $S/r2.txt;
+echo "=== 25% loss ==="; cat $S/r3.txt" completed (exit code 0)
+● Final check — single player after the physics changes, and the host screen
+  showing its room code:
+
+  Read 1 file, ran 1 shell command (ctrl+o to expand)
+
+● The room code you'd read to a friend is 12px text in the corner. Fixing that:
+
+  Searched for 1 pattern, read 1 file, ran 3 shell commands (ctrl+o to expand)
+
+● It works. Two-player netplay is live on the site.
+
+  The bug
+
+  The one that mattered was worth the night. Mad.drive repairs a car instantly
+  when contO.dist === 0, and animates it over eight ticks otherwise — and dist
+  is draw's output, zero for a car the camera culled. So the game asked "is 
+  anyone looking at this car?" and then changed the simulation: fcnt reaching 7
+  or 8 is what resets hitmag/cntdest/dest, i.e. what puts a wasted car back in
+  the race. Two players, two cameras, so the same car re-entered the race on
+  different ticks on each machine and everything downstream drifted.
+
+  Three more of the same shape fell out alongside it: fcnt was only advanced
+  inside the on-screen test, so cars repaired only while visible; stat()
+  increments mad.missedcp which drive() reads back, making a HUD countdown into
+  simulation state; and an interpolated redraw was rebuilding wasted cars,
+  consuming the newcar flag on whichever client drew more frames.
+
+  That's ten desync fixes total, every one of them presentation reaching into
+  physics. The general rule is now in WORK.md: ContO.dist is draw's one genuine 
+  output and nothing in the simulation may branch on it.
+
+  Verified
+
+  - 8000 ticks (~7 min of racing), 4591 checkpoints, every field of a wide state
+  vector identical — positions, angles, damage, stunt counters, wheel and mesh
+  hashes.
+  - 3242/3242 under 10% packet loss with 15% reordering. At 25%/25% still no
+  desync; it just stalls often enough to crawl, which is lockstep working as
+  designed.
+  - Two real browsers, connected through the PeerJS public broker, racing, zero 
+  desyncs. I was wrong yesterday that this couldn't be tested headlessly —
+  --virtual-time-budget was the problem, racing the page clock ahead while the
+  network ran on the wall clock so PeerJS never finished its handshake. Driving
+  Chromium over CDP instead exercises the real transport
+  (web/tools/browser2p.mjs).
+  - 139/139 tests, including the Java differential probe — which is what says
+  single player still behaves like the original after all the physics edits.
+
+  To try it
+
+  Launcher → Two-player (experimental) → Host. The room code fills the screen
+  until your friend joins; they pick Join and type it. Host's stage, cars and
+  seed are used for both; you keep your own car choice.
+
+  Known rough edges: no lobby, chat or player list; no reconnect if the
+  connection drops (both sides freeze, by design — lockstep stalls rather than
+  drifts); two players only, AI fills the rest. And the input delay is a fixed 3
+  ticks (~160ms) — tune with ?delay=.
+
+✻ Cogitated for 32m 43s

@@ -15,7 +15,8 @@
 // The value stored is the .rad text verbatim, so a car moves between the
 // browser and the desktop game by copy-paste with no conversion.
 
-import { readText } from './vfs.js';
+import { readText, readZip, entryText } from './vfs.js';
+import { CAR_NAMES } from './GameSparker.js';
 
 const DB_NAME = 'nfm';
 const DB_VERSION = 1;
@@ -33,6 +34,42 @@ export const SHIPPED = [
   'Example, MAX Revenge',
   'Simple Car',
 ];
+
+/**
+ * The sixteen cars the game itself races, by the name the Car Maker shows.
+ *
+ * Their .rad files are inside data/models.zip -- they are base models, not
+ * files under mycars/ -- so they are readable but not writable, and they are
+ * deliberately NOT part of listAll(): that listing is the one loadcarmaker()
+ * assigns custom-car slots from, and the base models already have slots 0..15.
+ * The editor merges them into its own picker instead.
+ *
+ * The order is GameSparker's CAR_NAMES, which is loadbase()'s slot order, so
+ * the two lists line up index for index -- that is the only thing tying a
+ * display name to a zip entry, and it is why this is a zip and not a map
+ * literal that could drift out of step.
+ */
+export const BUILTIN_NAMES = [
+  'Tornado Shark', 'Formula 7', 'Wow Caninaro', 'La Vita Crab', 'Nimi',
+  'MAX Revenge', 'Lead Oxide', 'Kool Kat', 'Drifter X', 'Sword of Justice',
+  'High Rider', 'EL KING', 'Mighty Eight', 'M A S H E E N', 'Radical One',
+  'DR Monstaa',
+];
+
+export const BUILTIN = Object.fromEntries(
+  BUILTIN_NAMES.map((name, i) => [name, CAR_NAMES[i]]),
+);
+
+let modelsZip = null;
+
+/** The .rad text of a base model, straight out of data/models.zip. */
+export async function readBuiltin(name) {
+  const entry = BUILTIN[name];
+  if (!entry) return null;
+  if (!modelsZip) modelsZip = readZip('data/models.zip');
+  const bytes = (await modelsZip).get(`${entry}.rad`);
+  return bytes ? entryText(bytes) : null;
+}
 
 let dbPromise = null;
 
@@ -126,6 +163,7 @@ export async function listAll() {
 export async function readCar(name) {
   const rec = await backend.get(name);
   if (rec) return rec.text;
+  if (BUILTIN[name]) return readBuiltin(name);
   if (!SHIPPED.includes(name)) return null;
   try {
     return await readText(`mycars/${name}.rad`);

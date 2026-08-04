@@ -200,3 +200,40 @@ test('tab2 executes Physics subtab (dtab = 5)', () => {
 
   assert.doesNotThrow(() => tab2(cm));
 });
+
+// The wheels pane must READ the car's wheels, not decide it has none.
+//
+// procyon names a local `getvalue` here, after the method whose result it
+// holds. Java is fine with that; JS is not -- the local shadowed the imported
+// function, every call in the parse loop threw, the try/catch swallowed it,
+// and the pane quietly filled in default wheels and offered to overwrite the
+// car with them. Nothing about that is visible without a real .rad.
+test('tab2 wheels pane parses w() out of a real car rather than defaulting', async () => {
+  const { readFileSync } = await import('node:fs');
+  const src = readFileSync(new URL('../../mycars/Example, MAX Revenge.rad', import.meta.url), 'utf8');
+
+  const cm = createMockCm();
+  // hidefields() runs on the pane switch and hides every widget CarMaker has,
+  // so the mock needs the ones the tab-2 mock predates.
+  for (const w of ['pubtyp', 'pubitem', 'tpass', 'tnick', 'slcar', 'fontsel', 'ctheme']) cm[w] = new Smenu(40);
+  for (const w of ['srch', 'rplc']) cm[w] = new TextField('');
+  cm.wv = Array.from({ length: 16 }, () => new TextField(''));
+  cm.setCursor = () => {};
+  cm.requestFocus = () => {};
+  cm.editor.setText(src);
+  cm.dtab = 3;
+  cm.dtabed = -1;                 // as entering the pane does
+  tab2(cm);
+
+  // mycars/Example, MAX Revenge.rad:1059-1065
+  //   w(-48,6,50,11,26,22)   front
+  //   w(-48,6,-92,0,26,22)   back
+  assert.equal(cm.defnow, false, 'the pane found four wheels');
+  assert.equal(cm.wv[0].getText(), '48');    // back  ±X
+  assert.equal(cm.wv[1].getText(), '6');     // back  Y
+  assert.equal(cm.wv[2].getText(), '-92');   // back  Z
+  assert.equal(cm.wv[3].getText(), '22');    // back  height
+  assert.equal(cm.wv[4].getText(), '26');    // back  width
+  assert.equal(cm.wv[8].getText(), '48');    // front ±X
+  assert.equal(cm.wv[10].getText(), '50');   // front Z
+});

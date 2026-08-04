@@ -46,13 +46,29 @@ delegation contract; `decompilation/agy_careditor <chunk>` runs one.
 - [x] Chunk `files` — IO seam + the `.rad` parser
 - [x] Chunk `ui` — hidefields, movefield, drawms, stringbutton, ovbutton
 - [x] Chunk `ctachm` — the editor's draw and hit-testing pass
-- [ ] Chunk `tab2` (1,600 lines — split if it comes back thin), `tab0`, `tab1`,
+- [x] Chunk `tab2` (1,600 lines — split if it comes back thin), `tab0`, `tab1`,
       `tab3`, `input`, `boot`
-- [ ] The editor shell: `web/careditor.html`, and one widget interface for the
-      `TextArea`/`TextField`/`Smenu` seam. The transpiled chunks currently
-      probe it with `typeof w.getText === 'function'`; that collapses once the
-      shell defines it.
-- [ ] Wire save -> `carstore.writeCar` and Test Drive -> `?mycar=`.
+- [x] ~~The editor shell driving the transpiled panes headlessly.~~ Built, then
+      thrown away: running the applet's panes for their button rects inherited
+      the applet's UI (Scale and Align sharing a pane, Apply/Save pairs, a
+      paginating physics tab) and most of the work went into the bridge rather
+      than the editor. See WORK.md 2026-08-03.
+- [x] The editor proper (`web/careditor/rad.js` + `editor.js`): the `.rad` text
+      is the model, every control reads and rewrites it live, one Save, and the
+      preview is the game's own `ContO`.
+- [x] Wire save -> `carstore.writeCar` and Test Drive -> `?mycar=`.
+- [x] Embed `stat()`/`physics()` in the sixteen base cars
+      (`web/tools/embedstats.mjs`) so they are editable and a car saved from one
+      is raceable.
+- [ ] Retrofit the original sixteen to READ their handling from those embedded
+      lines instead of `CarDefine`'s constructor tables, so the `.rad` is the
+      single source of truth — the tool reports which fields do not yet
+      round-trip (`moment`, `comprad`, `outdam`, `powerloss`, `airs`/`airc` are
+      derived from stats and geometry, not from `physics()`).
+- [ ] Keyboard navigation, consistently, across the launcher, the editor and
+      the in-game menus. The editor's tabs already follow the WAI-ARIA tablist
+      pattern (roving tabindex, arrows between tabs) — make that the house
+      style rather than a one-off.
 
 ## Performance
 

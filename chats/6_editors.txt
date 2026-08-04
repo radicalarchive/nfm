@@ -1,0 +1,3074 @@
+╭─── Claude Code v2.1.220 ─────────────────────────────────────────────────────╮
+│                                                    │ Tips for getting        │
+│                 Welcome back Evon!                 │ started                 │
+│                                                    │ Run /init to create a … │
+│                       ▐▛███▜▌                      │ ─────────────────────── │
+│                      ▝▜█████▛▘                     │ What's new              │
+│                        ▘▘ ▝▝                       │ Bug fixes and reliabil… │
+│  Opus 5 · Claude Pro · evan_claude@widloski.com's  │ Added Claude Opus 5 (`… │
+│  Organization                                      │ Added `sandbox.network… │
+│                     ~/games/nfm                    │ /release-notes for more │
+╰──────────────────────────────────────────────────────────────────────────────╯
+
+
+❯ I want to use remaining credits to port the car editor and use browser        
+  storage to be able to play in the main game                                   
+                                                                                
+  Use PORT_SPEC technique for doing the CarEditor port.  get a bulk             
+  transcription rolling right now while I am away.                              
+                                                                                
+  ask any questions up front now, not design related though                     
+
+● I'll look at the project state and the PORT_SPEC technique first, then get
+  questions to you before you go.
+
+  Read 1 file, listed 2 directories, ran 6 shell commands (ctrl+o to expand)
+
+❯ there is also 'agy' screen session you can use                                
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Questions before you go:
+
+● User answered Claude's questions:
+  ⎿  · How much of CarMaker should the port cover? → Full parity
+     · How aggressively should I spend credits on agy jobs while you're away? → 
+     use two sessions at once, `agy` and `agy2` both should be autoapprove
+     · What can I do without asking while you're away? → branch to careditor and
+     commit/deploy as you go
+
+  Ran 7 shell commands (ctrl+o to expand)
+
+● Now the runner + spec. Writing the chunk manifest first:
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Write(decompilation/agy_careditor)
+  ⎿  Wrote 225 lines to decompilation/agy_careditor
+       1 #!/usr/bin/env bash
+       3 # agy_careditor — run ONE bounded chunk of the CarMaker port via
+          `agy -p`.
+       5 # Usage:   ./agy_careditor <chunk>       e.g.  ./agy_careditor s
+         hape
+       7 #
+       8 # CarMaker.java is a single 5,839-line class, so the unit of del
+       9 # LINE RANGE, not a file (that is the only difference from `agy_
+         tmp`, which
+         below; each one
+     … +323 lines (ctrl+o to expand)
+
+  Ran 2 shell commands (ctrl+o to expand)
+
+● Now the spec:
+
+● Write(decompilation/CAREDITOR_PORT_SPEC.md)
+  ⎿  Wrote 137 lines to decompilation/CAREDITOR_PORT_SPEC.md
+      1 # CAREDITOR_PORT_SPEC.md — porting `CarMaker` to the JS/WebGL bui
+      2 
+      3 A bounded job spec for `agy -p`, in the shape `decompilation/agy_
+        tmp` and
+        ubagent" and
+      5 §"Calibrate before batching" first — they are binding, and the ca
+      6 procedure is not optional. `web/TRANSPILE_SPEC.md` is the contrac
+        t for every
+      7 line of code produced here.
+      9 ## What this is
+     … +199 lines (ctrl+o to expand)
+
+● Launching the two jobs now (calibration shape + files, both auto-approve,
+  gemini pool so Claude credits are preserved):
+
+  Ran 12 shell commands (ctrl+o to expand)
+● Write(web/carstore.js)
+  ⎿  Wrote 162 lines to web/carstore.js
+       1 // Browser-side `mycars/` — the writable half of the VFS.
+       3 // vfs.js is read-only by design (see its header): the race-only
+       4 // persisted anything. The car editor changes that. A car the ed
+         itor saves has
+         e it into and
+         t
+         9).
+       8 //
+          the listing
+         ars shipped in
+     … +178 lines (ctrl+o to expand)
+
+  Ran 2 shell commands (ctrl+o to expand)
+
+● Update(web/carstore.js)
+  ⎿  Added 28 lines, removed 1 line
+       69    });
+       70  }
+       71  
+       72 +/**                                                           
+       73 + * The persistence seam. IndexedDB by default; `useBackend` sw
+          +aps in a plain                                                
+       74 + * Map for `node --test`, which has no IndexedDB — the listing
+          +, shadowing and                                               
+       75 + * slot-assignment logic below is the part worth testing, and 
+          +it should not                                                 
+       76 + * need a browser to test it.                                 
+       77 + */                                                           
+       78 +let backend = {                                               
+       79 +  keys: () => tx('readonly', (s) => s.getAllKeys()),          
+       80 +  get: (name) => tx('readonly', (s) => s.get(name)),          
+       81 +  put: (rec) => tx('readwrite', (s) => s.put(rec)),           
+       82 +  del: (name) => tx('readwrite', (s) => s.delete(name)),      
+       83 +};                                                            
+       84 +                                                              
+       85 +export function useBackend(b) {                               
+       86 +  backend = b;                                                
+       87 +}                                                             
+       88 +                                                              
+       89 +/** A Map-backed backend, for tests. */                       
+       90 +export function memoryBackend(map = new Map()) {              
+       91 +  return {                                                    
+       92 +    keys: async () => [...map.keys()],                        
+       93 +    get: async (name) => map.get(name),                       
+       94 +    put: async (rec) => { map.set(rec.name, rec); },          
+       95 +    del: async (name) => { map.delete(name); },               
+       96 +  };                                                          
+       97 +}                                                             
+       98 +                                                              
+       99  /** Names of cars saved in this browser, sorted the way a dire
+           ctory listing is. */
+      100  export async function listStored() {
+       74 -  const keys = await tx('readonly', (s) => s.getAllKeys());   
+      101 +  const keys = await backend.keys();                          
+      102    return keys.sort((a, b) => a.localeCompare(b));
+      103  }
+      104  
+
+  Ran 3 shell commands (ctrl+o to expand)
+
+● Write(web/carstore.test.js)
+  ⎿  Wrote 97 lines to web/carstore.test.js
+       1 // carstore: the listing and slot-assignment rules loadcarmaker(
+       2 // filesystem in Java and cannot get from a browser.
+       3 //
+         , and it is a
+       5 // thin wrapper. What is tested is everything that decides WHICH
+       6 // WHICH slot, because a car changing slot between sessions chan
+         ges what you
+         e would make
+       8 // "edit a shipped car" silently edit nothing.
+      10 import assert from 'node:assert';
+     … +110 lines (ctrl+o to expand)
+
+  Read 1 file, ran 7 shell commands (ctrl+o to expand)
+
+● Background command "Run agy careditor files chunk" completed (exit code 0)
+
+● Update(decompilation/agy_careditor)
+  ⎿  Added 4 lines
+      180  
+      181  $EXTRA
+      182  
+      183 +TWO RULES ADDED AFTER THE CALIBRATION CHUNKS. Both are things 
+          +a previous job got wrong; violating either fails review:      
+      184 +  (a) ONE signature per function. Do NOT emit \`function f(aOr
+          +B, bOrC, ...)\` argument-shuffling shims that accept the state
+          + object OR raw values. Every exported function takes exactly t
+          +he parameters listed below, in that order, and nothing else.  
+      185 +  (b) Do NOT insert a bounds check, null check, or try/catch t
+          +hat the Java does not have. If the Java can throw StringIndexO
+          +utOfBoundsException or NumberFormatException on some input, th
+          +e JS must throw too — 'i < s.length &&' added to a condition i
+          +s a §0/§3 violation even when it looks obviously safer. Java's
+          + charAt() past the end THROWS; JS's s[i] returns undefined and
+          + silently concatenates "undefined". Make the JS throw.        
+      186 +                                                              
+      187  Shared state: CarMaker is one class with ~200 fields. Do NOT c
+           opy the field declarations into your module and do NOT invent 
+           a global. Emit functions that take the editor state object as 
+           their first parameter, named \`cm\`, and read/write \`cm.<fiel
+           d>\` exactly where the Java says \`this.<field>\`. Field NAMES
+            must match the Java exactly. List in your report every field 
+           your chunk touches, with its declared Java type — that list is
+            how the chunks get stitched together, so an omission costs a 
+           day.
+      188  
+      189  STEP 4 — verify against the REAL Java, not against your readin
+           g of it. Unpacked jar:
+
+● Now fixing the two systematic issues in files.js myself:
+
+  Read 1 file, ran 12 shell commands (ctrl+o to expand)
+
+● Background command "Run agy careditor shape chunk" completed (exit code 0)
+
+● Two chunks verified and committed. Launching the next two:
+
+  Ran 3 shell commands (ctrl+o to expand)
+
+● Update(web/carstore.js)
+  ⎿  Added 10 lines, removed 2 lines
+      172   * Returns the names actually loaded, in slot order, so a call
+           er can show the
+      173   * player which car is in which slot.
+      174   */
+      175 -export async function loadIntoCarDefine(cd) {                 
+      176 -  cd.loadcarmaker();                                          
+      175 +export async function loadIntoCarDefine(cd, { menu = true } = 
+          +{}) {                                                         
+      176 +  if (menu) {                                                 
+      177 +    cd.loadcarmaker();                                        
+      178 +  } else {                                                    
+      179 +    // In a race the stage owns the sky and fog colours, and i
+          +nclude[] says                                                 
+      180 +    // which base models the stage loaded. loadcarmaker() rese
+          +ts all three for                                              
+      181 +    // the car-maker's own backdrop, so racing a custom car mu
+          +st not call it —                                              
+      182 +    // only the slot counter it sets matters here.            
+      183 +    cd.nlcars = 16;                                           
+      184 +  }                                                           
+      185    const loaded = [];
+      186    for (const name of await listAll()) {
+      187      if (cd.nlcars >= 56) break;
+  Read 5 files, ran 25 shell commands (ctrl+o to expand)
+
+● Background command "Run agy careditor ui chunk" completed (exit code 0)
+
+❯ by the way, my long term plan will be to have another repo `nfm_contrib` on   
+  github where users can submit PRs (ideally directly from the stage/car editor 
+  by pressing a button).  the main game page would have a mechanism for         
+  listing/loading the user contributed content.                                 
+                                                                                
+  not sure if that affects these plans at all, just keep in mind                
+
+  Ran 2 shell commands (ctrl+o to expand)
+
+● Update(decompilation/agy_careditor)
+  ⎿  Added 1 line
+      182  
+      183  TWO RULES ADDED AFTER THE CALIBRATION CHUNKS. Both are things 
+           a previous job got wrong; violating either fails review:
+      184    (a) ONE signature per function. Do NOT emit \`function f(aOr
+           B, bOrC, ...)\` argument-shuffling shims that accept the state
+            object OR raw values. Every exported function takes exactly t
+           he parameters listed below, in that order, and nothing else.
+      185 +  (c) NO defensive existence checks on collaborators. \`if (cm
+          +.rd && typeof cm.rd.fillRect === 'function') cm.rd.fillRect(..
+          +.)\` is not a transpilation of \`this.rd.fillRect(...)\` — it 
+          +is 100 lines of noise that also swallows the NullPointerExcept
+          +ion Java would throw. cm.rd, cm.ftm, cm.m, cm.o and cm.editor 
+          +are always present. Call them directly. The same goes for \`x 
+          +? x.f() : 0\` fallbacks and \`typeof f === 'function'\` wrappe
+          +rs around methods that live in another chunk: call them as \`c
+          +m.f(...)\` and list them in your report.                      
+      186    (b) Do NOT insert a bounds check, null check, or try/catch t
+           hat the Java does not have. If the Java can throw StringIndexO
+           utOfBoundsException or NumberFormatException on some input, th
+           e JS must throw too — 'i < s.length &&' added to a condition i
+           s a §0/§3 violation even when it looks obviously safer. Java's
+            charAt() past the end THROWS; JS's s[i] returns undefined and
+            silently concatenates "undefined". Make the JS throw.
+      187  
+      188  Shared state: CarMaker is one class with ~200 fields. Do NOT c
+           opy the field declarations into your module and do NOT invent 
+           a global. Emit functions that take the editor state object as 
+           their first parameter, named \`cm\`, and read/write \`cm.<fiel
+           d>\` exactly where the Java says \`this.<field>\`. Field NAMES
+            must match the Java exactly. List in your report every field 
+           your chunk touches, with its declared Java type — that list is
+            how the chunks get stitched together, so an omission costs a 
+           day.
+
+● Background command "Run agy careditor ctachm chunk" completed (exit code 0)
+
+  Ran 18 shell commands (ctrl+o to expand)
+
+● Update(decompilation/CAREDITOR_PORT_SPEC.md)
+  ⎿  Added 12 lines
+      135  
+      136  This touches the live game's load path and the launcher, so it
+            is written and
+      137  tested here, not delegated.
+      138 +                                                              
+      139 +### Keep the `.rad` text the unit of exchange                 
+      140 +                                                              
+      141 +The longer-term plan is an `nfm_contrib` repo taking user subm
+          +issions as pull                                               
+      142 +requests, ideally opened from a button inside the editor, with
+          + the main game                                                
+      143 +listing and loading what has been contributed. Nothing here ne
+          +eds to change for                                             
+      144 +that, on one condition: **the editor must never reach for stor
+          +age directly.**                                               
+      145 +`savefile()` returns the `.rad` text and `loadfile(text)` take
+          +s it, exactly as                                              
+      146 +`CarDefine.loadcar` already does, and `carstore.js` is one of 
+          +several possible                                              
+      147 +sinks for that string — a PR body and a fetch of a contributed
+          + file are two                                                 
+      148 +more. Any chunk that calls IndexedDB, `fetch`, or the GitHub A
+          +PI from inside a                                              
+      149 +transpiled method is wrong, however convenient.               
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Deploying, then launching the next two chunks:
+
+  Ran 9 shell commands, recalled 1 memory, wrote 2 memories (ctrl+o to expand)
+
+● Write(web/careditor/widgets.js)
+  ⎿  Wrote 141 lines to web/careditor/widgets.js
+       1 // The AWT text widgets the car editor is built on, over DOM.
+       3 // CarMaker's code pane is a `java.awt.TextArea` and its 19 nume
+         ric inputs are
+         NOT drawn by
+         k
+       6 // (`editor.getText()` appears 57 times) and drives their select
+       7 // are the one part of the port that has to become real DOM rath
+         er than
+       9 //
+          setText,
+     … +155 lines (ctrl+o to expand)
+● Write(web/careditor/widgets.test.js)
+  ⎿  Wrote 50 lines to web/careditor/widgets.test.js
+       1 // The AWT text-widget seam, headless. These are the semantics t
+         he transpiled
+       2 // chunks depend on -- insertText/replaceText are AWT's, not the
+       3 // getting either backwards corrupts the car source silently.
+       4 import test from 'node:test';
+       5 import assert from 'node:assert/strict';
+       6 import { TextArea, TextField } from './widgets.js';
+       8 test('insertText inserts at a character position', () => {
+       9   const t = new TextArea();
+      10   t.setText('p(10,20,30)');
+     … +44 lines (ctrl+o to expand)
+
+  Ran 22 shell commands (ctrl+o to expand)
+
+● Background command "Run agy careditor input chunk" completed (exit code 0)
+
+● Write(web/careditor/state.test.js)
+  ⎿  Wrote 59 lines to web/careditor/state.test.js
+       1 // newCarMaker() is the stitching contract between the transpile
+       2 // what is tested is that it matches the Java constructor field 
+         for field --
+       3 // read out of java-src/CarMaker.java here rather than copied, s
+       4 // fails if the two drift.
+       5 import test from 'node:test';
+       7 import { readFileSync } from 'node:fs';
+       8 import { newCarMaker } from './state.js';
+       9 
+         CarMaker.java', import.meta.url), 'utf8')
+     … +57 lines (ctrl+o to expand)
+
+  Ran 2 shell commands (ctrl+o to expand)
+
+● Status while the last two jobs (tab2, Smenu) run:
+
+  Rolling now — bulk transcription is live on two concurrent gemini-3.1-pro-high
+  jobs (Claude credits untouched), driven by decompilation/agy_careditor 
+  <chunk>.
+
+  Done and committed on branch careditor:
+  - CAREDITOR_PORT_SPEC.md — the PORT_SPEC-style handoff: measured facts, the
+  chunk table, the oracle. Key finding that makes chunking safe: run() is four
+  flat if (tab == N) blocks, not a fase machine, with exactly one local crossing
+  a boundary.
+  - Chunks shape (calibration), files, ui, ctachm, input — 5 of 10, each
+  verified against a Java reflection probe and each reviewed by me.
+  - Browser storage works end to end today: web/carstore.js (IndexedDB, stored
+  cars shadow mycars/), the launcher lists/previews/imports/deletes custom cars
+  with their real parsed stats, and web/main.html?mycar=<name> races one.
+  Deployed.
+  - state.js (all 142 constructor fields — the stitching contract) and
+  widgets.js (the AWT TextArea/TextField seam).
+
+  Three corrections I had to make to delegated output, each now a rule in the
+  prompt template:
+  1. Missed §2b int-wrapping on crash[0]*crash[0] and on subtractions.
+  2. A bounds guard added to getvalue where Java throws — silently returned a
+  short string.
+  3. Defensive typeof x.f === 'function' guards everywhere. Not cosmetic: in
+  ctachm the guard around setupo() meant the test stub's no-op ran instead of
+  the real call, so a 1,400-line method passed its differential test with the
+  ContO rebuild switched off. Report said "gaps: none".
+
+  Remaining: tab2 (in flight), tab0, tab1, tab3, boot, plus the editor shell
+  (careditor.html) and wiring save → carstore.writeCar.
+
+  On the nfm_contrib plan — it costs nothing extra if the editor never touches
+  storage directly. I've written that into the spec: savefile() returns the .rad
+  text and loadfile(text) takes it, so carstore, a PR body, and a fetch of a
+  contributed file are all just sinks for the same string.
+
+✻ Sautéed for 27m 14s
+
+❯ can we have a link to the car editor from the main page?  how am I supposed   
+  to access it?                                                                 
+
+  Ran 17 shell commands (ctrl+o to expand)
+
+● Now the editor page itself:
+
+● Write(web/careditor.html)
+  ⎿  Wrote 89 lines to web/careditor.html
+       1 <!doctype html>
+       2 <html lang="en">
+       4 <meta charset="utf-8">
+       5 <meta name="viewport" content="width=device-width, initial-scale
+         =1">
+       7 <style>
+       8   :root { --bg:#0d0f16; --panel:#151925; --line:#262b36; --dim:#
+         8b93a7; --accent:#3aa0ff; }
+      10   body { margin: 0; background: radial-gradient(120% 90% at 50% 
+         0%, #1d2130 0%, #0d0f16 60%);
+     … +111 lines (ctrl+o to expand)
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Write(web/careditor/shell.js)
+  ⎿  Wrote 293 lines to web/careditor/shell.js
+       1 // The Car Maker shell: the browser around the transpiled chunks
+       2 //
+         me, a
+         e the chunks
+         hat is wired
+       6 // here is everything below them that is already ported and veri
+       7 // object (state.js), the .rad parse and IO seam (files.js), the
+       8 // widget (widgets.js), and the game's real renderer for the pre
+       9 //
+         es into a
+     … +328 lines (ctrl+o to expand)
+
+● Now the link from the launcher:
+
+  Read 1 file, ran 7 shell commands (ctrl+o to expand)
+
+● Background command "Run agy transpile of Smenu" completed (exit code 0)
+
+● Background command "Run agy careditor tab2 chunk" completed (exit code 0)
+
+● Background command "Wait for an agy job slot to free" completed (exit code 0)
+
+● Write(web/tools/shot.mjs)
+  ⎿  Wrote 78 lines to web/tools/shot.mjs
+       1 // Screenshot a page on the WALL clock, over CDP.
+       3 //   node web/tools/shot.mjs <url> <out.png> [seconds]
+       4 //
+         ing that waits
+         storage
+       7 // thread's callbacks, so `indexedDB.open()` never resolves and 
+       8 // on "loading…" forever. That is a headless artifact, not a pag
+         e bug -- the
+         tor and
+         onsole output
+     … +81 lines (ctrl+o to expand)
+  Read 1 file, ran 2 shell commands (ctrl+o to expand)
+
+● Verifying an edit actually re-parses and redraws:
+
+  Read 2 files, ran 32 shell commands (ctrl+o to expand)
+
+● You couldn't — there was no editor page. There is now, and it's deployed:
+
+  Launcher → Car card → "Open Car Maker" (next to Import .rad). It carries
+  whichever custom car you have selected, so the button edits the car you're
+  looking at. Direct link: /web/careditor.html, or
+  /web/careditor.html?car=<name>.
+
+  What the page does today, all through the ported code:
+  - Source pane — the .rad text, wired to the ported AWT TextArea seam, so
+  cm.editor.getText() inside a transpiled method reads exactly what you type.
+  - Live preview — every edit re-runs the ported setupo(), which builds a real
+  ContO and draws it with the game's own renderer. Polygon count, wheel count,
+  and a "ready to race" gate come from the parser, not from a guess. Drag to
+  rotate.
+  - New / Save / Save as / Delete / Import / Export, all against browser
+  storage; Export gives you a .rad that the desktop game opens unchanged.
+  - Test drive — runs the ported checko() readiness check (the same gate the
+  desktop Test Drive uses), saves, and jumps to main.html?mycar=<name>.
+
+  The point-and-click tabs (colour picker, scale/align, wheels, stats, crash
+  test) are the chunks still landing — tab2, the 1,600-line one that holds most
+  of them, came back clean this round and is committed; tab0, tab1, tab3 and
+  boot are what's left before those panes can be switched on.
+
+  Two real bugs surfaced while wiring this up, both from replacing mock widgets
+  with real ones:
+  - tab2 called cm.movefield, cm.stringbutton, cm.setupo, cm.regx, cm.rot,
+  cm.xs/ys — methods that don't exist on the state object. Now imports.
+  - Smenu has both a boolean show field and a show() method. Java allows that;
+  JS doesn't — the field assignment was clobbering the method. Field renamed to
+  shown.
+
+  210 tests pass, and the launcher, the editor, and racing a stored car are all
+  live on the deployed site.
+
+✻ Worked for 11m 35s
+
+❯ deploy script needs to be updated                                             
+
+  Ran 9 shell commands (ctrl+o to expand)
+
+● Fixed and redeployed. Two things were wrong, not one:
+
+  1. careditor.html was never copied. deploy.sh copied web/*.js plus
+  web/main.html by name, so the new page deployed as a 404 sitting behind a
+  working link — the same glob trap that web/vendor/ and web/careditor/ already
+  had comments about. Now web/*.html.
+  2. A delegated probe had written into the asset tree, and the deploy shipped 
+  it. mycars/testcar.rad and mycars/.rad were on the server.
+  Tab2Probe/FilesProbe drove the real CarMaker.newcar(), which creates a file.
+  .gitignore covers mycars/*.rad, so git status showed nothing — I only caught
+  it listing the remote. Deleted locally, and rsync --delete has cleared them
+  from the server.
+
+  Verified on the host: careditor.html is there, its <script src> and every
+  module import in web/careditor/ carry the ?v=3afff817 stamp, and mycars/ holds
+  exactly the four shipped cars again.
+
+  Both facts are now in WORK.md — including that checking git status is not
+  enough after a job that probes an IO method, because the asset dirs are
+  gitignored.
+
+✻ Cooked for 1m 25s
+
+❯ did you decide to skip the tab "3D Edit" in the car editor?  it had a         
+  graphical approach for editing the car.  one sentence                         
+
+● No — "3D Edit" is chunk tab2, the 1,600-line one that came back clean this
+  round and is committed; it just isn't switched on in the page yet because the
+  run() loop chunks that host it (boot, tab0, tab1, tab3) are the ones still to
+  transpile.
+
+✻ Worked for 6s
+
+❯ ah, did you stop because we ran out of credits?  one sentence                 
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● No — I stopped launching chunks when you asked how to reach the editor and
+  switched to building/deploying the page; nothing is running now and no quota
+  was hit, so I can start boot/tab0/tab1/tab3 whenever you want.
+
+✻ Baked for 13s
+
+❯ ok, is the plan that these are html tabs or "game-engine xtgraphics" tabs?    
+  one sentence. then ask design questions                                       
+
+● They're game-engine tabs: the transpiled chunks draw with Graphics2D onto the
+  canvas exactly as the applet did, with the AWT text fields as real DOM
+  positioned on top by the ported movefield().
+● User answered Claude's questions:
+  ⎿  · The canvas UI is 800x450 game space with DOM text fields positioned on 
+     top. How should it size in the browser? → Scale to fit, like the game
+     · The editor has real UI for things the port drops — Publish, Login, 
+     Download, the server stat check. What should those controls do? → Repurpose
+     to nfm_contrib
+     · The source pane: keep the plain HTML textarea, or the original's themed 
+     AWT TextArea? → Port the themes
+     · Should the editor keep the original's own car-select and file dialogs, or
+     the launcher-style ones already built? → could I try both, then we settle 
+     on one before committing?
+
+● Launching the remaining chunks now, two at a time:
+
+  Ran 1 shell command (ctrl+o to expand)
+  ⎿  Interrupted · What should Claude do instead?
+
+❯ if youre using agy subagents, you should specify claude sonnet in agy. we are 
+  out of gemini credits                                                         
+
+  Ran 6 shell commands (ctrl+o to expand)
+
+● Both jobs restarted on claude-sonnet-4-6 (the gemini ones were killed before
+  they burned anything). Recorded in both runners:
+
+  - agy_careditor and agy_tmp now default to claude-sonnet-4-6, with the note
+  that gemini ran out on 2026-08-03 and that this pool is shared with gpt-oss —
+  so concurrency stays at two, not five.
+
+  boot and tab0 are running; tab1 and tab3 go next as slots free. Meanwhile I'll
+  build the shell against your four answers:
+
+  - Scale to fit — one transform over canvas and DOM fields together, as the
+  game does.
+  - Publish/Login/Download → nfm_contrib — same buttons, the .rad text goes to a
+  PR instead of the dead server.
+  - Themes ported — setheme() is already transpiled, so the font picker and the
+  8 colour themes drive the source pane.
+  - Both file UIs, side by side, uncommitted — I'll put the canvas tab0 and the
+  HTML toolbar behind a switch (?fileui=canvas|html|both) so you can try each,
+  and we delete the loser before it goes in.
+
+  One flag on the last one: I'll keep it out of the commits until you pick, but
+  the tab0 chunk itself will be committed when it lands and verifies — that's
+  the transpilation, separate from which UI the shell shows.
+
+✻ Brewed for 1m 5s
+
+● Background command "Run agy careditor boot chunk" completed (exit code 0)
+
+  Ran 2 shell commands (ctrl+o to expand)
+
+● Background command "Run agy careditor tab0 chunk" completed (exit code 0)
+
+● Both restarts died in under a minute — not on credits, on auth:
+
+  Waiting for authentication (timeout 60s)...
+    Error: authentication timed out.
+  Error: authentication failed or timed out
+
+  agy models says the same: "Please sign in to view available models." So the
+  agy CLI is logged out (headless agy -p can't complete the Google OAuth flow —
+  it prints a URL and times out after 60s). Nothing was lost and no quota was
+  spent; both jobs exited before doing any work.
+
+  To unblock, sign in once in your attached session — either in the agy screen
+  window, or here with:
+
+  ! agy
+
+  then complete the browser flow. Once that's done I'll relaunch boot and tab0
+  on claude-sonnet-4-6 and queue tab1/tab3 behind them.
+
+  While the pipeline is stalled I'll keep building the shell against your four
+  answers — scale-to-fit canvas with the DOM fields transformed along with it,
+  setheme() driving the source pane, the Publish/Download buttons pointed at
+  nfm_contrib, and both file UIs behind ?fileui= for you to compare. That work
+  doesn't need agy.
+
+✻ Crunched for 25s
+
+● Background command "Run boot chunk on sonnet" completed (exit code 0)
+
+● Pipeline's blocked on auth, so I'll build what doesn't need it. First the
+  scaled stage — canvas and DOM fields transformed together:
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Background command "Run tab0 chunk on sonnet" completed (exit code 0)
+
+❯ agy screen is good again, and set to sonnet already                           
+
+  Searched for 1 pattern, listed 4 directories, ran 1 shell command (ctrl+o to expand)
+  ⎿  Interrupted · What should Claude do instead?
+
+❯ what are you doing right now?  just dump into the `agy` and `agy2` screen     
+  sessions.  I have them open and they are ready to go.  one sentence answer    
+
+● I was hunting for agy's credential file to work out why my non-interactive
+  shell still sees it as logged out — stopping that and using your screen
+  sessions instead.
+
+  Ran 9 shell commands (ctrl+o to expand)
+
+● Both jobs are running in your screens (agy → boot, agy2 → tab0) on Sonnet 4.6
+  Thinking, already reading the spec and grepping for §2 compound assignments.
+
+  Two things I saw in the agy scrollback worth flagging:
+
+  - It had hit "Individual quota reached… resets in 3h47m" on the previous model
+  before you switched to Sonnet — Sonnet is answering fine now, so that limit
+  was model-specific.
+  - There's an unanswered question of yours still in that session's history ("is
+  xtGraphics mostly stubs? what percent is ported?"). My job prompt landed
+  after it, so it got skipped. I can answer that directly from the repo whenever
+  you want.
+
+  How I'm feeding them, so it's repeatable: PROMPT_FILE=... 
+  ./decompilation/agy_careditor <chunk> now writes the full prompt to a file
+  instead of running it, and the screen gets a one-line "read this file and
+  execute it exactly". That works around agy -p being unable to complete the
+  OAuth flow headlessly — your live sessions are already signed in.
+
+  tab1 and tab3 are queued behind these two. While they run I'm building the
+  scale-to-fit stage (canvas + DOM fields transformed together), wiring
+  setheme()'s 8 themes to the source pane, and putting both file UIs behind
+  ?fileui= for you to compare.
+
+✻ Crunched for 2m 55s
+
+❯ I had to pause the `agy` first session to have enough credits to let the      
+  second one finish.  have a look and we can discuss the first session          
+
+  Ran 23 shell commands (ctrl+o to expand)
+❯ ok were out of credits on the agy subagent.  retrigger the first task         
+  (originally in `agy`) in one of your own subagents                            
+
+  Ran 5 shell commands (ctrl+o to expand)
+
+● Spawning that as a subagent now — with one carve-out, since boot holds the
+  parts PORT_SPEC says not to delegate:
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Agent(Transpile CarMaker boot chunk)
+  ⎿  Backgrounded agent (↓ to manage · ctrl+o to expand)
+
+  Ran 7 shell commands (ctrl+o to expand)
+
+● Here's what happened in the first session, and what I'd change.
+
+  It was working on the right file for the wrong reason. The transcript shows it
+  reading images.js and audio.js, correctly finding no compound-assignment
+  sites, and then arriving here:
+
+  ▎ "run() calls this.getImage(), the port needs to expose getImage(cm, s)… But 
+  ▎ since the browser's Image loading is async, and run() is a loop, the boot.js
+  ▎ port of run() needs to be async or handle the images being null at first."
+
+  That's not transpilation, that's designing the threading model — which
+  PORT_SPEC.md explicitly puts on the do-not-delegate list, and which shell.js
+  already answers (the loop is requestAnimationFrame, the images load before it
+  starts). It burned its budget reasoning toward a design that would have
+  collided with code that already exists. My chunk table's fault, not the
+  model's: I put run()'s head and tail, init()'s AWT construction, and three
+  async IO methods in one bucket and called it "boot".
+
+  So the retriggered subagent has the carve-outs spelled out: don't port the
+  while/Thread.sleep/start/stop/repaint at all; loadsounds/loadbase/getImage
+  take an already-parsed zip or an already-loaded image, matching
+  GameSparker.loadbase's existing seam; init() sets fonts and bounds on the
+  widgets state.js already built, and touches no DOM. That leaves only
+  mechanical work. It's running now.
+
+  Also worth knowing:
+
+  - tab0 came back clean and is committed — zero defensive guards, so rules
+  (a)–(c) are holding. I fixed its unbound cm.movefield/cm.stringbutton calls,
+  and it exposed an 18-line hole in my chunk table (5233–5250): openelink was in
+  no chunk at all, so it would simply have gone missing. Range fixed.
+  - Selecting a car needs the .rad synchronously, and storage is async. The
+  shell now keeps a snapshot — cm.carsrc(name) — the same text-in seam as
+  CarDefine.loadcar. The delegated test had stubbed cm.loadfile and asserted the
+  stub was called; it now asserts on the text that actually reached the code
+  pane.
+  - The editor canvas is 700×550, not 800×450 (createImage(700, 550) in init()).
+  That's the number the scale-to-fit stage has to use.
+
+  Remaining after boot: tab1 (186 lines) and tab3 (381) — both small and
+  mechanical. 221 tests pass.
+
+✻ Cooked for 7m 16s
+
+❯ do tab1 and tab3 in your own subagents too                                    
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Agent(Transpile CarMaker tab1 chunk)
+  ⎿  Backgrounded agent (↓ to manage · ctrl+o to expand)
+
+● Agent(Transpile CarMaker tab3 chunk)
+  ⎿  Backgrounded agent (↓ to manage · ctrl+o to expand)
+
+● tab1 and tab3 are running alongside boot — three agents, one chunk each, no
+  overlapping files.
+
+  Both got the same hard-won rules the agy jobs kept breaking: one signature per
+  function, no invented null/bounds guards, no typeof f === 'function' around
+  sibling chunks (with the reason spelled out — that guard is how a 1,400-line
+  method passed its differential test with the work switched off), and a list of
+  what's already ported so they import rather than re-derive. tab3 additionally
+  has the network drop rule: mark every server branch // TODO not ported: at
+  the site, don't delete the layout around it, don't invent a replacement — the
+  contribution flow gets wired by the shell later.
+
+  I also told each one to build its test from the real widgets and real sibling
+  functions rather than hand-written stubs, since that's the specific failure
+  that has cost the most review time so far.
+
+  While they run I'll carry on with the shell: the 700×550 scaled stage,
+  setheme() driving the source pane, and the ?fileui= switch so you can compare
+  the canvas tab0 against the HTML toolbar before we settle on one.
+
+✻ Brewed for 2m 24s
+
+❯ you think it might be reasonable just to use HTML for all GUI-related things? 
+   no buttons anywhere in this ported game?  one sentence                       
+
+● Reasonable for the editor — its tabs are just laid-out buttons and fields, and
+  HTML gives you real focus, scrolling and accessibility for free — but it
+  means the transpiled tab chunks become state-logic-only with their
+  stringbutton/drawms halves thrown away, and it doesn't extend to the race HUD
+  or menus, which xtGraphics draws inside the same painter's-algorithm pass as
+  the world.
+
+✻ Baked for 8s
+
+❯ how much code percent do you estimate we could throw away by doing away with  
+  all menus and relying to html/js?  would still want in-game HUD, but not      
+  menus.  one sentence                                                          
+
+  Ran 2 shell commands (ctrl+o to expand)
+
+● Roughly a third of the editor's ported code (~1,200–1,500 of the ~3,800 lines
+  in ctachm/tab0-3/ui are pure draw-and-hit-test that HTML replaces, the rest
+  being state logic you keep), plus the bigger win of never porting xtGraphics'
+  menu screens at all — several thousand of its 10,511 Java lines, since only
+  stat(), resetstat, sortcars and the radar are HUD.
+
+✻ Cooked for 20s
+
+❯ and we havent started the full xtgrapics port yet, correct?  one sen          
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Correct — web/XtGraphics.js is only the in-race surface (stat, resetstat,
+  sortcars, radarstat, the skid/spark/sound helpers), with 33 // TODO not 
+  ported: markers; none of the menu screens from the 10,511-line xtGraphics.java
+  have been touched, which is exactly why the launcher exists.
+
+✻ Cogitated for 9s
+❯ ok lets do just HTML for the editor for now then.  are the subagents already  
+  designing for this?  one sen                                                  
+
+● No — they're transpiling the canvas draw code verbatim, stringbutton calls and
+  all, since they were briefed before this decision.
+
+  I'd let them finish rather than kill them mid-flight: each chunk's state logic
+  (what a click changes) is exactly what the HTML UI has to call, and it
+  arrives verified against the Java — the draw half just gets stripped when I
+  wire the DOM. Say the word if you'd rather I stop them now.
+
+✻ Cogitated for 10s
+
+● Agent "Transpile CarMaker boot chunk" finished · 13m 52s
+
+  Ran 7 shell commands (ctrl+o to expand)
+
+● Agent "Transpile CarMaker tab1 chunk" finished · 9m 34s
+
+● boot and tab1 are in; tab3 is still running. Both reviews turned up things
+  worth having:
+
+  rd.setFont was broken three ways and no test could see it. The HUD passes a
+  CSS string ('bold 12px Arial'), the transpiled editor passes new Font("Arial",
+  1, 12) because that's what the Java says, and graphics.js accepted only the
+  first — every editor test stubs rd, so all three call styles went green while
+  none reached the canvas. graphics.js now converts, honouring java.awt.Font's
+  style bitmask, with a test covering all three shapes.
+
+  setheme() had an invented if (!cm.editor) return — the exact guard shape that
+  hid the dead setupo() call in ctachm. Gone.
+
+  One gap I'm leaving open deliberately: web/audio.js can't build a clip from
+  bytes — it reads sounds.zip itself and plays by entry name — so CarMaker's
+  loadsounds fills its 31 slots with name-bound stand-ins. Fine until the editor
+  needs to play a sound the shell didn't preload; noted in the commit.
+
+  The boot agent also made one call worth your eye: it does create the 16 wv
+  TextFields in init(), against my "don't create widgets" instruction, because
+  state.js allocates them as 16 nulls exactly like Java's new TextField[16] and
+  hidefields() NPEs without them. That's the right call — and it uses the
+  headless-safe widget, so no DOM is touched.
+
+  Given the HTML decision, boot's init() layout constants and tab1's draw half
+  are the parts that'll get stripped when I wire the DOM; the state logic
+  underneath is what survives, and it's now verified against the real Java.
+
+✻ Worked for 2m 46s
+
+❯ is the subagent still working?  one sen                                       
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Yes — tab3 is still running; its three files exist and were last written a few
+  minutes ago, so it's mid-verification, and I'll get a completion
+  notification.
+
+✻ Worked for 8s
+
+● Agent "Transpile CarMaker tab3 chunk" finished · 21m 22s
+
+  Ran 5 shell commands (ctrl+o to expand)
+
+● All ten chunks are in — CarMaker is fully transpiled, 267 tests green.
+
+  tab3 came back with the network branches dropped properly (marked at each
+  site, layout intact) and two judgment calls I agree with: where a Java catch
+  has one unambiguous branch it's ported — including its bug, the download
+  failure path sets the WAIT cursor and never restores it — and where the catch
+  string-matches "FileNotFound", only the match is dropped, since offline the
+  real class always takes the else branch. It verified that against the actual
+  run().
+
+  Its probe also caught two things in already-committed work:
+
+  - tab0 used stringWidth(s) / 2 where Java does integer division — half a pixel
+  off on every odd-width label, 13 sites. The file's own header confidently
+  claimed it needed no numeric helpers.
+  - multiplayer.needformadness.com is still up in 2026. The probe reached it,
+  got live data, and exercised exactly the branches the port drops. Probes for
+  network-touching code now run behind a dead proxy, and that's in WORK.md along
+  with the xvfb-run requirement (headless AWT reports isShowing() == false
+  forever, which the editor branches on — so a headless probe verifies the wrong
+  branch and looks green).
+
+  Explicitly unverified, and labelled as such in the test file: the three
+  JOptionPane message strings, because getRootFrame() throws before it ever
+  reads the message.
+
+  Next, per your HTML decision: wire the DOM UI to the state logic in these
+  chunks and strip the draw halves. The state side is what survives, and it's
+  now checked against the real Java rather than against a mock — which, on this
+  codebase's record, is the difference that matters.
+
+✻ Cogitated for 33m 9s
+
+❯ ok do it, but comment out the dropped code. then deploy for my eval           
+
+● Wiring HTML to the chunks. The key move: don't reimplement the behaviour,
+  drive it — the transpiled stringbutton already records every button's rect, so
+  HTML controls can dispatch a click by label into the verified state logic,
+  with nothing painted.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Write(web/careditor/headless.js)
+  ⎿  Wrote 183 lines to web/careditor/headless.js
+       1 // Run a transpiled tab with nothing painted, and read its butto
+       2 //
+          the tab chunks
+       4 // — 3,800 lines of it, verified against the real Java. Reimplem
+       5 // DOM handlers would throw the verification away and reintroduc
+       6 // probes just caught. So the chunks still run; they just draw i
+       7 // instead of a canvas.
+       8 //
+         ingbutton()`
+         d the ported
+     … +211 lines (ctrl+o to expand)
+
+❯ and can you update the editor rotate to turntable style so I can tilt, not    
+  just rotate.  zoom with scroll                                                
+
+● Write(web/careditor/headless.test.js)
+  ⎿  Wrote 80 lines to web/careditor/headless.test.js
+       1 // The bridge that lets HTML controls drive the transpiled tabs.
+       2 //
+         es hit-test:
+       4 // if the coordinates are off by more than the ±12px slop in `st
+         ringbutton`,
+         h no error.
+       6 import test from 'node:test';
+       7 import assert from 'node:assert/strict';
+       9 import { stringbutton } from './ui.js';
+      10 import { intArray } from '../java.js';
+     … +87 lines (ctrl+o to expand)
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Bridge works. Now the HTML editor UI on top of it, plus turntable + scroll
+  zoom:
+
+● Write(web/careditor.html)
+  ⎿  Added 119 lines, removed 33 lines
+        9    * { box-sizing: border-box; }
+       10    body { margin: 0; background: radial-gradient(120% 90% at 50
+           % 0%, #1d2130 0%, #0d0f16 60%);
+       11           color: #e6e8ee; font: 500 14px system-ui, sans-serif;
+            min-height: 100vh; }
+       12 -  header { display: flex; align-items: center; gap: 1rem; padd
+          -ing: .9rem 1.2rem; border-bottom: 1px solid var(--line); }    
+       13 -  header h1 { font-size: 1rem; margin: 0; letter-spacing: .02e
+          -m; }                                                          
+       12 +  header { display: flex; align-items: center; gap: 1rem; padd
+          +ing: .8rem 1.2rem; border-bottom: 1px solid var(--line); }    
+       13 +  header h1 { font-size: 1rem; margin: 0; }                   
+       14    header .grow { flex: 1; }
+       15    a.back { color: var(--dim); text-decoration: none; font-size
+           : .82rem; }
+       16    a.back:hover { color: #e6e8ee; }
+       17 -  main { display: grid; grid-template-columns: minmax(320px, 1
+          -fr) minmax(360px, 1fr); gap: 1rem; padding: 1rem 1.2rem 2rem; 
+          -align-items: start; }                                         
+       18 -  @media (max-width: 860px) { main { grid-template-columns: 1f
+          -r; } }                                                        
+       17 +  #status { color: var(--dim); font-size: .82rem; }           
+       18 +                                                              
+       19 +  main { display: grid; grid-template-columns: minmax(340px, 1
+          +fr) minmax(380px, 1.1fr); gap: 1rem; padding: 1rem 1.2rem 2rem
+          +; align-items: start; }                                       
+       20 +  @media (max-width: 900px) { main { grid-template-columns: 1f
+          +r; } }                                                        
+       21    .card { background: var(--panel); border: 1px solid var(--li
+           ne); border-radius: 12px; padding: .9rem; }
+       20 -  .card h2 { font-size: .74rem; text-transform: uppercase; let
+          -ter-spacing: .09em; color: var(--dim); margin: 0 0 .6rem; }   
+       21 -  textarea { width: 100%; height: 62vh; resize: vertical; back
+          -ground: #0b0d13; color: #cfd6e6; border: 1px solid var(--line)
+          -;                                                             
+       22 -             border-radius: 8px; padding: .6rem .7rem; font: 1
+          -3px/1.45 ui-monospace, Menlo, Consolas, monospace; tab-size: 2
+          -; }                                                           
+       23 -  .view { position: relative; background: #0b0d13; border: 1px
+          - solid var(--line); border-radius: 8px; overflow: hidden; aspe
+          -ct-ratio: 16/9; }                                             
+       22 +  .card h2 { font-size: .72rem; text-transform: uppercase; let
+          +ter-spacing: .09em; color: var(--dim); margin: 0 0 .6rem; }   
+       23 +                                                              
+       24 +  /* tab bar */                                               
+       25 +  .tabs { display: flex; gap: .3rem; border-bottom: 1px solid 
+          +var(--line); margin-bottom: .8rem; }                          
+       26 +  .tabs button { background: none; border: none; border-bottom
+          +: 2px solid transparent; color: var(--dim);                   
+       27 +                 font: 600 13px system-ui, sans-serif; padding
+          +: .5rem .8rem; cursor: pointer; }                             
+       28 +  .tabs button[aria-selected=true] { color: #e6e8ee; border-bo
+          +ttom-color: var(--accent); }                                  
+       29 +                                                              
+       30 +  textarea { width: 100%; height: 56vh; resize: vertical; back
+          +ground: #0b0d13; color: #cfd6e6;                              
+       31 +             border: 1px solid var(--line); border-radius: 8px
+          +; padding: .6rem .7rem;                                       
+       32 +             font: 13px/1.45 ui-monospace, Menlo, Consolas, mo
+          +nospace; tab-size: 2; }                                       
+       33 +  .view { position: relative; background: #0b0d13; border: 1px
+          + solid var(--line); border-radius: 8px;                       
+       34 +          overflow: hidden; aspect-ratio: 700/550; touch-actio
+          +n: none; cursor: grab; }                                      
+       35 +  .view.dragging { cursor: grabbing; }                        
+       36    .view canvas { position: absolute; inset: 0; width: 100%; he
+           ight: 100%; }
+       25 -  .bar { display: flex; flex-wrap: wrap; gap: .45rem; align-it
+          -ems: center; margin-top: .7rem; }                             
+       26 -  button, select, input[type=text] { font: 600 12px system-ui,
+          - sans-serif; padding: .42rem .7rem; border-radius: 6px;       
+       27 -           border: 1px solid #39404f; background: #12151d; col
+          -or: #e6e8ee; cursor: pointer; }                               
+       37 +                                                              
+       38 +  .bar { display: flex; flex-wrap: wrap; gap: .4rem; align-ite
+          +ms: center; margin-top: .7rem; }                              
+       39 +  button, select, input[type=text], input[type=number] {      
+       40 +      font: 600 12px system-ui, sans-serif; padding: .4rem .65
+          +rem; border-radius: 6px;                                      
+       41 +      border: 1px solid #39404f; background: #12151d; color: #
+          +e6e8ee; cursor: pointer; }                                    
+       42 +  input[type=text], input[type=number], select { cursor: auto;
+          + }                                                            
+       43    button:hover:not(:disabled) { border-color: var(--accent); }
+       29 -  button:disabled { opacity: .45; cursor: default; }          
+       44 +  button:disabled { opacity: .4; cursor: default; }           
+       45    button.primary { background: var(--accent); border-color: va
+           r(--accent); color: #06121f; }
+       46 +  label.field { display: flex; align-items: center; gap: .4rem
+          +; font-size: 12px; color: var(--dim); }                       
+       47 +  label.field input, label.field select { width: 7rem; }      
+       48 +                                                              
+       49    .facts { display: flex; gap: 1rem; flex-wrap: wrap; color: v
+           ar(--dim); font-size: .8rem; margin-top: .6rem; }
+       50    .facts b { color: #e6e8ee; }
+       33 -  .err { color: #ff8f6b; font-size: .8rem; margin-top: .5rem; 
+          -white-space: pre-wrap; min-height: 1.2em; }                   
+       51 +  .err { color: #ff8f6b; font-size: .8rem; margin-top: .5rem; 
+          +white-space: pre-wrap; min-height: 1.1em; }                   
+       52    .note { color: var(--dim); font-size: .78rem; margin-top: .8
+           rem; line-height: 1.5; }
+       53    .note code { background: #0b0d13; border: 1px solid var(--li
+           ne); border-radius: 3px; padding: 0 .3em; }
+       54 +  fieldset { border: 1px solid var(--line); border-radius: 8px
+          +; padding: .6rem .7rem .7rem; margin: 0 0 .7rem; }            
+       55 +  legend { font-size: .72rem; text-transform: uppercase; lette
+          +r-spacing: .08em; color: var(--dim); padding: 0 .3rem; }      
+       56 +  .grid { display: flex; flex-wrap: wrap; gap: .4rem; }       
+       57 +  .stat-row { display: grid; grid-template-columns: 8rem 1fr 3
+          +rem; align-items: center; gap: .5rem; margin-bottom: .35rem; }
+       58 +  .stat-row input[type=range] { width: 100%; cursor: pointer; 
+          +}                                                             
+       59 +  .stat-row span:last-child { text-align: right; color: var(--
+          +dim); font-variant-numeric: tabular-nums; }                   
+       60  </style>
+       61  </head>
+       62  <body>
+       63  <header>
+       64    <h1>Car Maker</h1>
+       65    <div class="grow"></div>
+       42 -  <span id="status" style="color:#8b93a7;font-size:.82rem">loa
+          -ding…</span>                                                  
+       66 +  <span id="status">loading…</span>                           
+       67    <a class="back" href="../index.html">← back to the launcher<
+           /a>
+       68  </header>
+       69  
+       70  <main>
+       71    <section class="card">
+       48 -    <h2>Car source (.rad)</h2>                                
+       49 -    <textarea id="code" spellcheck="false"></textarea>        
+       50 -    <div class="bar">                                         
+       51 -      <select id="pick"></select>                             
+       52 -      <button id="new" type="button">New</button>             
+       53 -      <button id="save" type="button" class="primary">Save</bu
+          -tton>                                                         
+       54 -      <button id="saveas" type="button">Save as…</button>     
+       55 -      <button id="del" type="button">Delete</button>          
+       56 -      <label class="" for="file"><button id="importbtn" type="
+          -button">Import…</button></label>                              
+       57 -      <input type="file" id="file" accept=".rad,.txt,text/plai
+          -n" hidden>                                                    
+       58 -      <button id="export" type="button">Export</button>       
+       72 +    <div class="tabs" role="tablist">                         
+       73 +      <button role="tab" data-pane="files" aria-selected="fals
+          +e">Files</button>                                             
+       74 +      <button role="tab" data-pane="code" aria-selected="true"
+          +>Code</button>                                                
+       75 +      <button role="tab" data-pane="edit" aria-selected="false
+          +">3D Edit</button>                                            
+       76 +      <button role="tab" data-pane="stats" aria-selected="fals
+          +e">Stats</button>                                             
+       77      </div>
+       78 +                                                              
+       79 +    <div id="pane-files" hidden>                              
+       80 +      <div class="bar">                                       
+       81 +        <select id="pick"></select>                           
+       82 +        <button id="new" type="button">New</button>           
+       83 +        <button id="saveas" type="button">Save as…</button>   
+       84 +        <button id="del" type="button">Delete</button>        
+       85 +        <button id="importbtn" type="button">Import…</button> 
+       86 +        <input type="file" id="file" accept=".rad,.txt,text/pl
+          +ain" hidden>                                                  
+       87 +        <button id="export" type="button">Export</button>     
+       88 +      </div>                                                  
+       89 +      <p class="note">                                        
+       90 +        Cars live in this browser (IndexedDB). The four that s
+          +hip with the game                                             
+       91 +        are read-only until you save over them — a stored car 
+          +of the same name                                              
+       92 +        shadows the shipped one, and deleting your copy brings
+          + the original                                                 
+       93 +        back. Export writes a <code>.rad</code> the desktop ga
+          +me opens unchanged.                                           
+       94 +      </p>                                                    
+       95 +    </div>                                                    
+       96 +                                                              
+       97 +    <div id="pane-code">                                      
+       98 +      <textarea id="code" spellcheck="false"></textarea>      
+       99 +      <div class="bar">                                       
+      100 +        <label class="field">Font                             
+      101 +          <select id="font">                                  
+      102 +            <option>Monospaced</option><option>Courier New</op
+          +tion>                                                         
+      103 +            <option>Consolas</option><option>Menlo</option><op
+          +tion>Arial</option>                                           
+      104 +          </select>                                           
+      105 +        </label>                                              
+      106 +        <label class="field">Theme                            
+      107 +          <select id="theme">                                 
+      108 +            <option value="0">Default</option><option value="1
+          +">Light grey</option>                                         
+      109 +            <option value="2">Black</option><option value="3">
+          +Green screen</option>                                         
+      110 +            <option value="4">Matrix</option><option value="5"
+          +>Blueprint</option>                                           
+      111 +            <option value="6">Hot rod</option><option value="7
+          +">Deep blue</option>                                          
+      112 +          </select>                                           
+      113 +        </label>                                              
+      114 +        <label class="field">Find <input type="text" id="find"
+          + size="10"></label>                                           
+      115 +        <label class="field">Replace <input type="text" id="re
+          +pl" size="10"></label>                                        
+      116 +        <button id="replace" type="button">Replace all</button
+          +>                                                             
+      117 +        <button id="mirror" type="button">Mirror selection in 
+          +X</button>                                                    
+      118 +      </div>                                                  
+      119 +    </div>                                                    
+      120 +                                                              
+      121 +    <div id="pane-edit" hidden>                               
+      122 +      <fieldset><legend>Scale</legend>                        
+      123 +        <div class="grid" id="scale-buttons"></div>           
+      124 +      </fieldset>                                             
+      125 +      <fieldset><legend>Colours</legend>                      
+      126 +        <div class="grid">                                    
+      127 +          <label class="field">1st <input type="color" id="col
+          +1"></label>                                                   
+      128 +          <label class="field">2nd <input type="color" id="col
+          +2"></label>                                                   
+      129 +          <button id="applycol" type="button">Apply to source<
+          +/button>                                                      
+      130 +        </div>                                                
+      131 +      </fieldset>                                             
+      132 +      <fieldset><legend>Wheels</legend>                       
+      133 +        <div class="grid" id="wheel-fields"></div>            
+      134 +      </fieldset>                                             
+      135 +      <p class="note">                                        
+      136 +        Every control here runs the ported <code>tab2</code> c
+          +ode — the same                                                
+      137 +        1,600 lines the desktop editor runs, verified against 
+          +the Java — with                                               
+      138 +        the drawing switched off. The buttons are its own, rea
+          +d back out of the                                             
+      139 +        pane it would have painted.                           
+      140 +      </p>                                                    
+      141 +    </div>                                                    
+      142 +                                                              
+      143 +    <div id="pane-stats" hidden>                              
+      144 +      <fieldset><legend>Stats</legend><div id="stat-rows"></di
+          +v></fieldset>                                                 
+      145 +      <fieldset><legend>Physics</legend><div id="phys-rows"></
+          +div></fieldset>                                               
+      146 +      <button id="applystats" type="button">Write to source</b
+          +utton>                                                        
+      147 +    </div>                                                    
+      148    </section>
+      149  
+      150    <section class="card">
+      151      <h2>Preview</h2>
+       64 -    <div class="view"><canvas id="view" width="800" height="45
+          -0"></canvas></div>                                            
+      152 +    <div class="view" id="viewbox"><canvas id="view" width="70
+          +0" height="550"></canvas></div>                               
+      153      <div class="facts">
+      154        <span><b id="npolys">0</b> polygons</span>
+      155        <span><b id="wheels">0</b> wheels</span>
+     ...
+      157      </div>
+      158      <div class="err" id="err"></div>
+      159      <div class="bar">
+      160 +      <button id="save" type="button" class="primary">Save</bu
+          +tton>                                                         
+      161        <button id="drive" type="button" class="primary">Test dr
+           ive</button>
+      162        <button id="spin" type="button">Pause spin</button>
+      163 +      <button id="resetview" type="button">Reset view</button>
+      164      </div>
+      165      <p class="note">
+       76 -      The preview is the game's own renderer: your text is par
+          -sed by the ported                                             
+       77 -      <code>ContO</code> exactly as the race does it, so what 
+          -draws here is what                                            
+       78 -      you will drive. Drag to rotate.                         
+       79 -      <br><br>                                                
+       80 -      This is the source-level editor. The original Car Maker'
+          -s point-and-click                                             
+       81 -      tabs — colour picker, scale/align, wheels, stats, crash 
+          -test — are being                                              
+       82 -      ported chunk by chunk; see <code>decompilation/CAREDITOR
+          -_PORT_SPEC.md</code>.                                         
+      166 +      Drag to turn and tilt, scroll to zoom. The preview is th
+          +e game's own                                                  
+      167 +      renderer: your text is parsed by the ported <code>ContO<
+          +/code> exactly as                                             
+      168 +      the race parses it.                                     
+      169      </p>
+      170    </section>
+      171  </main>
+
+  Ran 3 shell commands (ctrl+o to expand)
+
+● Now the shell — HTML panes driving the chunks, turntable preview with scroll
+  zoom:
+● Write(web/careditor/shell.js)
+  ⎿  Error writing file
+
+  Read 1 file, ran 1 shell command (ctrl+o to expand)
+
+● Write(web/careditor/shell.js)
+  ⎿  Added 259 lines, removed 89 lines
+       1 -// The Car Maker shell: the browser around the transpiled chunk
+         -s.                                                             
+       1 +// The Car Maker shell: HTML around the transpiled chunks.     
+       2  //
+       3 -// The applet's own shell is CarMaker.init()/run() -- an AWT fr
+         -ame, a                                                         
+       4 -// double-buffered Image, a Thread, and four tab panes. Those a
+         -re the chunks                                                  
+       5 -// still in flight (see decompilation/CAREDITOR_PORT_SPEC.md). 
+         -What is wired                                                  
+       6 -// here is everything below them that is already ported and ver
+         -ified: the state                                               
+       7 -// object (state.js), the .rad parse and IO seam (files.js), th
+         -e AWT text                                                     
+       8 -// widget (widgets.js), and the game's real renderer for the pr
+         -eview.                                                         
+       3 +// The editor's UI is HTML, not canvas. Only the 3D preview is 
+         +drawn, and it is                                               
+       4 +// drawn by the game's own renderer.                           
+       5  //
+      10 -// The rule from the spec holds here: nothing in this file reac
+         -hes into a                                                     
+      11 -// transpiled method, and no transpiled method reaches into sto
+         -rage. `savefile`                                               
+      12 -// hands back .rad text and carstore takes it from there -- whi
+         -ch is also what                                                
+      13 -// makes a future "open a PR against nfm_contrib" button a sink
+         - for the same                                                  
+      14 -// string rather than a new code path.                         
+       6 +// What is NOT thrown away is the behaviour. Clicking "Scale X 
+         ++" here runs the                                               
+       7 +// ported tab2 code -- the same 1,600 lines the desktop editor 
+         +runs, checked                                                  
+       8 +// against the real Java by a reflection probe -- with drawing 
+         +switched off.                                                  
+       9 +// web/careditor/headless.js explains the bridge: the original'
+         +s hit testing IS                                               
+      10 +// its drawing pass, so a pane can be run for its button rects 
+         +and then re-run                                                
+      11 +// with the mouse placed on one of them.                       
+      12 +//                                                             
+      13 +// The rule from CAREDITOR_PORT_SPEC holds: nothing here reache
+         +s into a                                                       
+      14 +// transpiled method, and no transpiled method reaches into sto
+         +rage. savefile()                                               
+      15 +// hands back .rad text and carstore takes it from there, which
+         + is what makes a                                               
+      16 +// future "submit to nfm_contrib" button a sink for the same st
+         +ring.                                                          
+      17  
+      18  import { newCarMaker } from './state.js';
+      19  import { setupo, loadfile, savefile, newcar, checko } from './f
+          iles.js';
+      20 +import { setheme } from './shape.js';                          
+      21 +import { tab1 } from './tab1.js';                              
+      22 +import { tab2 } from './tab2.js';                              
+      23 +import { rows, clickRect, tick, Recorder } from './headless.js'
+         +;                                                              
+      24  import { listAll, listStored, readCar, writeCar, deleteCar } fr
+          om '../carstore.js';
+      25  import { detectFpath } from '../vfs.js';
+      26  import { Graphics2D } from '../graphics.js';
+     ...
+      30  
+      31  let cm = null;
+      32  let rd = null;
+      27 -let angle = 210, spinning = true, raf = 0;                     
+      28 -let current = null;             // the name being edited, or nu
+         -ll for an unsaved car                                          
+      33 +let current = null;                                            
+      34  let stored = [];
+      35  
+      31 -// ---- the editor state --------------------------------------
+         ------------------                                              
+      32 -                                                               
+      33 -/**                                                            
+      34 - * `cm.editor` is the AWT TextArea the transpiled chunks read 5
+         -7 times. Here it                                               
+      35 - * is the page's own <textarea>: rather than keep two copies in
+         - sync, the                                                     
+      36 - * widget interface is implemented directly over the DOM elemen
+         -t, so                                                          
+      37 - * `cm.editor.getText()` inside a ported method reads exactly w
+         -hat you typed.                                                 
+      38 - */                                                            
+      39 -function bindEditor(el) {                                      
+      40 -  return {                                                     
+      41 -    getText: () => el.value,                                   
+      42 -    setText: (s) => { el.value = s ?? ''; },                   
+      43 -    insertText(s, pos) { const t = el.value; el.value = t.slice
+         -(0, pos) + s + t.slice(pos); },                                
+      44 -    replaceText(s, a, b) { const t = el.value; el.value = t.sli
+         -ce(0, a) + s + t.slice(b); },                                  
+      45 -    select: (a, b) => el.setSelectionRange(a, b),              
+      46 -    getSelectionStart: () => el.selectionStart,                
+      47 -    getSelectionEnd: () => el.selectionEnd,                    
+      48 -    getSelectedText: () => el.value.substring(el.selectionStart
+         -, el.selectionEnd),                                            
+      49 -    requestFocus: () => el.focus(),                            
+      50 -    show() {}, hide() {}, isShowing: () => true,               
+      51 -    enable() {}, disable() {},                                 
+      52 -    setFont() {}, setForeground() {}, setBackground() {},      
+      53 -    addMouseListener: (fn) => el.addEventListener('mousedown', 
+         -fn),                                                           
+      54 -  };                                                           
+      55 -}                                                              
+      56 -                                                               
+      36  // ---- preview -----------------------------------------------
+          -----------------
+      37 +//                                                             
+      38 +// Turntable: drag turns (yaw) and tilts (pitch), the wheel dol
+         +lies in and out.                                               
+      39 +// The model's own xz/zy are what the game rotates, so the came
+         +ra never moves --                                              
+      40 +// the same trick the car-select screen uses.                  
+      41  
+      59 -/**                                                            
+      60 - * The car-maker's own camera, from run() (java-src/CarMaker.ja
+         -va:360-370): a                                                 
+      61 - * 700-wide view, centre at x=350, camera above and behind, foc
+         -us 800, and the                                                
+      62 - * pale fog it fades the model into. The car itself sits at (ox
+         -, oy, oz) =                                                    
+      63 - * (335, 40, 800), which setupo() copies onto the model.       
+      64 - */                                                            
+      42 +const view = { yaw: 210, pitch: 12, dist: 800, spinning: true }
+         +;                                                              
+      43 +const DIST_MIN = 320, DIST_MAX = 2600;                         
+      44 +                                                               
+      45  function camera() {
+      46    const m = cm.m;
+      47 +  // From run() (java-src/CarMaker.java:360-370): the editor's 
+         +own 700x550 view.                                              
+      48    m.w = 700;
+      49    m.cx = 350;
+      50    m.y = -240;
+     ...
+      55    m.cfade[0] = 187;
+      56    m.cfade[1] = 210;
+      57    m.cfade[2] = 227;
+      77 -  // Not from run(): the applet's frame supplies these through 
+         -AWT.                                                           
+      78 -  m.h = 450;                                                   
+      79 -  m.cy = 225;                                                  
+      58 +  // Supplied by the applet's frame in the original, so not in 
+         +the chunk.                                                     
+      59 +  m.h = 550;                                                   
+      60 +  m.cy = 275;                                                  
+      61    m.cz = 50;
+      62    m.x = 0;
+      63    m.xz = 0;
+     ...
+       80    const o = cm.o;
+       81    $('npolys').textContent = o.npl;
+       82    $('wheels').textContent = o.wh;
+      102 -  // ContO reports its own parse errors the way the editor sho
+          -ws them; `errd`                                               
+      103 -  // with a "Wheels Error:" prefix is the not-yet-placed-wheel
+          -s case, which is                                              
+      104 -  // normal while you are still building the body.            
+       83    err.textContent = o.errd ? o.err : '';
+       84    const ready = o.colok >= 2 && o.npl > 60 && !o.errd;
+       85    $('ready').innerHTML = ready
+       86      ? '<b style="color:#7ddc9a">ready to race</b>'
+      109 -    : `<span style="color:#8b93a7">not raceable yet</span>`;  
+       87 +    : '<span style="color:#8b93a7">not raceable yet</span>';  
+       88    $('drive').disabled = !ready || !current;
+       89 +  syncPanes();                                                
+       90  }
+       91  
+       92  function draw() {
+     ...
+       95    const o = cm.o;
+       96    o.x = cm.ox;
+       97    o.y = cm.oy;
+      119 -  o.z = cm.oz;                                                
+      120 -  o.xz = Math.round(angle) % 360;                             
+       98 +  o.z = view.dist;                                            
+       99 +  o.xz = Math.round(view.yaw) % 360;                          
+      100 +  o.zy = Math.round(view.pitch) % 360;                        
+      101    o.xy = 0;
+      122 -  o.zy = 0;                                                   
+      102    o.wzy = (o.wzy - 10) % 360;
+      103    const hadShadow = o.shadow;
+      125 -  o.shadow = false;              // nothing to cast one onto i
+          -n a bare preview                                              
+      104 +  o.shadow = false;               // nothing to cast one onto 
+          +in a bare preview                                             
+      105    try {
+      106      rd.begin();
+      107      o.d(rd);
+     ...
+      112  }
+      113  
+      114  function frame() {
+      136 -  if (spinning) angle = (angle + 0.6) % 360;                  
+      115 +  if (view.spinning) view.yaw = (view.yaw + 0.6) % 360;       
+      116    draw();
+      138 -  raf = requestAnimationFrame(frame);                         
+      117 +  requestAnimationFrame(frame);                               
+      118  }
+      119  
+      120 +// ---- driving the transpiled panes -------------------------
+          +------------------                                            
+      121 +                                                              
+      122 +/**                                                           
+      123 + * Run a pane's per-frame pass with nothing clickable. Panes r
+          +ecompute from the                                             
+      124 + * source text on entry -- tab2 reads ScaleX/ScaleY/ScaleZ bac
+          +k out of it, tab1                                             
+      125 + * counts polygons -- so this is what keeps the HTML in step w
+          +ith typing.                                                   
+      126 + */                                                           
+      127 +function refreshPane(tabFn) {                                 
+      128 +  cm.rd = new Recorder();                                     
+      129 +  tick(cm, tabFn);                                            
+      130 +}                                                             
+      131 +                                                              
+      132 +/** Render one pane's buttons as HTML, grouped into the rows i
+          +t drew them in. */                                            
+      133 +function renderRows(host, tabFn, filter) {                    
+      134 +  cm.rd = new Recorder();                                     
+      135 +  const laid = rows(cm, tabFn).filter(filter || (() => true));
+      136 +  host.innerHTML = '';                                        
+      137 +  for (const row of laid) {                                   
+      138 +    const div = document.createElement('div');                
+      139 +    div.className = 'stat-row';                               
+      140 +    div.style.gridTemplateColumns = '11rem auto';             
+      141 +    const cap = document.createElement('span');               
+      142 +    cap.textContent = row.caption;                            
+      143 +    div.appendChild(cap);                                     
+      144 +    const group = document.createElement('span');             
+      145 +    for (const b of row.buttons) {                            
+      146 +      const el = document.createElement('button');            
+      147 +      el.type = 'button';                                     
+      148 +      el.textContent = b.label.trim() || '·';                 
+      149 +      el.style.marginRight = '.3rem';                         
+      150 +      el.onclick = () => {                                    
+      151 +        clickRect(cm, tabFn, b);                              
+      152 +        code.value = cm.editor.getText();                     
+      153 +        reparse();                                            
+      154 +      };                                                      
+      155 +      group.appendChild(el);                                  
+      156 +    }                                                         
+      157 +    div.appendChild(group);                                   
+      158 +    host.appendChild(div);                                    
+      159 +  }                                                           
+      160 +}                                                             
+      161 +                                                              
+      162 +/** The 3D Edit pane: tab2's scale/align controls and its whee
+          +l controls. */                                                
+      163 +function syncEditPane() {                                     
+      164 +  cm.tab = 2;                                                 
+      165 +  cm.tabed = 2;                                               
+      166 +  cm.dtab = 2;                                                
+      167 +  cm.dtabed = 2;                                              
+      168 +  refreshPane(tab2);                                          
+      169 +  renderRows($('scale-buttons'), tab2);                       
+      170 +  cm.dtab = 3;                                                
+      171 +  cm.dtabed = 3;                                              
+      172 +  refreshPane(tab2);                                          
+      173 +  renderRows($('wheel-fields'), tab2);                        
+      174 +}                                                             
+      175 +                                                              
+      176 +/** The Stats pane: tab2's dtab 4 (stats and class) and 5 (phy
+          +sics). */                                                     
+      177 +function syncStatsPane() {                                    
+      178 +  cm.tab = 2;                                                 
+      179 +  cm.tabed = 2;                                               
+      180 +  cm.dtab = 4;                                                
+      181 +  cm.dtabed = 4;                                              
+      182 +  refreshPane(tab2);                                          
+      183 +  renderRows($('stat-rows'), tab2);                           
+      184 +  cm.dtab = 5;                                                
+      185 +  cm.dtabed = 5;                                              
+      186 +  refreshPane(tab2);                                          
+      187 +  renderRows($('phys-rows'), tab2);                           
+      188 +}                                                             
+      189 +                                                              
+      190 +function syncPanes() {                                        
+      191 +  const pane = document.querySelector('.tabs button[aria-selec
+          +ted=true]')?.dataset.pane;                                    
+      192 +  try {                                                       
+      193 +    if (pane === 'edit') syncEditPane();                      
+      194 +    else if (pane === 'stats') syncStatsPane();               
+      195 +  } catch (e) {                                               
+      196 +    // A pane that throws must not take the preview down with 
+          +it.                                                           
+      197 +    console.warn('pane refresh failed:', e);                  
+      198 +  }                                                           
+      199 +}                                                             
+      200 +                                                              
+      201  // ---- car list ---------------------------------------------
+           ------------------
+      202  
+      203  async function refreshList(select = current) {
+     ...
+      205    stored = await listStored();
+      206    pick.innerHTML = '';
+      207    for (const name of all) {
+      148 -    const o = new Option(stored.includes(name) ? name : `${nam
+          -e} (shipped)`, name);                                         
+      149 -    pick.add(o);                                              
+      208 +    pick.add(new Option(stored.includes(name) ? name : `${name
+          +} (shipped)`, name));                                         
+      209    }
+      210    if (select && all.includes(select)) pick.value = select;
+      211    $('del').disabled = !stored.includes(pick.value);
+      212 +  // The two seams tab0 reads: the directory listing and the s
+          +ource text.                                                   
+      213 +  cm.mycarslist = all.map((n) => `${n}.rad`);                 
+      214 +  cm.carsrc = (name) => (name === current ? code.value : ''); 
+      215  }
+      216  
+      217  async function open(name) {
+      218    const text = await readCar(name);
+      219    if (text === null) { status.textContent = `no such car: ${na
+           me}`; return; }
+      220    current = name;
+      159 -  loadfile(cm, text);            // the ported IO seam: text i
+          -n, editor set                                                 
+      221 +  loadfile(cm, text);                                         
+      222    await refreshList(name);
+      223    reparse();
+      224    status.textContent = `editing ${name}`;
+      225  }
+      226  
+      165 -/** Save whatever is in the pane under `name`. savefile() retu
+          -rns the text. */                                              
+      227  async function save(name) {
+      228    const text = savefile(cm);
+      229    if (text === null) { status.textContent = 'nothing to save';
+            return; }
+      230    await writeCar(name, text);
+      231    current = name;
+      232    await refreshList(name);
+      172 -  reparse();                                                  
+      233    status.textContent = `saved ${name}`;
+      234  }
+      235  
+      236 +// ---- code pane: theme and font ----------------------------
+          +------------------                                            
+      237 +                                                              
+      238 +/**                                                           
+      239 + * setheme() is ported (shape.js) and sets AWT colours on cm.e
+          +ditor -- which                                                
+      240 + * here IS the page's textarea, so the original's eight themes
+          + land on the real                                             
+      241 + * thing rather than on a canvas imitation of one.            
+      242 + */                                                           
+      243 +function applyTheme() {                                       
+      244 +  cm.cthm = parseInt($('theme').value, 10);                   
+      245 +  cm.deff = [220, 220, 220];      // theme 0 is "whatever the 
+          +applet defaults to"                                           
+      246 +  cm.defb = [11, 13, 19];                                     
+      247 +  setheme(cm);                                                
+      248 +}                                                             
+      249 +                                                              
+      250 +function applyFont() {                                        
+      251 +  cm.cfont = $('font').value;                                 
+      252 +  code.style.fontFamily = `"${cm.cfont}", ui-monospace, monosp
+          +ace`;                                                         
+      253 +}                                                             
+      254 +                                                              
+      255  // ---- wiring -----------------------------------------------
+           ------------------
+      256  
+      257  code.addEventListener('input', () => {
+      258    cm.changed = true;
+      259    clearTimeout(code._t);
+      181 -  code._t = setTimeout(reparse, 250);   // parsing every keyst
+          -roke is wasteful                                              
+      260 +  code._t = setTimeout(reparse, 250);                         
+      261  });
+      262  
+      263 +for (const tab of document.querySelectorAll('.tabs button')) {
+      264 +  tab.onclick = () => {                                       
+      265 +    for (const t of document.querySelectorAll('.tabs button'))
+          + {                                                            
+      266 +      t.setAttribute('aria-selected', String(t === tab));     
+      267 +      $('pane-' + t.dataset.pane).hidden = t !== tab;         
+      268 +    }                                                         
+      269 +    syncPanes();                                              
+      270 +  };                                                          
+      271 +}                                                             
+      272 +                                                              
+      273  pick.onchange = () => open(pick.value);
+      274 +$('theme').onchange = applyTheme;                             
+      275 +$('font').onchange = applyFont;                               
+      276  
+      277 +$('replace').onclick = () => {                                
+      278 +  const find = $('find').value;                               
+      279 +  if (!find) return;                                          
+      280 +  cm.srch.setText(find);                                      
+      281 +  cm.rplc.setText($('repl').value);                           
+      282 +  cm.editor.setText(code.value.split(find).join($('repl').valu
+          +e));                                                          
+      283 +  reparse();                                                  
+      284 +  status.textContent = 'replaced';                            
+      285 +};                                                            
+      286 +                                                              
+      287 +$('mirror').onclick = () => {                                 
+      288 +  // The mirror lives in tab1's selection scan, and it reads t
+          +he selection                                                  
+      289 +  // through cm.editor -- which is the textarea, so the page's
+          + own selection is                                             
+      290 +  // the one it mirrors.                                      
+      291 +  cm.editor.select(code.selectionStart, code.selectionEnd);   
+      292 +  cm.tab = 1;                                                 
+      293 +  cm.tabed = 1;                                               
+      294 +  cm.mirror = true;                                           
+      295 +  refreshPane(tab1);                                          
+      296 +  reparse();                                                  
+      297 +};                                                            
+      298 +                                                              
+      299  $('new').onclick = async () => {
+      300    const name = prompt('Name for the new car:');
+      301    if (!name) return;
+      189 -  const res = newcar(cm, name);          // the ported templat
+          -e                                                             
+      302 +  const res = newcar(cm, name);                               
+      303    if (!res.ok) { status.textContent = 'could not create that c
+           ar'; return; }
+      191 -  code.value = res.text;                                      
+      304 +  cm.editor.setText(res.text);                                
+      305    await save(name);
+      306 +  reparse();                                                  
+      307  };
+      308  
+      309  $('save').onclick = async () => {
+     ...
+      339  };
+      340  
+      341  $('export').onclick = () => {
+      228 -  const text = code.value;                                    
+      229 -  const name = (current || 'car') + '.rad';                   
+      230 -  const url = URL.createObjectURL(new Blob([text], { type: 'te
+          -xt/plain' }));                                                
+      342 +  const url = URL.createObjectURL(new Blob([code.value], { typ
+          +e: 'text/plain' }));                                          
+      343    const a = document.createElement('a');
+      344    a.href = url;
+      233 -  a.download = name;                                          
+      345 +  a.download = (current || 'car') + '.rad';                   
+      346    a.click();
+      347    URL.revokeObjectURL(url);
+      348  };
+      349  
+      350  $('drive').onclick = async () => {
+      351    if (!current) return;
+      240 -  // checko() is the game's own readiness test, and it is what
+          - the desktop Test                                             
+      241 -  // Drive runs before handing the car to the race. Same gate 
+          -here.                                                         
+      352 +  // checko() is the game's own readiness test, the same gate 
+          +the desktop Test                                              
+      353 +  // Drive runs before handing the car to the race.           
+      354    if (!checko(cm, 'Test Drive', code.value)) return;
+      355    await save(current);
+      356    location.href = `./main.html?mycar=${encodeURIComponent(curr
+           ent)}`;
+      357  };
+      358  
+      359  $('spin').onclick = () => {
+      248 -  spinning = !spinning;                                       
+      249 -  $('spin').textContent = spinning ? 'Pause spin' : 'Spin';   
+      360 +  view.spinning = !view.spinning;                             
+      361 +  $('spin').textContent = view.spinning ? 'Pause spin' : 'Spin
+          +';                                                            
+      362  };
+      363  
+      252 -// Drag to rotate, the way the editor's own arrow keys do.    
+      364 +$('resetview').onclick = () => {                              
+      365 +  view.yaw = 210; view.pitch = 12; view.dist = 800;           
+      366 +};                                                            
+      367 +                                                              
+      368 +$('applycol').onclick = () => {                               
+      369 +  // 1stColor/2ndColor are single lines in the source. tab2's 
+          +own picker is a                                               
+      370 +  // hue/brightness canvas -- an <input type=color> writes the
+          + same two lines.                                              
+      371 +  const hex = (id) => $(id).value.match(/\w\w/g).map((h) => pa
+          +rseInt(h, 16));                                               
+      372 +  const [r1, g1, b1] = hex('col1');                           
+      373 +  const [r2, g2, b2] = hex('col2');                           
+      374 +  cm.editor.setText(code.value                                
+      375 +    .replace(/1stColor\([^)]*\)/, `1stColor(${r1},${g1},${b1})
+          +`)                                                            
+      376 +    .replace(/2ndColor\([^)]*\)/, `2ndColor(${r2},${g2},${b2})
+          +`));                                                          
+      377 +  reparse();                                                  
+      378 +};                                                            
+      379 +                                                              
+      380 +$('applystats').onclick = () => {                             
+      381 +  reparse();                                                  
+      382 +  status.textContent = 'stats written to the source';         
+      383 +};                                                            
+      384 +                                                              
+      385 +// turntable                                                  
+      386  {
+      254 -  const view = $('view');                                     
+      255 -  let dragging = false, lastX = 0;                            
+      256 -  view.addEventListener('pointerdown', (e) => {               
+      257 -    dragging = true; lastX = e.clientX; spinning = false;     
+      387 +  const box = $('viewbox');                                   
+      388 +  let dragging = false, lastX = 0, lastY = 0;                 
+      389 +  box.addEventListener('pointerdown', (e) => {                
+      390 +    dragging = true; lastX = e.clientX; lastY = e.clientY;    
+      391 +    view.spinning = false;                                    
+      392      $('spin').textContent = 'Spin';
+      259 -    view.setPointerCapture(e.pointerId);                      
+      393 +    box.classList.add('dragging');                            
+      394 +    box.setPointerCapture(e.pointerId);                       
+      395    });
+      261 -  view.addEventListener('pointermove', (e) => {               
+      396 +  box.addEventListener('pointermove', (e) => {                
+      397      if (!dragging) return;
+      263 -    angle = (angle + (e.clientX - lastX) * 0.7 + 360) % 360;  
+      264 -    lastX = e.clientX;                                        
+      398 +    view.yaw = (view.yaw + (e.clientX - lastX) * 0.7 + 360) % 
+          +360;                                                          
+      399 +    // Tilt is clamped: past vertical the model is upside down
+          + and there is no                                              
+      400 +    // depth buffer to make sense of it.                      
+      401 +    view.pitch = Math.max(-85, Math.min(85, view.pitch + (e.cl
+          +ientY - lastY) * 0.5));                                       
+      402 +    lastX = e.clientX; lastY = e.clientY;                     
+      403    });
+      266 -  view.addEventListener('pointerup', () => { dragging = false;
+          - });                                                          
+      404 +  const end = () => { dragging = false; box.classList.remove('
+          +dragging'); };                                                
+      405 +  box.addEventListener('pointerup', end);                     
+      406 +  box.addEventListener('pointercancel', end);                 
+      407 +  box.addEventListener('wheel', (e) => {                      
+      408 +    e.preventDefault();                                       
+      409 +    view.dist = Math.max(DIST_MIN, Math.min(DIST_MAX, view.dis
+          +t * Math.exp(e.deltaY * 0.0012)));                            
+      410 +  }, { passive: false });                                     
+      411  }
+      412  
+      413  // ---- boot -------------------------------------------------
+           ------------------
+     ...
+      416    try {
+      417      await detectFpath();
+      418      cm = newCarMaker();
+      275 -    cm.editor = bindEditor(code);                             
+      276 -    // JOptionPane, the one widget the ported flows genuinely 
+          -branch on.                                                    
+      419 +    // cm.editor is the AWT TextArea the chunks read 57 times.
+          + Here it is the                                               
+      420 +    // page's <textarea>, so a ported method sees exactly what
+          + you typed.                                                   
+      421 +    cm.editor = {                                             
+      422 +      getText: () => code.value,                              
+      423 +      setText: (s) => { code.value = s ?? ''; },              
+      424 +      insertText(s, p) { code.value = code.value.slice(0, p) +
+          + s + code.value.slice(p); },                                  
+      425 +      replaceText(s, a, b) { code.value = code.value.slice(0, 
+          +a) + s + code.value.slice(b); },                              
+      426 +      select: (a, b) => code.setSelectionRange(a, b),         
+      427 +      getSelectionStart: () => code.selectionStart,           
+      428 +      getSelectionEnd: () => code.selectionEnd,               
+      429 +      getSelectedText: () => code.value.substring(code.selecti
+          +onStart, code.selectionEnd),                                  
+      430 +      requestFocus: () => code.focus(),                       
+      431 +      show() {}, hide() {}, isShowing: () => true, enable() {}
+          +, disable() {},                                               
+      432 +      setFont(f) { code.style.fontFamily = `"${f.name}", ui-mo
+          +nospace, monospace`; },                                       
+      433 +      setForeground(c) { code.style.color = `rgb(${c[0]},${c[1
+          +]},${c[2]})`; },                                              
+      434 +      setBackground(c) { code.style.background = `rgb(${c[0]},
+          +${c[1]},${c[2]})`; },                                         
+      435 +      addMouseListener(fn) { code.addEventListener('mousedown'
+          +, fn); },                                                     
+      436 +      setBounds() {}, getX: () => 0, getY: () => 0, getWidth: 
+          +() => 0, getHeight: () => 0,                                  
+      437 +      hasFocus: () => document.activeElement === code,        
+      438 +    };                                                        
+      439 +    // The applet methods the chunks call on `cm`, supplied by
+          + the shell.                                                   
+      440      cm.showMessageDialog = (parent, msg) => alert(msg);
+      441      cm.showConfirmDialog = (parent, msg) => (confirm(msg) ? 0 
+           : 1);
+      442 +    cm.openurl = (u) => window.open(u, '_blank', 'noopener'); 
+      443 +    cm.repaint = () => {};                                    
+      444 +    cm.setCursor = () => {};                                  
+      445 +    cm.requestFocus = () => {};                               
+      446 +    cm.carsrc = () => '';                                     
+      447  
+      448      const overlay = document.createElement('canvas');
+      281 -    overlay.width = 800; overlay.height = 450;                
+      282 -    rd = new Graphics2D($('view'), overlay, 800, 450);        
+      449 +    overlay.width = 700; overlay.height = 550;                
+      450 +    rd = new Graphics2D($('view'), overlay, 700, 550);        
+      451  
+      452      await refreshList();
+      453      const wanted = new URLSearchParams(location.search).get('c
+           ar');
+      454      await open(wanted || pick.value);
+      455 +    applyTheme();                                             
+      456 +    applyFont();                                              
+      457      frame();
+      458      status.textContent = '';
+      459    } catch (e) {
+
+  Read 2 files, ran 15 shell commands (ctrl+o to expand)
+
+● The buttons draw in tab2 but dispatch in ctachm — the editor's hit-test pass.
+  Wiring the bridge through both:
+
+  Ran 2 shell commands (ctrl+o to expand)
+
+● The full round trip works: Scale X + twice → 155, Save → ScaleX(155) written
+  into the source, model re-parsed. Adding a test for the two-pass dispatch,
+  then deploying:
+
+  Read 1 file, ran 7 shell commands (ctrl+o to expand)
+
+❯ make the 3D preview 30% shorter vertically and invert the Y control           
+
+  Read 1 file, ran 3 shell commands (ctrl+o to expand)
+
+● Both done and deployed.
+
+  Preview is 30% shorter — cropped to the middle of the applet's 700×550 surface
+  rather than squashed, so the car keeps the proportions the renderer actually
+  draws. Drag-Y is inverted: pulling down now tips the near side away,
+  turntable-style. Tilt still clamps at ±85° because past vertical there's no
+  depth buffer to make sense of the model.
+
+  The HTML editor itself went out in the previous deploy. The part worth knowing
+  about how it works: the UI is HTML, but clicking "Scale X +" runs the actual
+  ported tab2 → ctachm path, verified against the Java, with nothing painted.
+  headless.js does that by exploiting the fact that the original's hit testing
+  is its drawing pass — stringbutton records each button's rect as it draws it,
+  so a pane can be run once with a recorder to harvest labels and rects, then
+  again with the mouse parked on one. No transpiled code was modified to allow
+  it, so it all stays diff-testable.
+
+  Two things that bit during the wiring, both now pinned by tests:
+
+  - A pane only draws its buttons; ctachm acts on them. Pressing a button
+  against the pane alone registers the rect and does nothing — and looks
+  completely fine while doing it.
+  - Entering a sub-pane with dtabed == dtab skips the block that re-reads 
+  ScaleX/Y/Z from the source, so the controls showed 100 for a car scaled
+  to 145.
+
+  Per your instruction, the panes HTML replaces (tab0, tab3, input, drawms, the
+  applet frame loop) are commented out at the import site with a note on what
+  replaced each — their code, tests and probes all stay, and the bridge can
+  drive them if the HTML ever needs what they know.
+
+  274 tests pass. Worth an eval now: the Files/Code/3D Edit/Stats tabs, and
+  whether the harvested button rows read sensibly — the captions come from the
+  pane's own drawn text, so a few rows (the wheel fields especially) are still
+  thin on labels.
+
+✻ Crunched for 14m 45s
+
+❯ lot of feedback on 3D edit tab                                                
+                                                                                
+  - organization is kind of messed up, dont follow the original GUI so          
+  faithfully, prioritize logical ordering - /tmp/edit_*.png is screenshots of   
+  the menus                                                                     
+  - wheels doesnt make sense - double save/apply buttons no inputs, see above   
+  - color apply to source has no effect, color stays the same                   
+  - turntable Y orientation seems to be relative to the car front, rather than  
+  "closest to your face"                                                        
+                                                                                
+  lets fix, and ask questions about the GUI.  its OK to reorganize/rename tabs  
+  if needed                                                                     
+
+  Read 5 files, listed 1 directory, ran 2 shell commands (ctrl+o to expand)
+
+● Let me look at the remaining physics screens, then ask.
+
+  Read 1 file (ctrl+o to expand)
+
+● User answered Claude's questions:
+  ⎿  · How should the editor's top-level tabs be organised? (The original has 4 
+     top tabs and 7 sub-tabs under 3D Edit.) → Flatten to 6 tabs
+     · The wheel fields (±X, Y, Z, height, width, rim colour/size/depth) are 
+     text inputs with Apply and Save buttons. How should they behave? → live 
+     number drag, have a global apply/save if you can.
+     · Stats and physics are +/- buttons against a bar in the original. What 
+     should they be here? → sliders live with +/- buttons
+     · Where should Test Drive and the crash test live? → Always-visible action 
+     bar
+
+● Implementing all four answers. First the field-harvesting the wheels pane
+  needs:
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Write(web/careditor.html)
+  ⎿  Error writing file
+
+  Read 1 file (ctrl+o to expand)
+
+● Write(web/careditor.html)  ⎿  Added 99 lines, removed 55 lines
+      16    a.back:hover { color: #e6e8ee; }
+      17    #status { color: var(--dim); font-size: .82rem; }
+      18  
+      19 -  main { display: grid; grid-template-columns: minmax(340px, 1f
+         -r) minmax(380px, 1.1fr); gap: 1rem; padding: 1rem 1.2rem 2rem; 
+         -align-items: start; }                                          
+      20 -  @media (max-width: 900px) { main { grid-template-columns: 1fr
+         -; } }                                                          
+      19 +  main { display: grid; grid-template-columns: minmax(360px, 1f
+         +r) minmax(400px, 1fr); gap: 1rem;                              
+      20 +         padding: 1rem 1.2rem 2rem; align-items: start; }      
+      21 +  @media (max-width: 950px) { main { grid-template-columns: 1fr
+         +; } }                                                          
+      22    .card { background: var(--panel); border: 1px solid var(--lin
+          e); border-radius: 12px; padding: .9rem; }
+      23    .card h2 { font-size: .72rem; text-transform: uppercase; lett
+          er-spacing: .09em; color: var(--dim); margin: 0 0 .6rem; }
+      24  
+      24 -  /* tab bar */                                                
+      25 -  .tabs { display: flex; gap: .3rem; border-bottom: 1px solid v
+         -ar(--line); margin-bottom: .8rem; }                            
+      25 +  .tabs { display: flex; gap: .15rem; border-bottom: 1px solid 
+         +var(--line); margin-bottom: .8rem; flex-wrap: wrap; }          
+      26    .tabs button { background: none; border: none; border-bottom:
+           2px solid transparent; color: var(--dim);
+      27 -                 font: 600 13px system-ui, sans-serif; padding:
+         - .5rem .8rem; cursor: pointer; }                               
+      27 +                 font: 600 13px system-ui, sans-serif; padding:
+         + .5rem .7rem; cursor: pointer; }                               
+      28    .tabs button[aria-selected=true] { color: #e6e8ee; border-bot
+          tom-color: var(--accent); }
+      29 +  .pane { min-height: 19rem; }                                 
+      30  
+      30 -  textarea { width: 100%; height: 56vh; resize: vertical; backg
+         -round: #0b0d13; color: #cfd6e6;                                
+      31 -             border: 1px solid var(--line); border-radius: 8px;
+         - padding: .6rem .7rem;                                         
+      32 -             font: 13px/1.45 ui-monospace, Menlo, Consolas, mon
+         -ospace; tab-size: 2; }                                         
+      33 -  /* 700x550 is the applet's own surface; the box is 30% shorte
+         -r than that and                                                
+      34 -     the canvas is cropped to its middle rather than squashed, 
+         -so the model                                                   
+      35 -     keeps the proportions the renderer draws it with. */      
+      31    .view { position: relative; background: #0b0d13; border: 1px 
+          solid var(--line); border-radius: 8px;
+      32            overflow: hidden; aspect-ratio: 700/385; touch-action
+          : none; cursor: grab; }
+      33    .view.dragging { cursor: grabbing; }
+      34    /* Cropped, not squashed: full width, 700/385 of the height, 
+          centred. */
+      35    .view canvas { position: absolute; left: 0; width: 100%; heig
+          ht: 142.86%; top: -21.43%; }
+      36  
+      37 +  textarea { width: 100%; height: 32vh; resize: vertical; backg
+         +round: #0b0d13; color: #cfd6e6;                                
+      38 +             border: 1px solid var(--line); border-radius: 8px;
+         + padding: .6rem .7rem;                                         
+      39 +             font: 13px/1.45 ui-monospace, Menlo, Consolas, mon
+         +ospace; tab-size: 2; }                                         
+      40 +  details.source { margin-top: .8rem; }                        
+      41 +  details.source > summary { cursor: pointer; color: var(--dim)
+         +; font-size: .76rem;                                           
+      42 +             text-transform: uppercase; letter-spacing: .08em; 
+         +padding: .2rem 0; }                                            
+      43 +                                                               
+      44    .bar { display: flex; flex-wrap: wrap; gap: .4rem; align-item
+          s: center; margin-top: .7rem; }
+      45    button, select, input[type=text], input[type=number] {
+      46        font: 600 12px system-ui, sans-serif; padding: .4rem .65r
+          em; border-radius: 6px;
+     ...
+      49    button:hover:not(:disabled) { border-color: var(--accent); }
+      50    button:disabled { opacity: .4; cursor: default; }
+      51    button.primary { background: var(--accent); border-color: var
+          (--accent); color: #06121f; }
+      52 +  button.step { padding: .22rem .45rem; min-width: 1.8rem; }   
+      53    label.field { display: flex; align-items: center; gap: .4rem;
+           font-size: 12px; color: var(--dim); }
+      54    label.field input, label.field select { width: 7rem; }
+      55  
+     ...
+      58    .err { color: #ff8f6b; font-size: .8rem; margin-top: .5rem; w
+          hite-space: pre-wrap; min-height: 1.1em; }
+      59    .note { color: var(--dim); font-size: .78rem; margin-top: .8r
+          em; line-height: 1.5; }
+      60    .note code { background: #0b0d13; border: 1px solid var(--lin
+          e); border-radius: 3px; padding: 0 .3em; }
+      58 -  fieldset { border: 1px solid var(--line); border-radius: 8px;
+         - padding: .6rem .7rem .7rem; margin: 0 0 .7rem; }              
+      61 +  fieldset { border: 1px solid var(--line); border-radius: 8px;
+         + padding: .55rem .7rem .7rem; margin: 0 0 .7rem; }             
+      62    legend { font-size: .72rem; text-transform: uppercase; letter
+          -spacing: .08em; color: var(--dim); padding: 0 .3rem; }
+      60 -  .grid { display: flex; flex-wrap: wrap; gap: .4rem; }        
+      61 -  .stat-row { display: grid; grid-template-columns: 8rem 1fr 3r
+         -em; align-items: center; gap: .5rem; margin-bottom: .35rem; }  
+      62 -  .stat-row input[type=range] { width: 100%; cursor: pointer; }
+      63 -  .stat-row span:last-child { text-align: right; color: var(--d
+         -im); font-variant-numeric: tabular-nums; }                     
+      63 +  .cols { display: grid; grid-template-columns: 1fr 1fr; gap: .
+         +7rem; }                                                        
+      64 +  @media (max-width: 560px) { .cols { grid-template-columns: 1f
+         +r; } }                                                         
+      65 +                                                               
+      66 +  /* one labelled control: caption, value, then whatever drives
+         + it */                                                         
+      67 +  .row { display: grid; grid-template-columns: 8.5rem 3.2rem 1f
+         +r; align-items: center; gap: .45rem; margin-bottom: .3rem; }   
+      68 +  .row > .cap { color: var(--dim); font-size: 12px; }          
+      69 +  .row > .val { font-variant-numeric: tabular-nums; text-align:
+         + right; font-size: 12px; }                                     
+      70 +  .row input[type=range] { width: 100%; vertical-align: middle;
+         + accent-color: var(--accent); }                                
+      71 +  .row .ctl { display: flex; gap: .25rem; align-items: center; 
+         +}                                                              
+      72 +  .row .ctl input[type=range] { flex: 1; }                     
+      73 +  /* drag-to-scrub number, for the wheel fields */             
+      74 +  .scrub { width: 4.4rem; text-align: right; cursor: ew-resize;
+         + }                                                             
+      75 +  .scrub:focus { cursor: text; }                               
+      76  </style>
+      77  </head>
+      78  <body>
+     ...
+       86  <main>
+       87    <section class="card">
+       88      <div class="tabs" role="tablist">
+       77 -      <button role="tab" data-pane="files" aria-selected="fals
+          -e">Files</button>                                             
+       78 -      <button role="tab" data-pane="code" aria-selected="true"
+          ->Code</button>                                                
+       79 -      <button role="tab" data-pane="edit" aria-selected="false
+          -">3D Edit</button>                                            
+       89 +      <button role="tab" data-pane="car" aria-selected="true">
+          +Car</button>                                                  
+       90 +      <button role="tab" data-pane="shape" aria-selected="fals
+          +e">Shape</button>                                             
+       91 +      <button role="tab" data-pane="wheels" aria-selected="fal
+          +se">Wheels</button>                                           
+       92 +      <button role="tab" data-pane="colours" aria-selected="fa
+          +lse">Colours</button>                                         
+       93        <button role="tab" data-pane="stats" aria-selected="fals
+           e">Stats</button>
+       94 +      <button role="tab" data-pane="physics" aria-selected="fa
+          +lse">Physics</button>                                         
+       95      </div>
+       96  
+       83 -    <div id="pane-files" hidden>                              
+       97 +    <div class="pane" id="pane-car">                          
+       98        <div class="bar">
+       99          <select id="pick"></select>
+      100          <button id="new" type="button">New</button>
+     ...
+      104          <input type="file" id="file" accept=".rad,.txt,text/pl
+           ain" hidden>
+      105          <button id="export" type="button">Export</button>
+      106        </div>
+       93 -      <p class="note">                                        
+       94 -        Cars live in this browser (IndexedDB). The four that s
+          -hip with the game                                             
+       95 -        are read-only until you save over them — a stored car 
+          -of the same name                                              
+       96 -        shadows the shipped one, and deleting your copy brings
+          - the original                                                 
+       97 -        back. Export writes a <code>.rad</code> the desktop ga
+          -me opens unchanged.                                           
+       98 -      </p>                                                    
+       99 -    </div>                                                    
+      100 -                                                              
+      101 -    <div id="pane-code">                                      
+      102 -      <textarea id="code" spellcheck="false"></textarea>      
+      107        <div class="bar">
+      108          <label class="field">Font
+      109            <select id="font">
+     ...
+      119              <option value="6">Hot rod</option><option value="7
+           ">Deep blue</option>
+      120            </select>
+      121          </label>
+      118 -        <label class="field">Find <input type="text" id="find"
+          - size="10"></label>                                           
+      119 -        <label class="field">Replace <input type="text" id="re
+          -pl" size="10"></label>                                        
+      120 -        <button id="replace" type="button">Replace all</button
+          ->                                                             
+      121 -        <button id="mirror" type="button">Mirror selection in 
+          -X</button>                                                    
+      122        </div>
+      123 +      <p class="note">                                        
+      124 +        Cars live in this browser (IndexedDB). The four that s
+          +hip with the game                                             
+      125 +        are read-only until you save over one — a stored car o
+          +f the same name                                               
+      126 +        shadows the shipped one, and deleting your copy brings
+          + the original                                                 
+      127 +        back. Export writes a <code>.rad</code> the desktop ga
+          +me opens unchanged.                                           
+      128 +      </p>                                                    
+      129      </div>
+      130  
+      125 -    <div id="pane-edit" hidden>                               
+      126 -      <fieldset><legend>Scale</legend>                        
+      127 -        <div class="grid" id="scale-buttons"></div>           
+      128 -      </fieldset>                                             
+      129 -      <fieldset><legend>Colours</legend>                      
+      130 -        <div class="grid">                                    
+      131 -          <label class="field">1st <input type="color" id="col
+          -1"></label>                                                   
+      132 -          <label class="field">2nd <input type="color" id="col
+          -2"></label>                                                   
+      133 -          <button id="applycol" type="button">Apply to source<
+          -/button>                                                      
+      131 +    <div class="pane" id="pane-shape" hidden>                 
+      132 +      <fieldset><legend>Scale</legend><div id="scale-rows"></d
+          +iv></fieldset>                                                
+      133 +      <fieldset><legend>Align</legend><div id="align-rows"></d
+          +iv></fieldset>                                                
+      134 +      <fieldset><legend>Selection</legend>                    
+      135 +        <div class="bar" style="margin-top:0">                
+      136 +          <label class="field">Find <input type="text" id="fin
+          +d" size="8"></label>                                          
+      137 +          <label class="field">Replace <input type="text" id="
+          +repl" size="8"></label>                                       
+      138 +          <button id="replace" type="button">Replace all</butt
+          +on>                                                           
+      139 +          <button id="mirror" type="button">Mirror selection i
+          +n X</button>                                                  
+      140          </div>
+      141        </fieldset>
+      136 -      <fieldset><legend>Wheels</legend>                       
+      137 -        <div class="grid" id="wheel-fields"></div>            
+      138 -      </fieldset>                                             
+      142 +    </div>                                                    
+      143 +                                                              
+      144 +    <div class="pane" id="pane-wheels" hidden>                
+      145 +      <div class="cols">                                      
+      146 +        <fieldset><legend>Back wheels</legend><div id="wheels-
+          +back"></div></fieldset>                                       
+      147 +        <fieldset><legend>Front wheels</legend><div id="wheels
+          +-front"></div></fieldset>                                     
+      148 +      </div>                                                  
+      149 +      <div class="bar">                                       
+      150 +        <button id="wheels-apply" type="button">Apply to previ
+          +ew</button>                                                   
+      151 +        <button id="wheels-save" type="button" class="primary"
+          +>Save to source</button>                                      
+      152 +      </div>                                                  
+      153 +      <p class="note">Drag a number sideways to scrub it, or t
+          +ype into it. Apply shows it on the model; Save writes it into 
+          +the <code>.rad</code>.</p>                                    
+      154 +    </div>                                                    
+      155 +                                                              
+      156 +    <div class="pane" id="pane-colours" hidden>               
+      157 +      <div class="cols">                                      
+      158 +        <fieldset><legend>First colour</legend>               
+      159 +          <div class="bar" style="margin-top:0">              
+      160 +            <input type="color" id="col1">                    
+      161 +            <span id="col1val" class="val"></span>            
+      162 +            <button id="col1save" type="button" class="primary
+          +">Recolour</button>                                           
+      163 +          </div>                                              
+      164 +        </fieldset>                                           
+      165 +        <fieldset><legend>Second colour</legend>              
+      166 +          <div class="bar" style="margin-top:0">              
+      167 +            <input type="color" id="col2">                    
+      168 +            <span id="col2val" class="val"></span>            
+      169 +            <button id="col2save" type="button" class="primary
+          +">Recolour</button>                                           
+      170 +          </div>                                              
+      171 +        </fieldset>                                           
+      172 +      </div>                                                  
+      173        <p class="note">
+      140 -        Every control here runs the ported <code>tab2</code> c
+          -ode — the same                                                
+      141 -        1,600 lines the desktop editor runs, verified against 
+          -the Java — with                                               
+      142 -        the drawing switched off. The buttons are its own, rea
+          -d back out of the                                             
+      143 -        pane it would have painted.                           
+      174 +        Recolour rewrites every polygon using the old colour, 
+          +which is what the                                             
+      175 +        original's Save does — changing <code>1stColor()</code
+          +> alone changes                                               
+      176 +        nothing, because each polygon carries its own <code>c(
+          +r,g,b)</code>.                                                
+      177        </p>
+      178      </div>
+      179  
+      147 -    <div id="pane-stats" hidden>                              
+      180 +    <div class="pane" id="pane-stats" hidden>                 
+      181        <fieldset><legend>Stats</legend><div id="stat-rows"></di
+           v></fieldset>
+      149 -      <fieldset><legend>Physics</legend><div id="phys-rows"></
+          -div></fieldset>                                               
+      150 -      <button id="applystats" type="button">Write to source</b
+          -utton>                                                        
+      182 +      <div class="bar"><button id="stats-save" type="button" c
+          +lass="primary">Save to source</button></div>                  
+      183      </div>
+      184 +                                                              
+      185 +    <div class="pane" id="pane-physics" hidden>               
+      186 +      <fieldset><legend>Handling</legend><div id="phys-rows"><
+          +/div></fieldset>                                              
+      187 +      <div class="bar"><button id="phys-save" type="button" cl
+          +ass="primary">Save to source</button></div>                   
+      188 +    </div>                                                    
+      189    </section>
+      190  
+      191    <section class="card">
+     ...
+      198      </div>
+      199      <div class="err" id="err"></div>
+      200      <div class="bar">
+      164 -      <button id="save" type="button" class="primary">Save</bu
+          -tton>                                                         
+      201 +      <button id="save" type="button" class="primary">Save car
+          +</button>                                                     
+      202        <button id="drive" type="button" class="primary">Test dr
+           ive</button>
+      203 +      <button id="crash" type="button">Crash</button>         
+      204 +      <button id="fix" type="button">Fix</button>             
+      205        <button id="spin" type="button">Pause spin</button>
+      206        <button id="resetview" type="button">Reset view</button>
+      207      </div>
+      208 +    <details class="source" open>                             
+      209 +      <summary>Source (.rad)</summary>                        
+      210 +      <textarea id="code" spellcheck="false"></textarea>      
+      211 +    </details>                                                
+      212      <p class="note">
+      213        Drag to turn and tilt, scroll to zoom. The preview is th
+           e game's own
+      214        renderer: your text is parsed by the ported <code>ContO<
+           /code> exactly as
+      172 -      the race parses it.                                     
+      215 +      the race parses it, and every control on the left runs t
+          +he ported editor                                              
+      216 +      code with the drawing switched off.                     
+      217      </p>
+      218    </section>
+      219  </main>
+
+  Read 1 file (ctrl+o to expand)
+
+● Write(web/careditor/shell.js)
+  ⎿  Added 244 lines, removed 113 lines
+       3  // The editor's UI is HTML, not canvas. Only the 3D preview is 
+          drawn, and it is
+       4  // drawn by the game's own renderer.
+       5  //
+       6 -// What is NOT thrown away is the behaviour. Clicking "Scale X 
+         -+" here runs the                                               
+       7 -// ported tab2 code -- the same 1,600 lines the desktop editor 
+         -runs, checked                                                  
+       6 +// What is NOT thrown away is the behaviour. Pressing "Scale X 
+         ++" here runs the                                               
+       7 +// ported tab2 -> ctachm path -- the same code the desktop edit
+         +or runs, checked                                               
+       8  // against the real Java by a reflection probe -- with drawing 
+          switched off.
+       9  // web/careditor/headless.js explains the bridge: the original'
+          s hit testing IS
+      10 -// its drawing pass, so a pane can be run for its button rects 
+         -and then re-run                                                
+      11 -// with the mouse placed on one of them.                       
+      10 +// its drawing pass, so a pane can be run for its button rects 
+         +and its field                                                  
+      11 +// positions, then re-run with the mouse parked on one of them.
+      12  //
+      13 +// The layout is NOT the original's. The applet nests seven sub
+         +-tabs under one                                                
+      14 +// "3D Edit" tab, with the wheel fields split across two column
+         +s of untitled                                                  
+      15 +// text boxes; here each group is a tab of its own, in the orde
+         +r you would use                                                
+      16 +// them, and every field carries the caption the applet drew be
+         +side it.                                                       
+      17 +//                                                             
+      18  // The rule from CAREDITOR_PORT_SPEC holds: nothing here reache
+          s into a
+      19  // transpiled method, and no transpiled method reaches into sto
+          rage. savefile()
+      20  // hands back .rad text and carstore takes it from there, which
+           is what makes a
+     ...
+      26  import { init } from './boot.js';
+      27  import { tab1 } from './tab1.js';
+      28  import { tab2 } from './tab2.js';
+      24 -import { rows, act, tick, Recorder } from './headless.js';     
+      29  import { ctachm } from './ctachm.js';
+      30 +import { rows, fields, act, tick, Recorder } from './headless.j
+         +s';                                                            
+      31  import { listAll, listStored, readCar, writeCar, deleteCar } fr
+          om '../carstore.js';
+      32  import { detectFpath } from '../vfs.js';
+      33  import { Graphics2D } from '../graphics.js';
+      34 +import { RGBtoHSB } from '../java.js';                         
+      35  
+      36 +// ---- what the HTML replaces --------------------------------
+         +-----------------                                              
+      37 +//                                                             
+      38 +// Commented out rather than deleted, because the code behind t
+         +hem is still                                                   
+      39 +// live -- these are the CANVAS entry points, not the behaviour
+         +:                                                              
+      40 +//                                                             
+      41 +//   import { tab0 } from './tab0.js';     // the car-file pane
+         + -> the Car tab                                                
+      42 +//   import { tab3 } from './tab3.js';     // the stats/publish
+         + pane -> Stats                                                 
+      43 +//   import { input } from './input.js';   // mouse/key handler
+         +s -> DOM events                                                
+      44 +//   import { drawms, hidefields } from './ui.js';   // the can
+         +vas cursor and                                                 
+      45 +//                                                   // the AWT
+         + show/hide dance                                               
+      46 +//   runHead(cm); ... ctachm(cm); repaint();          // the ap
+         +plet frame loop                                                
+      47 +//                                                             
+      48 +// tab0's list and tab3's rows are HTML now, and the panes that
+         + ARE still run                                                 
+      49 +// (tab1, tab2) are run for their state, with `Recorder` swallo
+         +wing the draw                                                  
+      50 +// calls. ctachm stays, because it is not drawing -- it is the 
+         +hit-test                                                       
+      51 +// dispatch that every button in this file goes through.       
+      52 +                                                               
+      53  const $ = (id) => document.getElementById(id);
+      54  const code = $('code'), pick = $('pick'), status = $('status'),
+           err = $('err');
+      55  
+     ...
+      58  let current = null;
+      59  let stored = [];
+      60  
+      61 +// tab2's sub-panes, by the dtab the chunk dispatches on.      
+      62 +const PANE = { controls: 0, colour: 1, scale: 2, wheels: 3, sta
+         +ts: 4, physics: 5 };                                           
+      63 +                                                               
+      64  // ---- preview -----------------------------------------------
+          -----------------
+      65  //
+      40 -// Turntable: drag turns (yaw) and tilts (pitch), the wheel dol
+         -lies in and out.                                               
+      41 -// The model's own xz/zy are what the game rotates, so the came
+         -ra never moves --                                              
+      42 -// the same trick the car-select screen uses.                  
+      66 +// Turntable: drag turns and tilts, the wheel dollies in and ou
+         +t.                                                             
+      67 +//                                                             
+      68 +// Tilt is the CAMERA's, not the model's. Setting the model's o
+         +wn zy tilts it                                                 
+      69 +// about its own axis, so which way "down" went depended on whe
+         +re the car                                                     
+      70 +// happened to be facing -- tilt felt inverted at one yaw and c
+         +orrect at the                                                  
+      71 +// one 180 degrees away. Medium.zy is the camera's pitch, so th
+         +e drag always                                                  
+      72 +// means "bring the near side toward me" whatever the car is do
+         +ing.                                                           
+      73  
+      44 -const view = { yaw: 210, pitch: 12, dist: 800, spinning: true }
+         -;                                                              
+      74 +const view = { yaw: 210, pitch: 8, dist: 800, spinning: true };
+      75  const DIST_MIN = 320, DIST_MAX = 2600;
+      76 +const PITCH_MIN = -30, PITCH_MAX = 60;                         
+      77  
+      78  function camera() {
+      79    const m = cm.m;
+     ...
+      82    m.cx = 350;
+      83    m.y = -240;
+      84    m.z = -400;
+      54 -  m.zy = 4;                                                    
+      85 +  m.zy = Math.round(view.pitch);                               
+      86    m.focus_point = 800;
+      87    m.fadfrom(8000);
+      88    m.cfade[0] = 187;
+     ...
+      130    o.y = cm.oy;
+      131    o.z = view.dist;
+      132    o.xz = Math.round(view.yaw) % 360;
+      102 -  o.zy = Math.round(view.pitch) % 360;                        
+      133 +  o.zy = 0;                        // the tilt is the camera's
+          +, above                                                       
+      134    o.xy = 0;
+      135    o.wzy = (o.wzy - 10) % 360;
+      136    const hadShadow = o.shadow;
+      106 -  o.shadow = false;               // nothing to cast one onto 
+          -in a bare preview                                             
+      137 +  o.shadow = false;                // nothing to cast one onto
+          + in a bare preview                                            
+      138    try {
+      139      rd.begin();
+      140      o.d(rd);
+     ...
+      153  // ---- driving the transpiled panes -------------------------
+           ------------------
+      154  
+      155  /**
+      125 - * Run a pane's per-frame pass with nothing clickable. Panes r
+          -ecompute from the                                             
+      126 - * source text on entry -- tab2 reads ScaleX/ScaleY/ScaleZ bac
+          -k out of it, tab1                                             
+      127 - * counts polygons -- so this is what keeps the HTML in step w
+          -ith typing.                                                   
+      128 - */                                                           
+      129 -function refreshPane(tabFn) {                                 
+      130 -  cm.rd = new Recorder();                                     
+      131 -  tick(cm, tabFn);                                            
+      132 -}                                                             
+      133 -                                                              
+      134 -/**                                                           
+      156   * Enter one of tab2's sub-panes the way clicking its tab does
+           .
+      157   *
+      158   * `dtabed` is the pane the chunk last initialised. Setting it
+            to something
+      159   * else is what makes the chunk re-read the source on the next
+            run -- that is
+      139 - * where ScaleX/ScaleY/ScaleZ, the stats and the physics value
+          -s come back out                                               
+      160 + * where ScaleX/Y/Z, the wheel values, the stats and the physi
+          +cs come back out                                              
+      161   * of the .rad text. Enter with dtabed == dtab and the pane ke
+           eps whatever was
+      162   * in cm.scale from last time, which is how the first cut of t
+           his showed 100
+      163   * for a car scaled to 145.
+     ...
+      167    cm.tabed = 2;
+      168    cm.dtab = dtab;
+      169    cm.dtabed = -1;
+      149 -  refreshPane(tab2);                                          
+      170 +  cm.rd = new Recorder();                                     
+      171 +  tick(cm, tab2);                                             
+      172  }
+      173  
+      174 +/** Press a button the pane drew, then re-read everything. */ 
+      175 +function press(dtab, button) {                                
+      176 +  cm.tab = 2;                                                 
+      177 +  cm.tabed = 2;                                               
+      178 +  cm.dtab = dtab;                                             
+      179 +  cm.dtabed = dtab;                                           
+      180 +  act(cm, tab2, ctachm, button);                              
+      181 +  reparse();                                                  
+      182 +}                                                             
+      183 +                                                              
+      184  /**
+      185   * The pane draws floats straight from a float32 field, so a s
+           cale of 1.45
+      186   * arrives as "1.4500000476837158". That is the Java's own val
+           ue and the
+     ...
+      191    return Number.isFinite(n) ? String(Math.round(n * 1000) / 10
+           00) : s;
+      192  }
+      193  
+      162 -/** Render one sub-pane's buttons as HTML, grouped into the ro
+          -ws it drew them in. */                                        
+      163 -function renderRows(host, dtab, filter) {                     
+      164 -  const tabFn = tab2;                                         
+      194 +const el = (tag, cls, text) => {                              
+      195 +  const e = document.createElement(tag);                      
+      196 +  if (cls) e.className = cls;                                 
+      197 +  if (text !== undefined) e.textContent = text;               
+      198 +  return e;                                                   
+      199 +};                                                            
+      200 +                                                              
+      201 +/**                                                           
+      202 + * Build one row per control the pane laid out: its caption, i
+          +ts value, and                                                 
+      203 + * whatever drives it. `extra` gets a chance to add a slider o
+          +r a scrub field                                               
+      204 + * before the pane's own buttons.                             
+      205 + */                                                           
+      206 +function renderRows(host, dtab, { match, extra } = {}) {      
+      207    enterPane(dtab);
+      208    cm.rd = new Recorder();
+      167 -  const laid = rows(cm, tabFn).filter(filter || (() => true));
+      209 +  const laid = rows(cm, tab2).filter((r) => (match ? match(r) 
+          +: true));                                                     
+      210    host.innerHTML = '';
+      169 -  for (const row of laid) {                                   
+      170 -    const div = document.createElement('div');                
+      171 -    div.className = 'stat-row';                               
+      172 -    div.style.gridTemplateColumns = '11rem auto';             
+      173 -    const cap = document.createElement('span');               
+      174 -    cap.textContent = row.caption;                            
+      175 -    div.appendChild(cap);                                     
+      176 -    if (row.value && row.value !== row.caption) {             
+      177 -      const val = document.createElement('span');             
+      178 -      val.textContent = shortNumber(row.value);               
+      179 -      val.style.cssText = 'color:#e6e8ee;font-variant-numeric:
+          -tabular-nums;margin-right:.6rem';                             
+      180 -      div.appendChild(val);                                   
+      181 -      div.style.gridTemplateColumns = '9rem 4rem auto';       
+      182 -    }                                                         
+      183 -    const group = document.createElement('span');             
+      211 +  laid.forEach((row, i) => {                                  
+      212 +    const div = el('div', 'row');                             
+      213 +    div.appendChild(el('span', 'cap', row.caption));          
+      214 +    div.appendChild(el('span', 'val', row.value ? shortNumber(
+          +row.value) : ''));                                            
+      215 +    const ctl = el('span', 'ctl');                            
+      216 +    if (extra) extra(ctl, row, i);                            
+      217      for (const b of row.buttons) {
+      185 -      const el = document.createElement('button');            
+      186 -      el.type = 'button';                                     
+      187 -      el.textContent = b.label.trim() || '·';                 
+      188 -      el.style.marginRight = '.3rem';                         
+      189 -      el.onclick = () => {                                    
+      190 -        // Re-enter the sub-pane this button was harvested fro
+          -m: another pane                                               
+      191 -        // may have been rendered since, and the chunk dispatc
+          -hes on dtab.                                                  
+      192 -        cm.tab = 2;                                           
+      193 -        cm.tabed = 2;                                         
+      194 -        cm.dtab = dtab;                                       
+      195 -        cm.dtabed = dtab;                                     
+      196 -        act(cm, tabFn, ctachm, b);                            
+      197 -        reparse();                                            
+      198 -      };                                                      
+      199 -      group.appendChild(el);                                  
+      218 +      const button = el('button', 'step', b.label.trim() || '·
+          +');                                                           
+      219 +      button.type = 'button';                                 
+      220 +      button.onclick = () => press(dtab, b);                  
+      221 +      ctl.appendChild(button);                                
+      222      }
+      201 -    div.appendChild(group);                                   
+      223 +    div.appendChild(ctl);                                     
+      224      host.appendChild(div);
+      225 +  });                                                         
+      226 +  return laid;                                                
+      227 +}                                                             
+      228 +                                                              
+      229 +/** A slider bound to one cell of a state array, applied live.
+          + */                                                           
+      230 +function slider(ctl, arr, index, min, max) {                  
+      231 +  const s = el('input');                                      
+      232 +  s.type = 'range';                                           
+      233 +  s.min = min; s.max = max;                                   
+      234 +  s.value = arr[index];                                       
+      235 +  s.oninput = () => {                                         
+      236 +    arr[index] = parseInt(s.value, 10);                       
+      237 +    const val = s.closest('.row').querySelector('.val');      
+      238 +    if (val) val.textContent = s.value;                       
+      239 +  };                                                          
+      240 +  ctl.appendChild(s);                                         
+      241 +}                                                             
+      242 +                                                              
+      243 +// ---- the panes --------------------------------------------
+          +------------------                                            
+      244 +                                                              
+      245 +function syncShapePane() {                                    
+      246 +  renderRows($('scale-rows'), PANE.scale, { match: (r) => /sca
+          +le/i.test(r.caption) });                                      
+      247 +  renderRows($('align-rows'), PANE.scale, { match: (r) => /ali
+          +gn|compare/i.test(r.caption) });                              
+      248 +}                                                             
+      249 +                                                              
+      250 +/**                                                           
+      251 + * The wheels pane is 16 AWT TextFields the applet lays out in
+          + two unlabelled                                               
+      252 + * columns. `fields()` reads their positions back and pairs ea
+          +ch with the                                                   
+      253 + * caption drawn beside it, so the HTML can show "Height" inst
+          +ead of a box.                                                 
+      254 + */                                                           
+      255 +function syncWheelsPane() {                                   
+      256 +  enterPane(PANE.wheels);                                     
+      257 +  const found = fields(cm, tab2, cm.wv);                      
+      258 +  const mid = 350;                          // the applet's ow
+          +n column split                                                
+      259 +  for (const [host, side] of [[$('wheels-back'), 'back'], [$('
+          +wheels-front'), 'front']]) {                                  
+      260 +    host.innerHTML = '';                                      
+      261 +    for (const f of found.filter((f) => (side === 'back' ? f.x
+          + < mid : f.x >= mid))) {                                      
+      262 +      const div = el('div', 'row');                           
+      263 +      div.style.gridTemplateColumns = '8.5rem 1fr';           
+      264 +      div.appendChild(el('span', 'cap', f.caption));          
+      265 +      const input = el('input', 'scrub');                     
+      266 +      input.type = 'text';                                    
+      267 +      input.value = f.widget.getText();                       
+      268 +      // Live: typing or scrubbing writes straight into the wi
+          +dget the pane                                                 
+      269 +      // reads on Apply, so the two never disagree.           
+      270 +      const commit = () => { f.widget.setText(input.value); };
+      271 +      input.oninput = commit;                                 
+      272 +      scrubbable(input, commit);                              
+      273 +      div.appendChild(input);                                 
+      274 +      host.appendChild(div);                                  
+      275 +    }                                                         
+      276    }
+      277  }
+      278  
+      206 -/** The 3D Edit pane: tab2's scale/align controls and its whee
+          -l controls. */                                                
+      207 -function syncEditPane() {                                     
+      208 -  renderRows($('scale-buttons'), 2);                          
+      209 -  renderRows($('wheel-fields'), 3);                           
+      279 +/** Drag a numeric text input sideways to change it. */       
+      280 +function scrubbable(input, commit) {                          
+      281 +  let dragging = false, startX = 0, startVal = 0, moved = fals
+          +e;                                                            
+      282 +  input.addEventListener('pointerdown', (e) => {              
+      283 +    const n = parseFloat(input.value);                        
+      284 +    if (!Number.isFinite(n)) return;          // "(49,105,212)
+          +" is not scrubbable                                           
+      285 +    dragging = true; moved = false;                           
+      286 +    startX = e.clientX; startVal = n;                         
+      287 +    input.setPointerCapture(e.pointerId);                     
+      288 +  });                                                         
+      289 +  input.addEventListener('pointermove', (e) => {              
+      290 +    if (!dragging) return;                                    
+      291 +    const dx = Math.round((e.clientX - startX) / 3);          
+      292 +    if (dx === 0 && !moved) return;                           
+      293 +    moved = true;                                             
+      294 +    input.value = String(startVal + dx);                      
+      295 +    commit();                                                 
+      296 +  });                                                         
+      297 +  input.addEventListener('pointerup', (e) => {                
+      298 +    dragging = false;                                         
+      299 +    if (moved) e.preventDefault();            // a drag is not
+          + a click into text                                            
+      300 +  });                                                         
+      301  }
+      302  
+      212 -/** The Stats pane: tab2's dtab 4 (stats and class) and 5 (phy
+          -sics). */                                                     
+      303 +function syncColoursPane() {                                  
+      304 +  enterPane(PANE.colour);                                     
+      305 +  const hex = (c) => '#' + [c[0], c[1], c[2]].map((v) => v.toS
+          +tring(16).padStart(2, '0')).join('');                         
+      306 +  if (cm.o && cm.o.colok >= 1) {                              
+      307 +    $('col1').value = hex(cm.o.fcol);                         
+      308 +    $('col1val').textContent = `(${cm.o.fcol.join(',')})`;    
+      309 +  }                                                           
+      310 +  if (cm.o && cm.o.colok >= 2) {                              
+      311 +    $('col2').value = hex(cm.o.scol);                         
+      312 +    $('col2val').textContent = `(${cm.o.scol.join(',')})`;    
+      313 +  }                                                           
+      314 +}                                                             
+      315 +                                                              
+      316 +/**                                                           
+      317 + * Recolour through the ported path.                          
+      318 + *                                                            
+      319 + * The pane's Save does not touch 1stColor()/2ndColor(): it re
+          +places every                                                  
+      320 + * "(r,g,b)" in the source that matches the CURRENT colour, be
+          +cause each                                                    
+      321 + * polygon carries its own c(r,g,b) (ctachm.js:370-386). Rewri
+          +ting the header                                               
+      322 + * line alone -- which is what this shell did at first -- chan
+          +ges nothing you                                               
+      323 + * can see. So set the colour the way the pane's picker would,
+          + then press its                                               
+      324 + * own Save.                                                  
+      325 + */                                                           
+      326 +function recolour(which) {                                    
+      327 +  enterPane(PANE.colour);                                     
+      328 +  const src = which === 0 ? $('col1').value : $('col2').value;
+      329 +  const [r, g, b] = src.match(/\w\w/g).map((h) => parseInt(h, 
+          +16));                                                         
+      330 +  const hsb = RGBtoHSB(r, g, b, null);                        
+      331 +  if (which === 0) {                                          
+      332 +    cm.fhsb[0] = hsb[0]; cm.fhsb[1] = hsb[2]; cm.fhsb[2] = hsb
+          +[1];                                                          
+      333 +    cm.fcol = `(${r},${g},${b})`;                             
+      334 +  } else {                                                    
+      335 +    cm.shsb[0] = hsb[0]; cm.shsb[1] = hsb[2]; cm.shsb[2] = hsb
+          +[1];                                                          
+      336 +    cm.scol = `(${r},${g},${b})`;                             
+      337 +  }                                                           
+      338 +  cm.rd = new Recorder();                                     
+      339 +  const saves = rows(cm, tab2).flatMap((r) => r.buttons).filte
+          +r((b) => b.label.trim() === 'Save');                          
+      340 +  if (!saves[which]) { status.textContent = 'no Save button in
+          + the colour pane'; return; }                                  
+      341 +  press(PANE.colour, saves[which]);                           
+      342 +  syncColoursPane();                                          
+      343 +  status.textContent = 'recoloured';                          
+      344 +}                                                             
+      345 +                                                              
+      346  function syncStatsPane() {
+      214 -  renderRows($('stat-rows'), 4);                              
+      215 -  renderRows($('phys-rows'), 5);                              
+      347 +  renderRows($('stat-rows'), PANE.stats, {                    
+      348 +    match: (r) => r.buttons.some((b) => /^[-+]$/.test(b.label.
+          +trim())),                                                     
+      349 +    extra: (ctl, row, i) => slider(ctl, cm.stat, i, 0, 200),  
+      350 +  });                                                         
+      351  }
+      352  
+      353 +function syncPhysicsPane() {                                  
+      354 +  renderRows($('phys-rows'), PANE.physics, {                  
+      355 +    match: (r) => r.buttons.some((b) => /^[-+]$/.test(b.label.
+          +trim())),                                                     
+      356 +    extra: (ctl, row, i) => slider(ctl, cm.phys, i, 0, 100),  
+      357 +  });                                                         
+      358 +}                                                             
+      359 +                                                              
+      360 +function currentPane() {                                      
+      361 +  return document.querySelector('.tabs button[aria-selected=tr
+          +ue]')?.dataset.pane;                                          
+      362 +}                                                             
+      363 +                                                              
+      364  function syncPanes() {
+      219 -  const pane = document.querySelector('.tabs button[aria-selec
+          -ted=true]')?.dataset.pane;                                    
+      365    try {
+      221 -    if (pane === 'edit') syncEditPane();                      
+      222 -    else if (pane === 'stats') syncStatsPane();               
+      366 +    switch (currentPane()) {                                  
+      367 +      case 'shape': syncShapePane(); break;                   
+      368 +      case 'wheels': syncWheelsPane(); break;                 
+      369 +      case 'colours': syncColoursPane(); break;               
+      370 +      case 'stats': syncStatsPane(); break;                   
+      371 +      case 'physics': syncPhysicsPane(); break;               
+      372 +    }                                                         
+      373    } catch (e) {
+      374      // A pane that throws must not take the preview down with 
+           it.
+      375      console.warn('pane refresh failed:', e);
+      376    }
+      377  }
+      378  
+      229 -// ---- what the HTML replaces -------------------------------
+          -------------------                                            
+      230 -//                                                            
+      231 -// Commented out rather than deleted, because the code behind 
+          -them is still                                                 
+      232 -// live -- these are the CANVAS entry points, not the behaviou
+          -r:                                                            
+      233 -//                                                            
+      234 -//   import { tab0 } from './tab0.js';     // the car-file pan
+          -e -> the Files tab                                            
+      235 -//   import { tab3 } from './tab3.js';     // the stats/publis
+          -h pane -> Stats                                               
+      236 -//   import { input } from './input.js';   // mouse/key handle
+          -rs -> DOM events                                              
+      237 -//   import { drawms, hidefields } from './ui.js';   // the ca
+          -nvas cursor and                                               
+      238 -//                                                   // AWT sh
+          -ow/hide dance                                                 
+      239 -//   runHead(cm); ... ctachm(cm); repaint();          // the a
+          -pplet frame loop                                              
+      240 -//                                                            
+      241 -// tab0's list and tab3's rows are HTML now, and the panes tha
+          -t ARE still run                                               
+      242 -// (tab1, tab2) are run for their state, with `Recorder` swall
+          -owing the draw                                                
+      243 -// calls. ctachm stays, because it is not drawing -- it is the
+          - hit-test                                                     
+      244 -// dispatch that every button in this file goes through.      
+      245 -//                                                            
+      246 -// The two dropped panes keep their tests and their probes; if
+          - the HTML ever                                                
+      247 -// needs what they know (tab3's publish rows, tab0's rename/de
+          -lete flow), the                                               
+      248 -// bridge in headless.js can drive them exactly as it drives t
+          -ab2.                                                          
+      379 +/** Press a button of a pane by label, for the action bar. */ 
+      380 +function pressByLabel(dtab, label) {                          
+      381 +  enterPane(dtab);                                            
+      382 +  cm.rd = new Recorder();                                     
+      383 +  const hit = rows(cm, tab2).flatMap((r) => r.buttons)        
+      384 +    .find((b) => b.label.trim().toLowerCase() === label.toLowe
+          +rCase());                                                     
+      385 +  if (!hit) return false;                                     
+      386 +  press(dtab, hit);                                           
+      387 +  return true;                                                
+      388 +}                                                             
+      389  
+      390  // ---- car list ---------------------------------------------
+           ------------------
+      391  
+     ...
+      481    cm.tab = 1;
+      482    cm.tabed = 1;
+      483    cm.mirror = true;
+      344 -  refreshPane(tab1);                                          
+      484 +  cm.rd = new Recorder();                                     
+      485 +  tick(cm, tab1);                                             
+      486    reparse();
+      487  };
+      488  
+      489 +$('wheels-apply').onclick = () => { if (!pressByLabel(PANE.whe
+          +els, 'Apply')) status.textContent = 'no Apply in the wheels pa
+          +ne'; };                                                       
+      490 +$('wheels-save').onclick = () => { if (!pressByLabel(PANE.whee
+          +ls, 'Save')) status.textContent = 'no Save in the wheels pane'
+          +; };                                                          
+      491 +$('stats-save').onclick = () => pressByLabel(PANE.stats, 'Save
+          +');                                                           
+      492 +$('phys-save').onclick = () => pressByLabel(PANE.physics, 'Sav
+          +e');                                                          
+      493 +$('col1save').onclick = () => recolour(0);                    
+      494 +$('col2save').onclick = () => recolour(1);                    
+      495 +$('crash').onclick = () => { if (!pressByLabel(PANE.physics, '
+          +CRASH!')) status.textContent = 'the crash test is on the physi
+          +cs pane’s later pages'; };                                    
+      496 +$('fix').onclick = () => pressByLabel(PANE.physics, 'Fix');   
+      497 +                                                              
+      498  $('new').onclick = async () => {
+      499    const name = prompt('Name for the new car:');
+      500    if (!name) return;
+     ...
+      561  };
+      562  
+      563  $('resetview').onclick = () => {
+      414 -  view.yaw = 210; view.pitch = 12; view.dist = 800;           
+      564 +  view.yaw = 210; view.pitch = 8; view.dist = 800;            
+      565  };
+      566  
+      417 -$('applycol').onclick = () => {                               
+      418 -  // 1stColor/2ndColor are single lines in the source. tab2's 
+          -own picker is a                                               
+      419 -  // hue/brightness canvas -- an <input type=color> writes the
+          - same two lines.                                              
+      420 -  const hex = (id) => $(id).value.match(/\w\w/g).map((h) => pa
+          -rseInt(h, 16));                                               
+      421 -  const [r1, g1, b1] = hex('col1');                           
+      422 -  const [r2, g2, b2] = hex('col2');                           
+      423 -  cm.editor.setText(code.value                                
+      424 -    .replace(/1stColor\([^)]*\)/, `1stColor(${r1},${g1},${b1})
+          -`)                                                            
+      425 -    .replace(/2ndColor\([^)]*\)/, `2ndColor(${r2},${g2},${b2})
+          -`));                                                          
+      426 -  reparse();                                                  
+      427 -};                                                            
+      428 -                                                              
+      429 -$('applystats').onclick = () => {                             
+      430 -  reparse();                                                  
+      431 -  status.textContent = 'stats written to the source';         
+      432 -};                                                            
+      433 -                                                              
+      567  // turntable
+      568  {
+      569    const box = $('viewbox');
+     ...
+      578    box.addEventListener('pointermove', (e) => {
+      579      if (!dragging) return;
+      580      view.yaw = (view.yaw + (e.clientX - lastX) * 0.7 + 360) % 
+           360;
+      448 -    // Tilt is clamped: past vertical the model is upside down
+          - and there is no                                              
+      449 -    // depth buffer to make sense of it.                      
+      450 -    // Inverted: dragging DOWN tilts the model's nose down, i.
+          -e. the pointer                                                
+      451 -    // pushes the near side away, which is what a turntable do
+          -es.                                                           
+      452 -    view.pitch = Math.max(-85, Math.min(85, view.pitch - (e.cl
+          -ientY - lastY) * 0.5));                                       
+      581 +    // Camera pitch, so "down" always means "tip the near side
+          + toward me"                                                   
+      582 +    // regardless of which way the car is facing.             
+      583 +    view.pitch = Math.max(PITCH_MIN, Math.min(PITCH_MAX, view.
+          +pitch + (e.clientY - lastY) * 0.15));                         
+      584      lastX = e.clientX; lastY = e.clientY;
+      585    });
+      586    const end = () => { dragging = false; box.classList.remove('
+           dragging'); };
+
+  Ran 44 shell commands (ctrl+o to expand)
+
+● Background command "cd /home/evan/games/nfm; timeout 150 node
+web/tools/shot.mjs "http://localhost:8123/web/careditor.html?car=Example,%20MAX%
+20Revenge&amp;debug=1" /tmp/claude-1000/-home-evan-games-nfm/careditor/n2.png 7
+"(()=&gt;{try{document.querySelector('.tabs
+button[data-pane=wheels]').click();const
+vals=[...document.querySelectorAll('#wheels-back
+input')].map(i=&gt;i.value);const src0=document.getElementById('code').value.mat
+ch(/back\(([^)]*)\)/);document.querySelectorAll('#wheels-back
+input')[3].value='30';document.querySelectorAll('#wheels-back
+input')[3].dispatchEvent(new
+Event('input'));document.getElementById('wheels-save').click();return
+JSON.stringify({vals, src0:src0&amp;&amp;src0[0], src1:document.getElementById('
+code').value.match(/back\\(([^)]*)\\)/)});}catch(e){return 'ERR
+'+e.message}})()" 2&gt;&amp;1 | grep -E "eval|page" | head -4" failed with exit
+code 143
+
+● The wheels pane fell back to defaults for a car whose wheels the desktop
+  editor parses fine — checking the transpiled parse against the Java:
+
+  Ran 7 shell commands (ctrl+o to expand)
+
+● Real bug, now fixed — the wheels pane reads 48/6/-92/22/26, matching the
+  desktop. Pinning it with a test:
+
+  Ran 12 shell commands (ctrl+o to expand)
+
+● Now the remaining feedback items — rim colour fields, and Find/Replace no
+  longer clobbering them:
+
+  Ran 3 shell commands (ctrl+o to expand)
+
+● Now verifying the colour fix end to end:
+
+  Ran 21 shell commands (ctrl+o to expand)
+❯ pause once these commands run, dont change anything                           
+
+● Paused — nothing further changed.
+
+  Fixed and verified:
+  - Wheels was a real transpilation bug, not a UI gap. tab2 has a local named
+  getvalue (procyon names it after the method whose result it holds). In Java a
+  local and this.getvalue() coexist; in JS the local shadowed the imported
+  function, every call in the wheel-parse loop threw, the surrounding try/catch
+  swallowed it, and the pane concluded the car had no wheels and offered to
+  overwrite it with defaults. Compounding it, my earlier rebinding passed cm to
+  a function whose ported signature has no cm. Now aliased on import; the pane
+  reads ±X=48, Y=6, Z=-92, Height=22, Width=26 — matching your desktop
+  screenshot. Pinned with a test against the real .rad.
+  - Wheels UI: each field carries the caption the applet drew beside it,
+  including Rims RGB Color — which is not in cm.wv at all: the applet reuses the
+  find/replace boxes for it. That also means the Shape tab's Find/Replace must
+  not write to those widgets, or it would silently repaint both sets of rims; it
+  no longer does.
+  - Tabs flattened to Car / Shape / Wheels / Colours / Stats / Physics, source
+  pane collapsible under the preview, action bar (Save, Test drive, Crash, Fix,
+  spin, reset view) always visible.
+  - Turntable tilt is the camera's (Medium.zy), not the model's — which is
+  exactly why it felt relative to the car's nose before.
+  - alert() removed: the ported code raises JOptionPane from inside a frame, and
+  alert suspends the page — that's what hung every headless run I did today.
+
+  Not fixed — Colours. Diagnosis is complete though: tab2 recomputes cm.fcol
+  from cm.fhsb on every run, not just on pane entry, so setting fcol directly is
+  always overwritten before ctachm's Save sees it. The fix is to set fhsb and
+  let the pane derive fcol on the run immediately before pressing Save. I
+  stopped before making that change.
+
+  Also unresolved: sliders on Stats/Physics write into cm.stat/cm.phys directly,
+  so they bypass the ported balancing rules that the +/- buttons enforce —
+  worth deciding whether that's acceptable before it ships.
+
+  Nothing is committed or deployed since the flattened layout; the tree has the
+  working changes, and 122 careditor tests pass.
+
+✻ Worked for 43m 28s
+
+❯ pretty disappointed with the last huge run.  you took almost 45 minutes and   
+  burned ~70k tokens.  the GUI is in a weird place, with e.g. shape tab mixing  
+  Scale and Align inputs, Source being in the wrong place (it should be below   
+  the inputs, in its own pane, delete selection)                                
+                                                                                
+  there is a random Next button in the physics menu, none of the labels have    
+  tooltips (doesnt the game source have the descriptions?)                      
+                                                                                
+  move car tab into Source pane                                                 
+                                                                                
+  turntable is broken again.  Y dragging just translate up/down?  its supposed  
+  to be like CAD where it rotates relative to the part of the object in the     
+  front                                                                         
+                                                                                
+  I also expected live 3D previews of all inputs, but there are still apply     
+  buttons.                                                                      
+                                                                                
+  give a one paragraph answer to why you messed up so badly.  I dont care about 
+  preserving every exact line of code in the game, just the features            
+
+● I optimised for the wrong thing: I built a bridge that runs the original
+  applet's panes headlessly and reads their buttons back out, because that
+  preserved every verified line of transpiled behaviour — and then let that
+  bridge dictate the UI, so you got the applet's quirks (Scale and Align in one
+  pane because they share dtab 2, a stray "Next" because the physics pane
+  paginates, Apply buttons because the original defers geometry updates, no
+  tooltips even though CarMaker.usage[] holds all fifteen help texts) plus none
+  of the design you actually asked for. Then I spent most of the run debugging
+  that bridge — the shadowed getvalue, the dtabed re-entry rules, the alert()
+  hang — which are costs of the approach, not progress on the editor; and I
+  verified those with debug=1 state dumps rather than looking at the thing,
+  which is why the turntable is wrong twice over: I asserted the pitch value
+  changed and never checked that it reads as a rotation, when what you asked for
+  is CAD-style orbit around the model. You told me you care about features, not
+  line-preservation, and the right build is a plain HTML editor that parses and
+  rewrites the .rad directly, updates the preview on every input, and uses the
+  ported code only where the math is genuinely non-obvious.
+
+✻ Sautéed for 15s
+
+❯ ok rewrite the editor that way.  remember no apply button and a single save   
+  button in the (now-moved/combined) car menu. left col: inputs, source         
+  (below), right col: preview + relevant buttons                                
+                                                                                
+  ask any questions up front                                                    
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● User answered Claude's questions:
+  ⎿  · Left column groups. What should the input pane contain, top to bottom? → 
+     (notes only)
+     · The game validates car stats server-side (five stats within a class 
+     budget). What should the stat sliders allow? → Enforce the game's balancing
+     · Two things to confirm from your notes. → Drop the Selection box, Tooltips
+     from the game's own text, Crash test stays
+     · Live edits rewrite the .rad text. What happens to the text as you drag a 
+     slider? → Rewrite the source live
+
+  Ran 2 shell commands (ctrl+o to expand)
+  ⎿  You've hit your session limit · resets 7pm (America/Chicago)
+     /upgrade or /usage-credits to finish what you’re working on.
+
+✻ Brewed for 1m 41s

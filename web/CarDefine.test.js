@@ -8,6 +8,14 @@ import { ContO } from './ContO.js';
 import { parseZip, entryText } from './vfs.js';
 import { fr } from './java.js';
 
+
+// The sixteen base cars now carry a stat()/physics() block that
+// web/tools/embedstats.mjs wrote into models.zip; the applet's models.zip had
+// none. These probes were captured from real Java against the ORIGINAL file and
+// prepend their own header, which a trailing stat() line would override -- so
+// strip the block and keep testing the input the probe actually measured.
+const stripEmbedded = (text) => text.replace(/\n*\/\/ ---- stats, embedded[\s\S]*$/, '\n');
+
 test('CarDefine constructor defaults match Java probe', () => {
   const m = new Medium();
   const t = new Trackers();
@@ -228,7 +236,7 @@ test('CarDefine loadstat Case D (Negative parameters n, n2, n3 & extreme values)
 
 test('CarDefine loadcar successfully loads valid custom car RAD file matching Java probe', async () => {
   const zip = await parseZip(new Uint8Array(readFileSync(new URL('../data/models.zip', import.meta.url))));
-  const formula7Raw = entryText(zip.get('formula7.rad'));
+  const formula7Raw = stripEmbedded(entryText(zip.get('formula7.rad')));
 
   const customHeader =
     'stat(150,150,150,150,150)\n' +
@@ -290,7 +298,7 @@ test('CarDefine loadcar successfully loads valid custom car RAD file matching Ja
 
 test('CarDefine loadcar returns -1 for missing text or bad stats or npl <= 60 matching Java probe', async () => {
   const zip = await parseZip(new Uint8Array(readFileSync(new URL('../data/models.zip', import.meta.url))));
-  const formula7Raw = entryText(zip.get('formula7.rad'));
+  const formula7Raw = stripEmbedded(entryText(zip.get('formula7.rad')));
   const opile1Raw = entryText(zip.get('opile1.rad'));
 
   const bco = new Array(56).fill(null);

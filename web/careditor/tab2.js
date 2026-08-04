@@ -5,7 +5,13 @@
 
 import { idiv, trunc, fr, i32, HSBtoRGB, RGBtoHSB, random } from '../java.js';
 import { movefield, stringbutton, hidefields } from './ui.js';
-import { setupo, savefile, getvalue } from './files.js';
+// Aliased on import: procyon names a local `getvalue` in the wheels pane,
+// after the method it holds the result of. In Java `this.getvalue(...)` and a
+// local of the same name coexist; in JS the local shadows the function, every
+// call inside that block throws, and the try/catch around it swallows the lot
+// -- so the pane silently decided the car had no wheels and filled in
+// defaults. Nothing in the file's own code is renamed (spec §0).
+import { setupo, savefile, getvalue as getvalueOf } from './files.js';
 import { regx, regz, rot, xs, ys } from './shape.js';
 
 export function tab2(cm) {
@@ -580,33 +586,33 @@ export function tab2(cm) {
           endIndex = string3.indexOf("\n", n36);
           try {
             if (trim.startsWith("rims(")) {
-              string4 = "(" + getvalue(cm, "rims", trim, 0) + "," + getvalue(cm, "rims", trim, 1) + "," + getvalue(cm, "rims", trim, 2) + ")";
-              getvalue4 = getvalue(cm, "rims", trim, 3);
-              getvalue5 = getvalue(cm, "rims", trim, 4);
+              string4 = "(" + getvalueOf("rims", trim, 0) + "," + getvalueOf("rims", trim, 1) + "," + getvalueOf("rims", trim, 2) + ")";
+              getvalue4 = getvalueOf("rims", trim, 3);
+              getvalue5 = getvalueOf("rims", trim, 4);
             }
             if (trim.startsWith("gwgr(")) {
-              getvalue3 = getvalue(cm, "gwgr", trim, 0);
+              getvalue3 = getvalueOf("gwgr", trim, 0);
             }
             if (!trim.startsWith("w(")) {
               continue;
             }
-            const getvalue6 = getvalue(cm, "w", trim, 2);
+            const getvalue6 = getvalueOf("w", trim, 2);
             if (getvalue6 > 0) {
-              abs = Math.abs(getvalue(cm, "w", trim, 0));
-              getvalue = getvalue(cm, "w", trim, 1);
+              abs = Math.abs(getvalueOf("w", trim, 0));
+              getvalue = getvalueOf("w", trim, 1);
               m = getvalue6;
-              abs3 = Math.abs(getvalue(cm, "w", trim, 4));
-              abs5 = Math.abs(getvalue(cm, "w", trim, 5));
+              abs3 = Math.abs(getvalueOf("w", trim, 4));
+              abs5 = Math.abs(getvalueOf("w", trim, 5));
               text = string4;
               i3 = getvalue4;
               i5 = getvalue5;
               i7 = getvalue3;
             } else {
-              abs2 = Math.abs(getvalue(cm, "w", trim, 0));
-              getvalue2 = getvalue(cm, "w", trim, 1);
+              abs2 = Math.abs(getvalueOf("w", trim, 0));
+              getvalue2 = getvalueOf("w", trim, 1);
               i2 = getvalue6;
-              abs4 = Math.abs(getvalue(cm, "w", trim, 4));
-              abs6 = Math.abs(getvalue(cm, "w", trim, 5));
+              abs4 = Math.abs(getvalueOf("w", trim, 4));
+              abs6 = Math.abs(getvalueOf("w", trim, 5));
               text2 = string4;
               i4 = getvalue4;
               i6 = getvalue5;
@@ -764,7 +770,7 @@ export function tab2(cm) {
             }
             let n39 = 0;
             for (let n40 = 0; n40 < 5; ++n40) {
-              cm.stat[n40] = getvalue(cm, "stat", trim2, n40);
+              cm.stat[n40] = getvalueOf("stat", trim2, n40);
               if (cm.stat[n40] > 200) {
                 cm.stat[n40] = 200;
               }
@@ -976,7 +982,7 @@ export function tab2(cm) {
                 continue;
               }
               for (let n61 = 0; n61 < 11; ++n61) {
-                cm.phys[n61] = getvalue(cm, "physics", trim3, n61);
+                cm.phys[n61] = getvalueOf("physics", trim3, n61);
                 if (cm.phys[n61] > 100) {
                   cm.phys[n61] = 100;
                 }
@@ -988,7 +994,7 @@ export function tab2(cm) {
                 cm.rphys[n62] = cm.phys[n62];
               }
               for (let n63 = 0; n63 < 3; ++n63) {
-                cm.crash[n63] = getvalue(cm, "physics", trim3, n63 + 11);
+                cm.crash[n63] = getvalueOf("physics", trim3, n63 + 11);
                 if (cm.crash[n63] > 100) {
                   cm.crash[n63] = 100;
                 }
@@ -999,7 +1005,7 @@ export function tab2(cm) {
               for (let n64 = 0; n64 < 3; ++n64) {
                 cm.rcrash[n64] = cm.crash[n64];
               }
-              cm.engsel = getvalue(cm, "physics", trim3, 14);
+              cm.engsel = getvalueOf("physics", trim3, 14);
               if (cm.engsel > 4) {
                 cm.engsel = 0;
               }
@@ -1445,7 +1451,7 @@ export function tab2(cm) {
           endIndex5 = string8.indexOf("\n", n107);
           if (trim5.startsWith("handling(")) {
             try {
-              cm.handling = getvalue(cm, "handling", trim5, 0);
+              cm.handling = getvalueOf("handling", trim5, 0);
               if (cm.handling > 200) {
                 cm.handling = 200;
               }

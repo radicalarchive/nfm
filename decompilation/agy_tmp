@@ -44,11 +44,11 @@ SKIP_PERMS="${SKIP_PERMS:-}"
 # wrong code" on numeric work and that such errors surface weeks later as "the
 # handling feels off", so pick capability over cost.
 #
-# gemini-3.1-pro-high: pro > flash, and the -high/-low suffix is the reasoning
-# budget. Gemini also draws on a SEPARATE quota from claude-*/gpt-oss, which
-# share one pool — so this is both the strongest available option and the one
-# that preserves the Claude credits.
-MODEL="${MODEL:-gemini-3.1-pro-high}"
+# gemini was the default while it had credit, because it drew on a separate
+# quota. It ran out on 2026-08-03, so this is claude-sonnet-4-6 — capable
+# enough for specified, verifiable transpilation, and cheaper than opus on the
+# pool it now shares with gpt-oss. Keep concurrency to two.
+MODEL="${MODEL:-claude-sonnet-4-6}"
 EFFORT="${EFFORT:-high}"
 TIMEOUT="${TIMEOUT:-45m}"
 

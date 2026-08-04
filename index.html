@@ -368,14 +368,19 @@ function showCar() {
  */
 let storedNames = [];
 async function refreshCustomCars() {
-  for (const o of [...carSel.options]) if (+o.value >= CAR_COUNT) o.remove();
+  carSel.querySelector('optgroup[label="My cars"]')?.remove();
   const loaded = await loadCustomCars();
   storedNames = await listStored();
-  loaded.forEach((name, i) => {
-    const o = new Option(`${name} (my car)`, CAR_COUNT + i);
-    o.dataset.name = name;
-    carSel.add(o);
-  });
+  if (loaded.length) {
+    const mine = document.createElement('optgroup');
+    mine.label = 'My cars';
+    loaded.forEach((name, i) => {
+      const o = new Option(name, CAR_COUNT + i);
+      o.dataset.name = name;
+      mine.appendChild(o);
+    });
+    carSel.add(mine);
+  }
   return loaded;
 }
 
@@ -449,7 +454,12 @@ const step = (sel, d, count) => {
     // Decorative: a missing images.zip must not stop you racing.
     faceURL().then((u) => { $('face').src = u; }).catch(() => {});
 
-    carNames().forEach((name, i) => carSel.add(new Option(name, i)));
+    // Two groups, the same split the Car Maker's picker shows: the game's own
+    // sixteen, then whatever is in browser storage.
+    const defaults = document.createElement('optgroup');
+    defaults.label = 'Default Cars';
+    carNames().forEach((name, i) => defaults.appendChild(new Option(name, i)));
+    carSel.add(defaults);
     carSel.value = '1';
     await refreshCustomCars();
 

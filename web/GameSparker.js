@@ -72,8 +72,13 @@ export class GameSparker {
       array[n2].baseIndex = n2;
     }
     // Java compares the summed uncompressed size against this exact constant
-    // to flag a tampered/short models.zip.
-    if (this.mload !== -1 && n !== 615671) {
+    // to flag a tampered/short models.zip. The Java's number is 615671; ours is
+    // larger because web/tools/embedstats.mjs wrote a stat()/physics() block
+    // into the sixteen base cars, which the applet never had. The check is kept
+    // (a short or truncated download is still worth flagging) with the constant
+    // moved to match our archive -- re-run the tool if you change the models
+    // and update this alongside it.
+    if (this.mload !== -1 && n !== 621172) {
       this.mload = 2;
     }
   }

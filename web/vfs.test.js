@@ -7,14 +7,16 @@ import { parseZip, entryText, readLines } from './vfs.js';
 
 const load = (p) => new Uint8Array(readFileSync(new URL(p, import.meta.url)));
 
-test('models.zip decodes to 84 entries totalling 615671 bytes', async () => {
+test('models.zip decodes to 84 entries totalling 621172 bytes', async () => {
   const zip = await parseZip(load('../data/models.zip'));
   assert.equal(zip.size, 84);
-  // loadbase() compares this exact total against 615671 to set its error flag,
-  // so it doubles as a checksum on the whole decode.
+  // loadbase() compares this exact total against the same constant to set its
+  // error flag, so it doubles as a checksum on the whole decode. The applet's
+  // number was 615671; ours is larger because embedstats.mjs wrote a
+  // stat()/physics() block into the sixteen base cars (see GameSparker.js).
   let total = 0;
   for (const b of zip.values()) total += b.length;
-  assert.equal(total, 615671);
+  assert.equal(total, 621172);
 });
 
 test('a decoded .rad model is intact text', async () => {
