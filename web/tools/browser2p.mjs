@@ -12,7 +12,9 @@
 // Needs a server on :8123 serving the repo root.
 
 import { spawn } from 'node:child_process';
+import { openSync } from 'node:fs';
 import { setTimeout as sleep } from 'node:timers/promises';
+import { attach } from './cdp.mjs';
 
 const SECONDS = parseInt(process.argv[2] || '45', 10);
 const ROOM = 'E2E' + Math.floor(Math.random() * 900 + 100);
@@ -22,58 +24,28 @@ function launch(port) {
     '--headless=new', '--no-sandbox', '--enable-unsafe-swiftshader',
     '--autoplay-policy=no-user-gesture-required',
     '--window-size=800,450', `--remote-debugging-port=${port}`,
-    `--user-data-dir=/tmp/nfm-e2e-${port}`,
+    // Profile per RUN, not per port. A killed instance leaves its lock
+    // behind, and the next launch then hands its URL to the dead session
+    // ("Opening in existing browser session") and never opens a debugging
+    // port -- which presents as a connect timeout and looks like a CDP fault.
+    `--user-data-dir=/tmp/nfm-e2e-${port}-${process.pid}`,
     'about:blank',
-  ], { stdio: ['ignore', 'ignore', 'pipe'] });
+    // stderr to a file, not a pipe. Chromium is chatty here (DBus, ALSA), and
+    // nothing was reading the pipe -- a full pipe buffer blocks the browser.
+  ], { stdio: ['ignore', 'ignore', openSync(`/tmp/nfm-e2e-${port}.err`, 'w')] });
   return p;
-}
-
-async function connect(port) {
-  for (let i = 0; i < 60; i++) {
-    try {
-      const list = await (await fetch(`http://127.0.0.1:${port}/json/list`)).json();
-      const page = list.find((t) => t.type === 'page');
-      if (page) return new WebSocket(page.webSocketDebuggerUrl);
-    } catch { /* not up yet */ }
-    await sleep(250);
-  }
-  throw new Error(`no devtools on ${port}`);
-}
-
-class Client {
-  constructor(ws) {
-    this.ws = ws;
-    this.id = 0;
-    this.pending = new Map();
-    this.logs = [];
-    ws.addEventListener('message', (ev) => {
-      const msg = JSON.parse(ev.data);
-      if (msg.id && this.pending.has(msg.id)) {
-        this.pending.get(msg.id)(msg);
-        this.pending.delete(msg.id);
-      } else if (msg.method === 'Runtime.consoleAPICalled') {
-        this.logs.push(msg.params.args.map((a) => a.value).join(' '));
-      }
-    });
-  }
-  send(method, params = {}) {
-    const id = ++this.id;
-    this.ws.send(JSON.stringify({ id, method, params }));
-    return new Promise((res) => this.pending.set(id, res));
-  }
-  async evaluate(expr) {
-    const r = await this.send('Runtime.evaluate', { expression: expr, returnByValue: true });
-    return r.result?.result?.value;
-  }
 }
 
 const ports = [9333, 9334];
 const procs = ports.map(launch);
 const sockets = [];
 for (const port of ports) {
-  const ws = await connect(port);
-  await new Promise((res) => ws.addEventListener('open', res));
-  const c = new Client(ws);
+  // attach() polls /json/list and reports WHY it gave up. The loop this
+  // replaced swallowed every error as "not up yet", including the
+  // ReferenceError from `new WebSocket` -- a global Node only gained in v22 --
+  // and then blamed the browser for a fault that was in this file.
+  const c = await attach(port, '');   // still about:blank; navigated below
+  c.logs = c.collectConsole();
   await c.send('Runtime.enable');
   await c.send('Page.enable');
   sockets.push(c);
@@ -109,9 +81,16 @@ const desyncs = sockets.map((c) => c.logs.filter((l) => /desync/i.test(l)).lengt
 const oks = sockets.map((c) => c.logs.filter((l) => /^sync ok/.test(l)).length);
 console.log(`sync-ok checkpoints: host ${oks[0]}, guest ${oks[1]}`);
 console.log(`desyncs reported:    host ${desyncs[0]}, guest ${desyncs[1]}`);
+// The handshake happens in the first second and the fps readout logs several
+// times a second, so a plain tail buries the one thing this tool is for.
+// Report the netplay lines separately -- without them, "0 sync checkpoints"
+// cannot be told apart from "the two peers never paired at all".
 for (const [i, c] of sockets.entries()) {
-  const interesting = c.logs.filter((l) => !/^sync ok/.test(l)).slice(-6);
-  console.log(`--- client ${i} log tail ---\n${interesting.join('\n')}`);
+  const net = c.logs.filter((l) => /room|join|racing|waiting|peer|desync|error/i.test(l));
+  console.log(`--- client ${i} netplay ---\n${net.join('\n') || '(nothing -- never entered netplay)'}`);
+  const interesting = c.logs.filter((l) => !/^sync ok/.test(l) && !/fps/.test(l)).slice(-6);
+  if (interesting.length) console.log(`--- client ${i} other ---\n${interesting.join('\n')}`);
 }
+sockets.forEach((c) => c.close());
 procs.forEach((p) => p.kill());
 process.exit(oks[0] > 0 && desyncs[0] === 0 && desyncs[1] === 0 ? 0 : 1);

@@ -13,8 +13,9 @@
 // Needs a server on :8123 serving the repo root.
 
 import { spawn } from 'node:child_process';
-import { writeFileSync } from 'node:fs';
+import { writeFileSync, openSync } from 'node:fs';
 import { setTimeout as sleep } from 'node:timers/promises';
+import { attach } from './cdp.mjs';
 
 const [url, out, secs = '6', script] = process.argv.slice(2);
 if (!url || !out) {
@@ -26,43 +27,29 @@ const PORT = 9350 + Math.floor(Math.random() * 40);
 const proc = spawn('chromium', [
   '--headless=new', '--no-sandbox', '--enable-unsafe-swiftshader',
   '--hide-scrollbars', '--window-size=1400,950',
-  `--remote-debugging-port=${PORT}`, `--user-data-dir=/tmp/nfm-shot-${PORT}`,
+  `--remote-debugging-port=${PORT}`,
+  // Profile per RUN. A killed instance leaves its lock behind and the next
+  // launch hands its URL to the dead session instead of opening a port.
+  `--user-data-dir=/tmp/nfm-shot-${PORT}-${process.pid}`,
   'about:blank',
-], { stdio: ['ignore', 'ignore', 'pipe'] });
+  // stderr to a file, not an unread pipe: a full pipe buffer blocks chromium.
+], { stdio: ['ignore', 'ignore', openSync(`/tmp/nfm-shot-${PORT}.err`, 'w')] });
 
-async function connect() {
-  for (let i = 0; i < 60; i++) {
-    try {
-      const list = await (await fetch(`http://127.0.0.1:${PORT}/json/list`)).json();
-      const page = list.find((t) => t.type === 'page');
-      if (page) return new WebSocket(page.webSocketDebuggerUrl);
-    } catch { /* not up yet */ }
-    await sleep(250);
-  }
-  throw new Error('no devtools');
-}
+// attach() reports why it gave up. The loop this replaced caught everything as
+// "not up yet" -- including the ReferenceError from `new WebSocket`, a global
+// Node only gained in v22 -- and then reported "no devtools".
+const cdp = await attach(PORT, '');
+const send = (method, params) => cdp.send(method, params);
 
-const ws = await connect();
-await new Promise((res) => ws.addEventListener('open', res));
-
-let id = 0;
-const pending = new Map();
 const logs = [];
-ws.addEventListener('message', (ev) => {
-  const msg = JSON.parse(ev.data);
-  if (msg.id && pending.has(msg.id)) { pending.get(msg.id)(msg); pending.delete(msg.id); }
-  else if (msg.method === 'Runtime.consoleAPICalled') {
-    logs.push(msg.params.args.map((a) => a.value ?? a.description).join(' '));
-  } else if (msg.method === 'Runtime.exceptionThrown') {
-    logs.push('EXCEPTION ' + (msg.params.exceptionDetails.exception?.description ||
-                              msg.params.exceptionDetails.text));
+cdp.on((m) => {
+  if (m.method === 'Runtime.consoleAPICalled') {
+    logs.push(m.params.args.map((a) => a.value ?? a.description).join(' '));
+  } else if (m.method === 'Runtime.exceptionThrown') {
+    logs.push('EXCEPTION ' + (m.params.exceptionDetails.exception?.description
+                              || m.params.exceptionDetails.text));
   }
 });
-const send = (method, params = {}) => {
-  const n = ++id;
-  ws.send(JSON.stringify({ id: n, method, params }));
-  return new Promise((res) => pending.set(n, res));
-};
 
 await send('Runtime.enable');
 await send('Page.enable');
@@ -83,5 +70,6 @@ writeFileSync(out, Buffer.from(shot.result.data, 'base64'));
 for (const l of logs) console.log('[page]', l);
 console.log('wrote', out);
 
+cdp.close();
 proc.kill();
 process.exit(0);

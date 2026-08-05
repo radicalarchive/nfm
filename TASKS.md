@@ -324,6 +324,22 @@ there is no backend of ours anywhere in this design.
         bit-identical across JS engines, and players will be on different ones.
       - Acceptance: two independently built worlds tick 1000 times to
         bit-identical state, asserted in a test.
+- [!] **The browser-level sync check has never compared anything, and reports
+      that as success.** `netCheck()` (main.js) sends its hash for tick N and
+      then reads `peerChecks.get(N)` *synchronously*. The peer's hash for tick
+      N is still crossing the network at that moment — two lockstepped clients
+      reach the same tick at nearly the same time — so `theirs` is essentially
+      always `undefined`, the comparison is skipped, and nothing ever reads the
+      entry once it lands: the only read is that one. So `browser2p.mjs`
+      reports "desyncs: 0" while performing zero checks. Verified 2026-08-05:
+      both peers pair and race (host "racing Guest", guest "joined Host") for
+      35s and produce 0 sync-ok checkpoints where ~5 were due.
+      **Deliberately not fixed** — it only invalidates lockstep's own
+      verification, and the topology is being replaced. **Whoever writes the
+      state-sync checker must not reproduce the shape:** compare on the tick
+      whose hash has ARRIVED, not the tick you are on. Note this does not
+      touch `netloop.mjs`'s 8000-tick result, which runs two node processes
+      and compares fields directly.
 - [ ] **Reconsider lockstep before adding a 3rd player.** The original is
       host-authoritative state sync: `UDPMistro.setinfo()` sends inputs AND
       absolute state per car per tick, and the host simulates the bots
