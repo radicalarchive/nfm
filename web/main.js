@@ -298,6 +298,9 @@ async function boot() {
   
   const musicvol = parseInt(params.get('musicvol') || '100', 10);
   music.setVolume(musicvol / 100.0);
+  // ?music=0 stops the tracker ever initialising. musicvol=0 would not: the
+  // mixer's ScriptProcessorNode still runs on the main thread at full cost.
+  if (params.get('music') === '0' || musicvol === 0) music.disable();
 
   xt.snd = snd;
   snd.load().catch((e) => console.warn('sound unavailable:', e));
@@ -500,6 +503,35 @@ async function boot() {
   let lastFpsAt = last;
 
   let simMs = 0, drawMs = 0, nextFrameAt = 0;
+
+  // ---- spike attribution --------------------------------------------------
+  // `?spike=<ms>` logs every frame whose rAF-to-rAF gap exceeded <ms>, split
+  // into where the time went. This exists because "the fps dips" is not a
+  // debuggable statement and the averages in ?stats=1 cannot show it: a run
+  // that spends 90% of its frames at 25fps and 10% at 3fps reports a mean that
+  // matches neither.
+  //
+  // The buckets are measured on the PREVIOUS frame, because the gap reported
+  // at frame N is what frame N-1 cost plus whatever ran between them:
+  //
+  //   sim   gs.simulate()
+  //   draw  gs.draw(), both the tick's and the interpolated pass
+  //   gl    rd.end() -- the bufferData upload and the one drawArrays. Timed
+  //         separately because it was in no bucket at all, and a driver that
+  //         blocks on the previous frame blocks HERE.
+  //   othr  the rest of our own callback (blend, capture/restore, netplay)
+  //   OUT   gap minus all of the above: time the main thread was not ours.
+  //         GC, the music mixer's ScriptProcessorNode (which runs on the main
+  //         thread, every 256 samples), compositing, or the browser waiting on
+  //         a vsync it missed. A big OUT means the fix is not in the renderer.
+  const SPIKE_MS = parseFloat(params.get('spike') || '0');
+  let prevRaf = 0, prevSim = 0, prevDraw = 0, prevGl = 0, prevCpu = 0;
+  let spikeCount = 0;
+  // Coarse histogram of every frame gap, so a run reports how BAD the tail is
+  // rather than just its mean. Buckets in ms.
+  const HIST_EDGES = [20, 33, 50, 100, 200, 400, Infinity];
+  const hist = new Array(HIST_EDGES.length).fill(0);
+  let outMsTotal = 0, gapMsTotal = 0;
   // Jitter allowance for the ?maxfps= deadline, in ms. Well under a 60Hz
   // vsync (16.7ms), so it never lets an extra frame through, and far above
   // the sub-ms wobble in rAF timestamps.
@@ -672,7 +704,37 @@ async function boot() {
     // stays on screen. Press R to run another window.
     if (benchDone || leaving) return;
 
-    let fSim = 0, fDraw = 0, ticksThisFrame = 0;
+    const frameEntry = performance.now();
+    if (SPIKE_MS > 0 && prevRaf > 0) {
+      const gap = now - prevRaf;
+      const out = gap - prevCpu;
+      gapMsTotal += gap;
+      outMsTotal += Math.max(0, out);
+      for (let i = 0; i < HIST_EDGES.length; i++) {
+        if (gap < HIST_EDGES[i]) { hist[i]++; break; }
+      }
+      if (gap >= SPIKE_MS) {
+        spikeCount++;
+        const othr = prevCpu - prevSim - prevDraw - prevGl;
+        console.log(
+          `SPIKE t=${(now / 1000).toFixed(1)}s gap=${gap.toFixed(1)}ms`
+          + ` sim=${prevSim.toFixed(1)} draw=${prevDraw.toFixed(1)}`
+          + ` gl=${prevGl.toFixed(1)} othr=${othr.toFixed(1)}`
+          + ` OUT=${out.toFixed(1)} verts=${rd.inputVerts}`);
+      }
+    }
+    prevRaf = now;
+
+    // frameBody has several early returns (the ?maxfps= gate, "nothing was
+    // rendered", end of race). Wrapping it is the only way the cost of EVERY
+    // path lands in prevCpu -- and the cheap paths are exactly the ones a
+    // spike hides behind.
+    frameBody(now);
+    prevCpu = performance.now() - frameEntry;
+  }
+
+  function frameBody(now) {
+    let fSim = 0, fDraw = 0, fGl = 0, ticksThisFrame = 0;
 
     // Optional presentation cap. rAF still fires at the display rate; we just
     // skip the work. ?maxfps=30 halves the draw cost without touching physics.
@@ -774,8 +836,11 @@ async function boot() {
       restoreCurr();
       fDraw += performance.now() - t1;
     }
+    const tGl = performance.now();
     rd.end();
+    fGl = performance.now() - tGl;
 
+    prevSim = fSim; prevDraw = fDraw; prevGl = fGl;
     simMs += fSim;
     drawMs += fDraw;
 
@@ -847,6 +912,12 @@ async function boot() {
           + `  [interp=${INTERPOLATE ? 1 : 0}`
           + ` maxfps=${MAX_FPS || 'off'} pool=${POOLING ? 1 : 0}`
           + ` aa=${AA ? 1 : 0} textres=${textRes}]`;
+      }
+      if (SPIKE_MS > 0) {
+        // Where the frames actually landed, not their mean. Read left to
+        // right: <20 <33 <50 <100 <200 <400 400+.
+        line += `\n  gaps ${hist.join('/')}  spikes=${spikeCount}`
+          + `  offcpu=${(outMsTotal / Math.max(1, gapMsTotal) * 100).toFixed(0)}%`;
       }
       log(line);
       frames = 0;

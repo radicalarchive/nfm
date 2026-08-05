@@ -120,6 +120,26 @@ function getContext() {
 }
 
 /**
+ * Turn the soundtrack off outright, before anything initialises it.
+ *
+ * This is NOT `setVolume(0)`, and the difference is the entire point.
+ * BassoonTracker mixes through a ScriptProcessorNode -- which runs on the MAIN
+ * THREAD, and at 256 samples a callback, i.e. every ~5.8ms. Silencing it at
+ * the gain node leaves every one of those callbacks running, so the CPU cost
+ * is identical to full volume. Only refusing to init removes it, which is what
+ * makes `?music=0` a usable A/B against the frame-rate dips.
+ *
+ * Reuses the `audioFailed` latch rather than adding a second flag: every entry
+ * point already routes through getContext(), so there is one gate to keep
+ * correct instead of two.
+ */
+export function disable() {
+  if (audioReady) stop();
+  audioFailed = true;
+  audioReady = false;
+}
+
+/**
  * Load a track by name: a stage number, 'party' or 'interface'.
  *
  * Resolves to true if the module actually parsed and is the current track.
