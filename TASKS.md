@@ -385,6 +385,12 @@ there is no backend of ours anywhere in this design.
       still shrinking (x0.92). **Confirmed in three real browsers**
       (`browsern.mjs 45 3`): peers pair, slots are distinct, and each guest
       hears the other guest through the relay.
+- [x] **Second DataChannel for lobby/chat**, reliable and ordered, over the
+      same peer connection (`netpeer.js` `sendMessage`/`onMessage`, paired by
+      `conn.peer`). The join handshake moved onto it — it was previously riding
+      the unreliable channel, where a dropped `hello`/`start` stranded the
+      guest. Chat is relayed by the host like state. Verified guest-to-guest in
+      three browsers. The lobby and chat SCREENS are still unported xtGraphics.
 - [ ] **Host migration, or bot reassignment on disconnect.** `ownerOf` gives
       every bot to `humanSlots[0]`, so if the host leaves, the bots have no
       owner and freeze. At two players the race is over anyway; at four it is

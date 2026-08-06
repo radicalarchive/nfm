@@ -86,8 +86,10 @@ async function negotiate(mode, params, cfg, keep) {
     // until both drove the same car.
     const names = [name || 'Host'];
     const hellos = new Map();
-    net.onData = (d, from) => {
-      const msg = typeof d === 'string' ? JSON.parse(d) : d;
+    // The handshake rides the RELIABLE channel: a dropped `hello` or `start`
+    // does not heal itself the way a dropped state packet does, it strands the
+    // guest at "connecting" with nothing to retry.
+    net.onMessage = (msg, from) => {
       if (msg && msg.t === 'hello') hellos.get(from)?.(msg);
     };
     for (let slot = 1; slot < humanCount; slot++) {
@@ -103,10 +105,10 @@ async function negotiate(mode, params, cfg, keep) {
     for (let i = 0; i < humanCount; i++) humanSlots.push(i);
     // Each guest is told its OWN slot, so the message differs per connection.
     for (let slot = 1; slot < humanCount; slot++) {
-      net.sendTo(slot - 1, JSON.stringify({
+      net.sendMessage({
         t: 'start', seed: cfg.seed, stage: cfg.stage, players: cfg.players,
         cars, humanSlots, names, localIndex: slot,
-      }));
+      }, slot - 1);
     }
     if (banner) banner.hidden = true;
     log(`racing ${names.slice(1).join(', ')} — room ${code}`);
@@ -116,12 +118,9 @@ async function negotiate(mode, params, cfg, keep) {
   const code = (params.get('room') || '').toUpperCase();
   if (!code) throw new Error('joining needs ?room=CODE');
   await net.join(code);
-  net.send(JSON.stringify({ t: 'hello', name: name || 'Player', car: cfg.car }));
+  net.sendMessage({ t: 'hello', name: name || 'Player', car: cfg.car });
   const start = await new Promise((resolve) => {
-    net.onData = (d) => {
-      const msg = typeof d === 'string' ? JSON.parse(d) : d;
-      if (msg && msg.t === 'start') resolve(msg);
-    };
+    net.onMessage = (msg) => { if (msg && msg.t === 'start') resolve(msg); };
   });
   net.localIndex = start.localIndex;
   log(`joined ${start.names[0]} as slot ${start.localIndex} — room ${code}`);
@@ -157,6 +156,14 @@ async function boot() {
   if (netMode === 'host' || netMode === 'join') {
     cfg = await negotiate(netMode, params, cfg, (n) => { net = n; });
     sync = new StateSync(cfg.localIndex, cfg.humanSlots, cfg.players);
+    // Chat and lobby traffic, on the reliable channel. The host relays it the
+    // same way it relays state, so a guest's line reaches the other guests.
+    net.onMessage = (msg, from) => {
+      if (!msg || msg.t !== 'chat') return;
+      const who = cfg.names[msg.slot] || `Player ${msg.slot + 1}`;
+      log(`${who}: ${String(msg.text).slice(0, 80)}`);
+      if (sync.isHost) net.broadcastMessageExcept(from, msg);
+    };
     net.onData = (d, from) => {
       const bytes = d instanceof ArrayBuffer ? new Uint8Array(d) : d;
       const msg = decodePacket(bytes);
@@ -367,6 +374,20 @@ async function boot() {
   // and the car accelerates forever.
   const pad = gs.u[cfg.localIndex];
   installInput(pad, snd);
+
+  // Chat send. Deliberately tiny -- the point is that the reliable channel is
+  // wired end to end, not that this is the final UI; the real lobby and chat
+  // screens are in the unported xtGraphics menus.
+  if (sync) {
+    window.nfmChat = (text) => {
+      const msg = { t: 'chat', slot: cfg.localIndex, text: String(text).slice(0, 80) };
+      // No relay branch here: a bare sendMessage already reaches every
+      // connection, which for the host IS every guest and for a guest is the
+      // host, who relays onward. Adding one would double the host's own lines.
+      net.sendMessage(msg);
+      log(`${cfg.names[cfg.localIndex]}: ${msg.text}`);
+    };
+  }
 
   let backdropMs = 0;
   if (PROFILE) {

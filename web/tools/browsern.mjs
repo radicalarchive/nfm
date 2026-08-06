@@ -100,6 +100,15 @@ for (let s = 0; s < SECONDS; s++) {
       + `dispatchEvent(new KeyboardEvent('keydown', { code: 'Enter' }));`
       + `dispatchEvent(new KeyboardEvent('keyup', { code: 'Enter' }));`);
   }
+  // Exercise the reliable channel from each client in turn, and check the
+  // others received it. Chat is the only traffic that must never be dropped,
+  // so it rides a separate ordered DataChannel from the state packets.
+  if (s === 12) {
+    for (const [i, c] of sockets.entries()) {
+      await c.evaluate(`window.nfmChat && nfmChat('hello-from-${i}')`);
+      await sleep(400);
+    }
+  }
   if (s % 10 === 9) {
     const st = await Promise.all(sockets.map((c) => c.evaluate('document.getElementById("log")?.textContent')));
     console.log(`  ${s + 1}s  ` + st.map((t, i) => `[${i}] ${t}`).join('  '));
@@ -166,9 +175,24 @@ for (const [i, c] of sockets.entries()) {
 }
 sockets.forEach((c) => c.close());
 procs.forEach((p) => p.kill());
+// Chat: every client must have seen every other client's line. This is the
+// reliable channel's end-to-end check, and for guests it also proves the
+// host's chat relay, which is a separate path from the state relay.
+let allChat = true;
+for (let i = 0; i < PLAYERS; i++) {
+  const seen = sockets[i].logs.filter((l) => /hello-from-\d/.test(l));
+  for (let j = 0; j < PLAYERS; j++) {
+    if (!seen.some((l) => l.includes(`hello-from-${j}`))) {
+      console.log(`  MISSING CHAT: client ${i} never saw client ${j}'s line`);
+      allChat = false;
+    }
+  }
+}
+console.log(allChat ? 'chat: every client saw every line' : 'chat: INCOMPLETE');
+
 // Pairing and reachability are the assertions; drift is only reported. See the
 // note above on why this machine cannot measure drift meaningfully.
-const ok = drifts.every((d) => d.length > 0) && allHeard;
-console.log(ok ? 'PASS — all peers paired and every client heard every other'
+const ok = drifts.every((d) => d.length > 0) && allHeard && allChat;
+console.log(ok ? 'PASS — peers paired, state heard both ways, chat delivered'
                : 'FAIL');
 process.exit(ok ? 0 : 1);
