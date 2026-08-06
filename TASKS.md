@@ -391,10 +391,27 @@ there is no backend of ours anywhere in this design.
       the unreliable channel, where a dropped `hello`/`start` stranded the
       guest. Chat is relayed by the host like state. Verified guest-to-guest in
       three browsers. The lobby and chat SCREENS are still unported xtGraphics.
-- [ ] **Host migration, or bot reassignment on disconnect.** `ownerOf` gives
-      every bot to `humanSlots[0]`, so if the host leaves, the bots have no
-      owner and freeze. At two players the race is over anyway; at four it is
-      not. A decision rather than a port.
+- [ ] **Wire the multiplayer GUI (lobby / join / chat) to the netcode.** Build
+      it from `web/menu-mockups.html`'s `slab` theme. The seam, which otherwise
+      exists only in the code:
+      - **A lobby must live PRE-BOOT, not in the race loop.** `negotiate()`
+        (`main.js`) runs to completion before the world is built, because the
+        host decides seed, stage, grid and slot assignment and ships them
+        verbatim — a client that regenerated any of it would consume different
+        randoms. So the lobby is a launcher/pre-race screen; there is nowhere
+        in `main.html`'s frame loop to put one.
+      - **Params:** `?net=host|join`, `?room=CODE`, `?humans=N` (host only),
+        `?name=`, alongside the existing `?car=`/`?stage=`. The host generates
+        a room code if none is given.
+      - **Handshake:** guest sends `{t:'hello', name, car}`; host replies
+        `{t:'start', seed, stage, players, cars, humanSlots, names,
+        localIndex}`, sent per guest since `localIndex` differs. Slot
+        assignment is the host's alone — two guests choosing for themselves can
+        collide, and nothing downstream notices until both drive the same car.
+      - **Chat** already works end to end on the reliable channel
+        (`net.sendMessage`/`onMessage`, host relays on receive).
+        `window.nfmChat(text)` in `main.js` is a console stub standing in for
+        the missing UI — replace it, do not build alongside it.
 - [ ] **Measure the correction distribution properly, before smoothing it.**
       The drift line samples the most recent correction every ~3s rather than
       logging each one, so nothing here knows how OFTEN a large correction
