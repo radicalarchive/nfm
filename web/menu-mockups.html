@@ -1,0 +1,1069 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NFM — menu mockups</title>
+<style>
+/* ---------------------------------------------------------------------------
+   Mockups of the keyboard-first launcher, in five visual styles swapped by
+   [data-style] on <body>. Pages: main menu, single player, race options,
+   multiplayer browser, lobby.
+
+   The point of the exercise is the SELECTION treatment. It has to be readable
+   from across a room with no pointer on screen, and the SAME treatment has to
+   work on four box shapes: a menu row, a tall car pane, a half-height option
+   row, and a chat input. That is why they are all `.item` — every style's
+   `.item.is-sel` rule applies to all of them unchanged, and a treatment that
+   only works on a one-line row fails visibly here.
+
+   There is no selection caret. The box itself says which one is focused.
+   Selection animation is pure CSS keyframes; only the backdrops use JS.
+--------------------------------------------------------------------------- */
+/* Every font size in the mockup comes from one of these seven variables, so
+   the tuning panel at bottom right can drive them live. A style that wants
+   different proportions sets a MULTIPLIER (--k-*) rather than a size, which
+   is what keeps the sliders meaningful in all five styles. */
+:root {
+  --fs-title: 3rem;     /* the wordmark */
+  --fs-item:  1.5rem;   /* menu rows, row labels */
+  --fs-value: 1.5rem;   /* the thing left/right changes */
+  --fs-label: 1rem;     /* small caps mono: CAR, STAGE, PLAYERS */
+  --fs-meta:  1rem;     /* secondary lines, table cells */
+  --fs-stat:  1rem;     /* stat bar names */
+  --fs-chat:  1rem;     /* player list + chat log */
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+  margin: 0; overflow: hidden; color: #fff;
+  font: 16px/1.4 system-ui, sans-serif;
+  background: #05060a;
+  -webkit-font-smoothing: antialiased;
+}
+#bg { position: fixed; inset: 0; width: 100%; height: 100%; display: block; z-index: 0; }
+
+/* ---- shell ---------------------------------------------------------- */
+.page {
+  position: relative; z-index: 2; height: 100%;
+  display: none; flex-direction: column; align-items: center; justify-content: center;
+  gap: 1rem; padding: 4.2rem 1rem 3.2rem;
+  overflow-y: auto; scrollbar-width: none;
+}
+.page::-webkit-scrollbar { width: 0; }
+.page > * { flex: none; }
+body[data-page="menu"]  #page-menu  { display: flex; }
+body[data-page="sp"]    #page-sp    { display: flex; }
+body[data-page="opts"]  #page-opts  { display: flex; }
+body[data-page="mp"]    #page-mp    { display: flex; }
+body[data-page="lobby"] #page-lobby { display: flex; }
+
+.brand { display: flex; align-items: center; gap: 1rem; }
+#face { height: 5rem; image-rendering: pixelated; }
+#face:not([src]) { display: none; }
+.title { margin: 0; font-size: calc(var(--fs-title) * var(--k-title, 1)); line-height: 1; letter-spacing: .02em; }
+.sub { margin: .35rem 0 0; font-size: .85rem; opacity: .65; }
+
+.menu { list-style: none; margin: 0; padding: 0; display: grid; gap: .55rem; width: min(30rem, 92vw); }
+.item {
+  position: relative; cursor: pointer; user-select: none;
+  display: flex; align-items: center; gap: .9rem;
+  padding: .85rem 1.1rem; font-size: calc(var(--fs-item) * var(--k-item, 1)); font-weight: 600;
+  letter-spacing: .06em; text-transform: uppercase;
+}
+.item .label { flex: 1; }
+
+/* ---- shared page furniture ------------------------------------------ */
+.wrap { width: min(54rem, 96vw); display: grid; gap: .55rem; }
+.phead {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 1rem;
+  font: 600 calc(var(--fs-label) * 1.18)/1 ui-monospace, Menlo, Consolas, monospace; letter-spacing: .16em;
+  text-transform: uppercase; opacity: .75; margin-bottom: .2rem;
+}
+.rows { list-style: none; margin: 0; padding: 0; display: grid; gap: .5rem; }
+/* A UA scrollbar cuts across every one of these styles, and the pixel style's
+   4px block borders overflow their box by design, which made panels scroll
+   that had nothing to scroll. Scroll silently, with room for the overhang. */
+.scroll { scrollbar-width: none; -ms-overflow-style: none; padding: 4px; }
+.scroll::-webkit-scrollbar { width: 0; height: 0; }
+.panel { padding: .6rem .75rem .7rem; }
+.ptitle, .gtitle {
+  font: 700 var(--fs-label)/1 ui-monospace, Menlo, Consolas, monospace; letter-spacing: .2em;
+  text-transform: uppercase; opacity: .55;
+}
+.gtitle { display: flex; justify-content: space-between; align-items: baseline; margin: .1rem .3rem .5rem; }
+
+/* value rows: left/right changes the value, Enter does nothing */
+.pvalue { display: flex; align-items: center; gap: .7rem; font-size: var(--fs-value); font-weight: 700; }
+.pvalue .val { flex: 1; }
+.ar { opacity: .22; font-size: calc(var(--fs-value) * .78); transition: opacity .12s, transform .12s; }
+.is-sel .ar { opacity: 1; }
+.is-sel .ar.l { animation: nudgeL .9s ease-in-out infinite; }
+.is-sel .ar.r { animation: nudgeR .9s ease-in-out infinite; }
+@keyframes nudgeL { 50% { transform: translateX(-4px); } }
+@keyframes nudgeR { 50% { transform: translateX(4px); } }
+
+/* ---- single player --------------------------------------------------- */
+/* Wide, short, vertically stacked. Panes are NOT a uniform height: the car
+   pane is as tall as its stat column needs. */
+.pane { align-items: stretch; gap: 1.1rem; padding: .8rem 1rem; text-transform: none; }
+.thumb { flex: none; width: 9rem; align-self: stretch; min-height: 4.4rem; position: relative; overflow: hidden; }
+/* placeholder art — a car silhouette and a track map, no engine involved */
+.thumb-car::after {
+  content: ""; position: absolute; left: 8%; right: 8%; top: 32%; height: 40%;
+  background: currentColor; opacity: .55;
+  clip-path: polygon(0 62%, 9% 34%, 27% 30%, 40% 8%, 66% 8%, 78% 32%, 97% 40%, 100% 66%, 88% 66%, 84% 88%, 68% 88%, 64% 66%, 34% 66%, 30% 88%, 14% 88%, 10% 66%);
+}
+.thumb-map::after {
+  content: ""; position: absolute; inset: 20%;
+  border: .5rem solid currentColor; opacity: .45;
+  border-radius: 46% 22% 40% 26%;
+}
+.thumb-opts::after { content: "\2699"; position: absolute; inset: 0; display: grid; place-items: center;
+                     font-size: 2rem; opacity: .5; }
+.pbody { flex: 1; display: flex; flex-direction: column; justify-content: center; gap: .3rem; min-width: 0; }
+/* the car pane's right chevron lives outside the body, so it sits hard against
+   the pane edge with the stat column between it and the name */
+.ar.solo { align-self: center; flex: none; }
+.pmeta { font: 500 var(--fs-meta)/1.3 ui-monospace, Menlo, Consolas, monospace; opacity: .55; }
+
+/* stats: right-hand column, one bar per row, stacked — same shape as the
+   deployed launcher's car card. This is what makes the car pane the tall one. */
+.pstats { flex: none; width: calc(var(--fs-stat) * 9.4 + 7rem); display: grid; gap: .3rem; align-content: center; }
+/* the label column scales with the stat font, or the slider overflows it */
+.pstat { display: grid; grid-template-columns: calc(var(--fs-stat) * 9.4) 1fr; align-items: center; gap: .5rem;
+         font: 500 var(--fs-stat)/1 ui-monospace, Menlo, Consolas, monospace; }
+.pstat span { opacity: .6; }
+/* the track's dimness is in the COLOUR, not in opacity — opacity on the track
+   multiplies the fill inside it and the two can never differ */
+.pstat .track { display: block; height: 7px; background: color-mix(in srgb, currentColor 16%, transparent); }
+.pstat .track i { display: block; height: 100%; background: currentColor; width: var(--v); }
+.pane.go { justify-content: center; text-transform: uppercase; letter-spacing: .18em;
+           padding: .85rem 1rem; }
+.pane.go .label { flex: none; }
+
+/* ---- options: its own page, so the SP screen never scrolls ----------- */
+.orow { padding: .55rem .9rem; font-size: calc(var(--fs-item) * .87); font-weight: 600; text-transform: none; gap: .9rem; }
+/* One size for every row label and inline hint — "Your name", "Say
+   something", "Enter to change" and the option labels all read as the same
+   kind of text, so they are the same size. */
+.slabel { flex: none; width: 11rem; font: 600 var(--fs-label)/1 ui-monospace, Menlo, Consolas, monospace; opacity: .7; }
+.rhint { font: 500 var(--fs-label)/1 ui-monospace, Menlo, Consolas, monospace; opacity: .5; }
+.orow .pvalue { flex: 1; font-size: calc(var(--fs-value) * .81); }
+.ohint { font: 500 calc(var(--fs-meta) * .96)/1.3 ui-monospace, Menlo, Consolas, monospace; opacity: .45; margin-top: .3rem; }
+
+/* ---- multiplayer browser -------------------------------------------- */
+.grow { gap: .8rem; text-transform: none; font-size: calc(var(--fs-item) * .87); padding: .6rem .9rem; }
+.grow .gname { flex: 1; font-weight: 700; font-size: calc(var(--fs-item) * .96); }
+.grow .gcell { flex: none; font: 600 var(--fs-meta)/1 ui-monospace, Menlo, Consolas, monospace; opacity: .7; }
+.grow .gcell.w6 { width: 3.4rem; text-align: right; }
+.grow .gcell.w12 { width: calc(var(--fs-meta) * 13); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.namerow .pvalue { flex: 1; }
+.namerow .gcell, .grow .gcell.right { margin-left: auto; }
+.lock { opacity: .8; }
+.mplist { max-height: 24rem; overflow: auto; display: grid; gap: .4rem; }
+.namerow .val, .coderow .val { font-weight: 700; }
+.editbox {
+  flex: 1; font: 700 calc(var(--fs-value) * .81)/1 inherit; color: inherit; background: color-mix(in srgb, currentColor 10%, transparent);
+  border: 0; border-bottom: 2px solid currentColor; padding: .25rem .3rem; min-width: 0; outline: none;
+}
+
+/* ---- lobby ----------------------------------------------------------- */
+/* chat leads and is the wider of the two; both panels are the same height */
+.lobbygrid { display: grid; grid-template-columns: 1.5fr 1fr; gap: .55rem; align-items: stretch; }
+@media (max-width: 52rem) { .lobbygrid { grid-template-columns: 1fr; } }
+.lobbygrid .panel { display: flex; flex-direction: column; min-height: 24.75rem; }
+.plist { list-style: none; margin: 0; padding: 0; display: grid; gap: .25rem;
+         align-content: start; flex: 1; min-height: 0; overflow: auto; }
+.prow { display: flex; align-items: center; gap: .6rem; padding: .35rem .5rem;
+        font: 600 var(--fs-chat)/1.2 ui-monospace, Menlo, Consolas, monospace; }
+.prow .pn { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.prow .pcar { opacity: .6; font-size: calc(var(--fs-chat) * .87); }
+.prow.me { background: color-mix(in srgb, currentColor 10%, transparent); }
+/* Ready state is carried by weight and border, not by a filled swatch: a
+   filled badge needs to know the page's background colour to keep its text
+   legible, and there are five different backgrounds here. */
+.badge { font: 700 calc(var(--fs-chat) * .71)/1 ui-monospace, Menlo, Consolas, monospace; letter-spacing: .12em;
+         padding: .22rem .45rem; border: 1px dashed currentColor; opacity: .45; }
+.badge.on { border-style: solid; border-width: 2px; opacity: 1;
+            background: color-mix(in srgb, currentColor 14%, transparent); }
+.chatlog { display: grid; gap: .2rem; align-content: end; flex: 1; min-height: 0; overflow: auto;
+           font: 500 calc(var(--fs-chat) * .91)/1.35 ui-monospace, Menlo, Consolas, monospace; }
+.chatlog b { opacity: .75; font-weight: 700; }
+.chatlog div { opacity: .85; }
+.chatrow { padding: .5rem .8rem; text-transform: none; font-size: calc(var(--fs-item) * .83); }
+.chatrow .ph { opacity: .5; font: 500 var(--fs-label) ui-monospace, Menlo, Consolas, monospace; }
+
+/* ---- chrome (of the mockup, not of the design) ----------------------- */
+.hint {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 3;
+  padding: .5rem 1rem; text-align: center;
+  font: 500 .72rem/1.4 ui-monospace, Menlo, Consolas, monospace;
+  letter-spacing: .08em; opacity: .55;
+}
+.hint kbd { font: inherit; border: 1px solid currentColor; border-radius: 3px; padding: 0 .3em; opacity: .9; }
+.styles {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 4;
+  display: flex; gap: .25rem; justify-content: center; flex-wrap: wrap;
+  padding: .5rem; background: #000a; backdrop-filter: blur(6px);
+  border-bottom: 1px solid #ffffff1a;
+  font: 600 .7rem/1 ui-monospace, Menlo, Consolas, monospace; letter-spacing: .1em;
+}
+.styles button {
+  background: #ffffff10; color: #fff9; border: 1px solid #ffffff20; border-radius: 4px;
+  padding: .4rem .7rem; cursor: pointer; font: inherit; text-transform: uppercase;
+}
+.styles button:hover { color: #fff; }
+.styles button[aria-current="true"] { background: #fff; color: #000; border-color: #fff; }
+#say {
+  position: fixed; z-index: 4; left: 50%; bottom: 3rem; transform: translateX(-50%);
+  font: 600 .78rem/1 ui-monospace, Menlo, Consolas, monospace; letter-spacing: .12em;
+  padding: .45rem .8rem; border-radius: 3px; background: #000a; color: #fff;
+  opacity: 0; transition: opacity .2s;
+}
+#say.on { opacity: 1; }
+
+/* the font tuning panel — mockup furniture, deliberately style-agnostic */
+#tune {
+  position: fixed; right: .6rem; bottom: 2.6rem; z-index: 5; width: 15.5rem;
+  background: #0b0d12ee; color: #dfe4ee; border: 1px solid #ffffff22; border-radius: 8px;
+  padding: .5rem .6rem .55rem; backdrop-filter: blur(6px);
+  font: 500 11px/1.3 ui-monospace, Menlo, Consolas, monospace;
+}
+#tune.off { display: none; }
+#tune h4 { margin: 0 0 .4rem; font-size: 10px; letter-spacing: .14em; text-transform: uppercase; opacity: .6;
+           display: flex; justify-content: space-between; }
+#tune .t { display: grid; grid-template-columns: 3.4rem 1fr 2.6rem; align-items: center; gap: .35rem; margin: .18rem 0; }
+#tune input[type=range] { width: 100%; height: 14px; accent-color: #6cf; }
+#tune .n { text-align: right; opacity: .75; }
+#tune .btns { display: flex; gap: .3rem; margin-top: .45rem; }
+#tune button {
+  flex: 1; font: 600 10px ui-monospace, monospace; letter-spacing: .1em; text-transform: uppercase;
+  background: #ffffff12; color: #dfe4ee; border: 1px solid #ffffff22; border-radius: 4px;
+  padding: .3rem; cursor: pointer;
+}
+#tune #css { margin-top: .4rem; font-size: 10px; opacity: .55; word-break: break-all; user-select: all; }
+.item.fired { animation: fired .18s steps(2) 2 !important; }
+@keyframes fired { 50% { filter: brightness(3) saturate(0); } }
+
+/* =====================================================================
+   1. NEON — arcade attract mode. Selection is a conic gradient racing
+   around the border with the fill flashing between two hues.
+   ===================================================================== */
+body[data-style="neon"] { background: #0a0118; font-family: "Trebuchet MS", system-ui, sans-serif; }
+body[data-style="neon"] { --k-title: 1; }
+body[data-style="neon"] .title {
+  font-weight: 800; font-style: italic; letter-spacing: -.01em;
+  background: linear-gradient(180deg, #fff 30%, #ff3ce0 60%, #7b2bff 100%);
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+  text-shadow: 0 0 26px #ff3ce055;
+}
+body[data-style="neon"] .sub, body[data-style="neon"] .phead { color: #9df; }
+body[data-style="neon"] .item {
+  background: linear-gradient(90deg, #ffffff08, #ffffff03);
+  border: 2px solid #ffffff1f; border-radius: 3px;
+  color: #cfd7ff; transition: color .12s, transform .12s;
+}
+body[data-style="neon"] .panel { background: #12002ba8; border: 1px dashed #ffffff22; border-radius: 3px; }
+body[data-style="neon"] .thumb { border: 1px solid #ffffff22; background: #ffffff08; color: #7ef; }
+/* The border is a conic gradient painted into the BORDER box, with the fill
+   over the padding box — nothing to clip. An earlier version spun an
+   oversized pseudo-element and it escaped the item. @property is what makes
+   the angle animatable; without it the gradient is static and still reads. */
+@property --neonA { syntax: '<angle>'; inherits: false; initial-value: 0deg; }
+body[data-style="neon"] .item.is-sel {
+  color: #fff; transform: translateX(6px); border-color: transparent;
+  background:
+    linear-gradient(#170036, #170036) padding-box,
+    conic-gradient(from var(--neonA), #00e5ff, #ff3ce0, #ffe600, #00e5ff) border-box;
+  animation: neonFill 1s steps(1) infinite, neonSpin 1.4s linear infinite;
+}
+@keyframes neonSpin { to { --neonA: 360deg; } }
+@keyframes neonFill {
+  0%, 100% { box-shadow: 0 0 22px #ff3ce066, inset 0 0 20px #ff3ce033; }
+  50%      { box-shadow: 0 0 34px #00e5ff88, inset 0 0 26px #00e5ff33; }
+}
+
+/* =====================================================================
+   2. HOLO — frosted glass with an iridescent film. Selection lights the
+   panel, drifts a prismatic wash across it and sweeps a sheen.
+   ===================================================================== */
+body[data-style="holo"] { background: #060a14; font-family: "Segoe UI", system-ui, sans-serif; }
+body[data-style="holo"] { --k-title: 1; }
+body[data-style="holo"] .title {
+  font-weight: 300; letter-spacing: .04em; color: #eaf6ff;
+  text-shadow: 0 0 30px #7ad7ff55;
+}
+body[data-style="holo"] .sub, body[data-style="holo"] .phead { color: #9fd6ea; }
+body[data-style="holo"] .item {
+  background: linear-gradient(135deg, #ffffff12, #ffffff05);
+  border: 1px solid #ffffff26; border-radius: 14px; color: #dff0f7;
+  backdrop-filter: blur(9px); font-weight: 500; letter-spacing: .04em;
+  box-shadow: inset 0 1px 0 #ffffff33, 0 8px 26px #00000055;
+  transition: transform .16s ease, border-color .16s ease;
+  overflow: hidden;
+}
+body[data-style="holo"] .panel {
+  background: linear-gradient(135deg, #ffffff0e, #ffffff04); border: 1px solid #ffffff1c;
+  border-radius: 16px; backdrop-filter: blur(9px);
+}
+body[data-style="holo"] .thumb { border: 1px solid #ffffff22; border-radius: 10px; background: #ffffff0a; color: #8fe6ff; }
+body[data-style="holo"] .item.is-sel {
+  color: #fff; border-color: #ffffff88; transform: translateY(-2px);
+  box-shadow: inset 0 1px 0 #ffffff66, 0 10px 34px #16d0ff33, 0 0 0 1px #ffffff33;
+}
+/* the prismatic film */
+body[data-style="holo"] .item.is-sel::before {
+  content: ""; position: absolute; inset: 0; opacity: .5; mix-blend-mode: screen;
+  background: linear-gradient(115deg, #ff2fd6 0%, #7a5cff 25%, #00e5ff 50%, #4dffb8 75%, #ffd166 100%);
+  background-size: 300% 100%;
+  animation: holoDrift 5s ease-in-out infinite alternate;
+}
+/* the sheen */
+body[data-style="holo"] .item.is-sel::after {
+  content: ""; position: absolute; top: 0; bottom: 0; width: 45%;
+  background: linear-gradient(100deg, #fff0, #ffffff55, #fff0);
+  animation: holoSheen 2.6s linear infinite;
+}
+body[data-style="holo"] .item > * { position: relative; z-index: 1; }
+@keyframes holoDrift { from { background-position: 0% 0; } to { background-position: 100% 0; } }
+@keyframes holoSheen { 0% { left: -50%; } 100% { left: 105%; } }
+
+/* =====================================================================
+   3. SLAB — brutalist. No drop shadows anywhere: the boxes are flat outlines,
+   and the selected one inverts, strobes its BORDER, and runs a hazard rail
+   down the edge.
+   ===================================================================== */
+body[data-style="slab"] { background: #e8e4d9; color: #111;
+  font-family: "Arial Black", "Helvetica Neue", system-ui, sans-serif; }
+body[data-style="slab"] .brand { flex-direction: column; gap: .2rem; }
+body[data-style="slab"] #face { filter: grayscale(1) contrast(2); }
+body[data-style="slab"] { --k-title: 1.55; --k-item: 1.04; }
+body[data-style="slab"] .title { letter-spacing: -.04em; line-height: .85;
+  text-transform: uppercase; }
+body[data-style="slab"] .sub { opacity: 1; font-weight: 700; letter-spacing: .3em;
+  font-size: .7rem; background: #111; color: #e8e4d9; padding: .25rem .5rem; }
+body[data-style="slab"] .phead { color: #111; }
+body[data-style="slab"] .menu { width: min(34rem, 94vw); gap: .35rem; }
+body[data-style="slab"] .item {
+  background: #e8e4d9; border: 3px solid #111; color: #111;
+  font-weight: 900; letter-spacing: -.01em;
+  padding-left: 2rem;                       /* room for the hazard rail */
+}
+body[data-style="slab"] .panel { background: #e8e4d9; border: 3px dashed #111; }
+body[data-style="slab"] .thumb { border: 3px solid #111; }
+body[data-style="slab"] .item.is-sel {
+  background: #111; color: #ffe400;
+  animation: slabStrobe .28s steps(2) infinite;
+  overflow: hidden;                    /* the rail runs past the box; clip it */
+}
+/* The rail scrolls with a TRANSFORM, on an element that overhangs the box by
+   more than one period. Animating background-position instead put the phase
+   on subpixel boundaries every frame and the stripe seam visibly twitched.
+   45° stripes with a 16px period repeat exactly every 22.63px of travel
+   (16 / sin45), so one period of translate is a seamless loop. */
+body[data-style="slab"] .item.is-sel::before {
+  content: ""; position: absolute; top: -32px; bottom: -32px; left: 0; width: 18px;
+  background: repeating-linear-gradient(45deg, #ffe400 0 8px, #111 8px 16px);
+  animation: hazard .7s linear infinite;
+}
+/* the strobe that used to live on the drop shadow, now on the border itself */
+@keyframes slabStrobe { 0% { border-color: #ffe400; } 100% { border-color: #ff3b00; } }
+@keyframes hazard { from { transform: translateY(0); } to { transform: translateY(-22.627px); } }
+body[data-style="slab"] .hint { color: #111; opacity: .8; }
+body[data-style="slab"] .styles { background: #111e; }
+
+/* =====================================================================
+   4. QUIET — the sober one. Light, flat, generous; nothing decorative.
+   Selection is an accent rail that grows, a lift, and a soft ring — the
+   only style here that a thirty-row settings screen survives.
+   ===================================================================== */
+body[data-style="quiet"] { background: #eef1f5; color: #1b2027;
+  font-family: system-ui, "Segoe UI", sans-serif; }
+body[data-style="quiet"] { --k-title: .92; --k-item: .91; }
+body[data-style="quiet"] .title { font-weight: 700; letter-spacing: -.02em;
+  text-transform: none; color: #10141a; }
+body[data-style="quiet"] .sub { color: #5d6773; opacity: 1; }
+body[data-style="quiet"] .phead { color: #5d6773; }
+body[data-style="quiet"] .item {
+  background: #fff; border: 1px solid #dde2e9; border-radius: 12px; color: #1b2027;
+  font-weight: 600; letter-spacing: .01em; text-transform: none;
+  box-shadow: 0 1px 2px #0f172a0d;
+  transition: transform .12s ease, box-shadow .12s ease, border-color .12s ease;
+  overflow: hidden;
+}
+body[data-style="quiet"] .panel { background: #fff; border: 1px solid #dde2e9; border-radius: 12px;
+  box-shadow: 0 1px 2px #0f172a0d; }
+body[data-style="quiet"] .panel .item { background: #f7f9fb; border-color: #e6eaf0; border-radius: 8px; box-shadow: none; }
+body[data-style="quiet"] .thumb { background: #f2f5f9; border: 1px solid #e6eaf0; border-radius: 8px; color: #7c8899; }
+body[data-style="quiet"] .item.is-sel {
+  border-color: #2f7df6; transform: translateY(-1px);
+  box-shadow: 0 6px 18px #2f7df626, 0 0 0 3px #2f7df61f;
+  animation: quietRing 2s ease-in-out infinite;
+}
+body[data-style="quiet"] .item.is-sel::before {
+  content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: #2f7df6;
+  animation: quietRail .18s ease-out;
+}
+body[data-style="quiet"] .item.is-sel .val,
+body[data-style="quiet"] .item.is-sel .ar { color: #1c56b8; }
+body[data-style="quiet"] .pstat .track i { background: #2f7df6; }
+@keyframes quietRing {
+  0%, 100% { box-shadow: 0 6px 18px #2f7df626, 0 0 0 3px #2f7df61f; }
+  50%      { box-shadow: 0 8px 22px #2f7df633, 0 0 0 5px #2f7df614; }
+}
+@keyframes quietRail { from { transform: scaleY(0); } to { transform: scaleY(1); } }
+body[data-style="quiet"] .hint { color: #5d6773; }
+body[data-style="quiet"] .styles { background: #10141ae6; }
+
+/* =====================================================================
+   5. PIXEL — 16-bit console UI. Every edge is a 4px block, every
+   animation is on steps(), nothing eases. Selection inverts the box and
+   marches a dithered fill through it.
+   ===================================================================== */
+body[data-style="pix"] { background: #0f1020; font-family: ui-monospace, Menlo, Consolas, monospace; }
+body[data-style="pix"] { --k-title: .73; --k-item: .87; }
+body[data-style="pix"] .title { font-weight: 700; letter-spacing: .04em; color: #ffe98a;
+  text-shadow: 4px 4px 0 #b3306b, 8px 8px 0 #00000055;
+  animation: pixTitle .8s steps(2) infinite;
+}
+body[data-style="pix"] .sub, body[data-style="pix"] .phead { color: #7fe3c0; letter-spacing: .16em; }
+body[data-style="pix"] #face { transform: scale(1.05); }
+body[data-style="pix"] .item {
+  background: #1b1e3a; color: #cfd4ff; border: 0; border-radius: 0;
+  font-weight: 700; letter-spacing: .08em;
+  /* a blocky border with notched corners, the way a tile-drawn frame looks */
+  box-shadow: 0 -4px 0 #4a4f8f, 0 4px 0 #4a4f8f, -4px 0 0 #4a4f8f, 4px 0 0 #4a4f8f;
+  margin: 4px;
+}
+body[data-style="pix"] .panel {
+  background: #15173080; margin: 4px;
+  box-shadow: 0 -4px 0 #33376b, 0 4px 0 #33376b, -4px 0 0 #33376b, 4px 0 0 #33376b;
+}
+body[data-style="pix"] .thumb { background: #0f1020; color: #7fe3c0;
+  box-shadow: 0 -4px 0 #4a4f8f, 0 4px 0 #4a4f8f, -4px 0 0 #4a4f8f, 4px 0 0 #4a4f8f; margin: 4px; }
+body[data-style="pix"] .item.is-sel {
+  background: #ffe98a; color: #12142c;
+  box-shadow: 0 -4px 0 #fff, 0 4px 0 #fff, -4px 0 0 #fff, 4px 0 0 #fff;
+  animation: pixFlash .4s steps(2) infinite;
+  overflow: hidden;
+}
+/* the dither marching through the fill */
+body[data-style="pix"] .item.is-sel::before {
+  content: ""; position: absolute; inset: 0; opacity: .2;
+  background-image:
+    linear-gradient(45deg, #12142c 25%, transparent 25%, transparent 75%, #12142c 75%),
+    linear-gradient(45deg, #12142c 25%, transparent 25%, transparent 75%, #12142c 75%);
+  background-size: 8px 8px; background-position: 0 0, 4px 4px;
+  animation: pixMarch .5s steps(4) infinite;
+}
+body[data-style="pix"] .item > * { position: relative; z-index: 1; }
+body[data-style="pix"] .item.is-sel .ar { animation: none; }
+@keyframes pixFlash {
+  0%, 100% { box-shadow: 0 -4px 0 #fff, 0 4px 0 #fff, -4px 0 0 #fff, 4px 0 0 #fff; }
+  50%      { box-shadow: 0 -4px 0 #ff6ad5, 0 4px 0 #ff6ad5, -4px 0 0 #ff6ad5, 4px 0 0 #ff6ad5; }
+}
+@keyframes pixMarch { to { background-position: 8px 0, 12px 4px; } }
+@keyframes pixTitle { 50% { text-shadow: 4px 4px 0 #b3306b, 8px 8px 0 #00000055, 0 0 12px #ffe98a66; } }
+body[data-style="pix"] .hint { color: #7fe3c0; }
+
+@media (prefers-reduced-motion: reduce) {
+  /* every selection stays READABLE; it just stops flashing */
+  .item.is-sel, .item.is-sel::before, .item.is-sel::after,
+  .is-sel .ar, .item.fired, .title { animation: none !important; }
+}
+</style>
+</head>
+<body data-style="neon" data-page="menu">
+
+<canvas id="bg"></canvas>
+<nav class="styles" id="styles"></nav>
+
+<!-- page 1 : main menu -->
+<div class="page" id="page-menu">
+  <div class="brand">
+    <img id="face" alt="">
+    <div>
+      <h1 class="title">Need for Madness</h1>
+      <p class="sub">main menu — mockup</p>
+    </div>
+  </div>
+  <ul class="menu" id="menu" role="menu" aria-label="Main menu"></ul>
+</div>
+
+<!-- page 2 : single player -->
+<div class="page" id="page-sp">
+  <div class="wrap">
+    <div class="phead"><span>Single Player</span><span>Esc — back</span></div>
+    <ul class="rows" id="sp-rows"></ul>
+  </div>
+</div>
+
+<!-- page 3 : race options (its own page, so the SP screen never scrolls) -->
+<div class="page" id="page-opts">
+  <div class="wrap" style="width:min(40rem,94vw)">
+    <div class="phead"><span>Race Options</span><span>Esc — back</span></div>
+    <ul class="rows" id="opt-rows"></ul>
+  </div>
+</div>
+
+<!-- page 4 : multiplayer browser -->
+<div class="page" id="page-mp">
+  <div class="wrap">
+    <div class="phead"><span>Multiplayer</span><span>Esc — back</span></div>
+    <ul class="rows" id="mp-rows"></ul>
+  </div>
+</div>
+
+<!-- page 5 : lobby -->
+<div class="page" id="page-lobby">
+  <div class="wrap">
+    <div class="phead"><span id="lobby-name">Evan's game</span><span id="lobby-meta">public · Esc — leave</span></div>
+    <div class="lobbygrid">
+      <div class="panel">
+        <div class="gtitle"><span>Chat</span><span>lobby only</span></div>
+        <div class="chatlog scroll" id="chatlog"></div>
+      </div>
+      <div class="panel">
+        <div class="gtitle"><span>Players</span><span id="pcount">4 / 8</span></div>
+        <ul class="plist scroll" id="plist"></ul>
+      </div>
+    </div>
+    <ul class="rows" id="lobby-rows"></ul>
+  </div>
+</div>
+
+<div id="tune"></div>
+<div id="say"></div>
+<p class="hint" id="hint"></p>
+
+<script type="module">
+const STYLES = [
+  ['neon',  'Neon'],
+  ['holo',  'Holo'],
+  ['slab',  'Slab'],
+  ['quiet', 'Quiet'],
+  ['pix',   'Pixel'],
+];
+
+const MENU = ['Single Player', 'Multiplayer', 'Settings', 'Classic Launcher'];
+
+/* Placeholder data — a GUI study; nothing is wired to the port. */
+const STAT_NAMES = ['Top Speed', 'Acceleration', 'Handling', 'Stunts', 'Strength', 'Damage'];
+const CARS = [
+  { n: 'MAX Revenge', m: 'Class B · 4 stunts', s: [.92, .55, .70, .40, .80, .60] },
+  { n: 'Radical One', m: 'Class A · 3 stunts', s: [1,   .40, .55, .75, .50, .45] },
+  { n: 'Formula 7',   m: 'Class A · 2 stunts', s: [1,   .30, .95, .20, .35, .30] },
+  { n: 'Nimi 6',      m: 'Class C · 5 stunts', s: [.60, .80, .50, .60, .90, .80] },
+];
+const STAGES = [
+  { n: 'Stage 1 — Sunny Day', m: '8 checkpoints · easy' },
+  { n: 'Stage 3 — Rooftops',  m: '12 checkpoints · medium' },
+  { n: 'Stage 9 — The Loop',  m: '15 checkpoints · hard' },
+];
+/* every left/right row in the whole mockup, in one registry */
+const V = {
+  car:     { vals: CARS,   at: 0 },
+  stage:   { vals: STAGES, at: 0 },
+  opp:     { vals: ['none', '3', '5', '7'], at: 3 },
+  laps:    { vals: ['1', '2', '3', '4', '5'], at: 2 },
+  diff:    { vals: ['easy', 'normal', 'hard'], at: 1 },
+  music:   { vals: ['off', 'quiet', 'loud'], at: 1 },
+  damage:  { vals: ['off', 'normal', 'realistic'], at: 1 },
+  mirror:  { vals: ['off', 'on'], at: 0 },
+  privacy: { vals: ['public', 'private (password)'], at: 0 },
+  slots:   { vals: ['4 players', '6 players', '8 players'], at: 2 },
+  mycar:   { vals: CARS,   at: 1 },
+  lstage:  { vals: STAGES, at: 1 },
+  llaps:   { vals: ['1', '2', '3', '4', '5'], at: 2 },
+};
+const vtext = (k) => { const v = V[k].vals[V[k].at]; return v.n ?? v; };
+
+const GAMES = [
+  { n: "Evan's game",   p: '3/8', s: 'Stage 3 — Rooftops',  ping: '24ms', lock: false },
+  { n: 'wipeout',       p: '7/8', s: 'Stage 9 — The Loop',  ping: '58ms', lock: false },
+  { n: 'noobs only',    p: '2/4', s: 'Stage 1 — Sunny Day', ping: '31ms', lock: false },
+  { n: 'clan practice', p: '5/6', s: 'Stage 6 — Skyline',   ping: '112ms', lock: true },
+  { n: 'stunt jam',     p: '1/8', s: 'Stage 4 — Dockyard',  ping: '46ms', lock: false },
+];
+const PLAYERS = [
+  { n: 'evan',      car: 'Radical One', host: true,  ready: true,  me: true },
+  { n: 'byrd',      car: 'MAX Revenge', host: false, ready: true },
+  { n: 'sk8rboi99', car: 'Formula 7',   host: false, ready: false },
+  { n: 'guest_41',  car: 'Nimi 6',      host: false, ready: false },
+];
+const CHAT = [
+  ['byrd', 'hey'],
+  ['sk8rboi99', 'can we do rooftops'],
+  ['evan', 'stage 3 it is'],
+  ['guest_41', 'one sec, picking a car'],
+  ['byrd', 'ready when you are'],
+];
+let myName = 'evan';
+
+/* ---- markup --------------------------------------------------------- */
+const H = (s) => s;                                    // just for readability
+const valueBits = (k) => `<span class="pvalue"><b class="ar l">◂</b><span class="val" data-val="${k}"></span><b class="ar r">▸</b></span>`;
+
+document.getElementById('menu').innerHTML = MENU.map((t, i) => `
+  <li class="item" role="menuitem" tabindex="-1" data-act="menu:${i}"><span class="label">${t}</span></li>`).join('');
+
+document.getElementById('sp-rows').innerHTML = H(`
+  <li class="item pane" data-row="car">
+    <span class="thumb thumb-car"></span>
+    <span class="pbody">
+      <span class="ptitle">Car</span>
+      <span class="pvalue"><b class="ar l">◂</b><span class="val" data-val="car"></span></span>
+      <span class="pmeta" data-meta="car"></span>
+    </span>
+    <span class="pstats">${STAT_NAMES.map(n =>
+      `<span class="pstat"><span>${n}</span><span class="track"><i data-bar></i></span></span>`).join('')}</span>
+    <b class="ar r solo">▸</b>
+  </li>
+  <li class="item pane" data-row="stage">
+    <span class="thumb thumb-map"></span>
+    <span class="pbody">
+      <span class="ptitle">Stage</span>${valueBits('stage')}
+      <span class="pmeta" data-meta="stage"></span>
+    </span>
+  </li>
+  <li class="item pane" data-act="opts">
+    <span class="thumb thumb-opts"></span>
+    <span class="pbody">
+      <span class="ptitle">Options</span>
+      <span class="pvalue"><span class="val" id="optsum"></span><b class="ar r">▸</b></span>
+      <span class="pmeta">Enter to open</span>
+    </span>
+  </li>
+  <li class="item pane go" data-act="go"><span class="label">Start Race</span></li>`);
+
+const OPT_ROWS = [
+  ['opp', 'Opponents'], ['laps', 'Laps'], ['diff', 'Difficulty'],
+  ['damage', 'Damage'], ['music', 'Music'], ['mirror', 'Mirror mode'],
+];
+document.getElementById('opt-rows').innerHTML = OPT_ROWS.map(([k, label]) => `
+  <li class="item orow" data-row="${k}"><span class="slabel">${label}</span>${valueBits(k)}</li>`).join('') + `
+  <li class="item orow" data-act="back" style="justify-content:center"><span class="label" style="flex:none">Done</span></li>`;
+
+document.getElementById('mp-rows').innerHTML = H(`
+  <li class="item namerow" data-act="name">
+    <span class="slabel">Your name</span>
+    <span class="pvalue"><span class="val" id="nameval"></span></span>
+    <span class="rhint">Enter to change</span>
+  </li>
+  <li class="panel">
+    <div class="gtitle"><span>Public games</span><span id="gcount"></span></div>
+    <ul class="mplist scroll" id="gamelist"></ul>
+  </li>
+  <li class="item grow" data-row="privacy" data-act="create">
+    <span class="gname">Create game</span>${valueBits('privacy')}
+  </li>
+`);
+
+document.getElementById('gamelist').innerHTML = GAMES.map((g, i) => `
+  <li class="item grow" data-act="join:${i}">
+    <span class="gname">${g.lock ? '<span class="lock">🔒</span> ' : ''}${g.n}</span>
+    <span class="gcell w12">${g.s}</span>
+    <span class="gcell w6">${g.p}</span>
+    <span class="gcell w6">${g.ping}</span>
+  </li>`).join('');
+document.getElementById('gcount').textContent = `${GAMES.length} games · Enter to join`;
+
+document.getElementById('lobby-rows').innerHTML = H(`
+  <li class="item orow" data-row="mycar"><span class="slabel">Your car</span>${valueBits('mycar')}</li>
+  <li class="item orow" data-row="lstage"><span class="slabel">Stage <b style="opacity:.5">(host)</b></span>${valueBits('lstage')}</li>
+  <li class="item orow" data-row="llaps"><span class="slabel">Laps <b style="opacity:.5">(host)</b></span>${valueBits('llaps')}</li>
+  <li class="item chatrow" data-act="chat">
+    <span class="slabel">Say something</span>
+    <span class="ph" id="chatph">press Enter to type…</span>
+  </li>
+  <li class="item pane go" data-act="start"><span class="label" id="startlabel">Start Race</span></li>`);
+
+function paintLobby() {
+  document.getElementById('plist').innerHTML = PLAYERS.map(p => `
+    <li class="prow${p.me ? ' me' : ''}">
+      <span class="pn">${p.host ? '★ ' : ''}${p.n}${p.me ? ' <b style="opacity:.5">(you)</b>' : ''}</span>
+      <span class="pcar">${p.me ? vtext('mycar') : p.car}</span>
+      <span class="badge${p.ready ? ' on' : ''}">${p.ready ? '✓ READY' : 'WAITING'}</span>
+    </li>`).join('');
+  document.getElementById('pcount').textContent = `${PLAYERS.length} / 8`;
+  document.getElementById('chatlog').innerHTML = CHAT.map(([who, msg]) =>
+    `<div><b>${who}:</b> ${msg}</div>`).join('');
+  const log = document.getElementById('chatlog'); log.scrollTop = log.scrollHeight;
+  const ready = PLAYERS.filter(p => p.ready).length;
+  // host starts whenever — the count is information, not a gate
+  document.getElementById('startlabel').textContent = `Start Race — ${ready}/${PLAYERS.length} ready`;
+}
+
+/* ---- state ---------------------------------------------------------- */
+const PAGE_IDS = ['menu', 'sp', 'opts', 'mp', 'lobby'];
+const BACK = { sp: 'menu', opts: 'sp', mp: 'menu', lobby: 'mp' };
+const PAGES = {};
+for (const id of PAGE_IDS) {
+  const root = document.getElementById('page-' + id);
+  PAGES[id] = { root, items: [...root.querySelectorAll('.item')], sel: 0 };
+}
+const page = () => PAGES[document.body.dataset.page];
+
+function paintValues() {
+  document.querySelectorAll('[data-val]').forEach(el => { el.textContent = vtext(el.dataset.val); });
+  document.querySelector('[data-meta="car"]').textContent = CARS[V.car.at].m;
+  document.querySelector('[data-meta="stage"]').textContent = STAGES[V.stage.at].m;
+  document.querySelectorAll('[data-bar]').forEach((el, i) => {
+    el.style.setProperty('--v', Math.round(CARS[V.car.at].s[i] * 100) + '%');
+  });
+  document.getElementById('optsum').textContent =
+    `${vtext('opp')} opponents · ${vtext('laps')} laps · ${vtext('diff')}`;
+  document.getElementById('nameval').textContent = myName;
+  paintLobby();
+}
+function draw() {
+  for (const p of Object.values(PAGES)) {
+    p.items.forEach((el, i) => {
+      const on = i === p.sel;
+      el.classList.toggle('is-sel', on);
+      el.setAttribute('aria-selected', on);
+    });
+  }
+  const k = document.body.dataset.page;
+  document.getElementById('hint').innerHTML =
+    k === 'menu'  ? '<kbd>↑</kbd><kbd>↓</kbd> move · <kbd>Enter</kbd> select · <kbd>1</kbd>–<kbd>5</kbd> or <kbd>←</kbd><kbd>→</kbd> change style'
+  : k === 'sp'    ? '<kbd>↑</kbd><kbd>↓</kbd> move · <kbd>←</kbd><kbd>→</kbd> change value · <kbd>Enter</kbd> open options / start · <kbd>Esc</kbd> back'
+  : k === 'opts'  ? '<kbd>↑</kbd><kbd>↓</kbd> move · <kbd>←</kbd><kbd>→</kbd> change value · <kbd>Esc</kbd> back'
+  : k === 'mp'    ? '<kbd>↑</kbd><kbd>↓</kbd> move · <kbd>Enter</kbd> join / create · <kbd>←</kbd><kbd>→</kbd> public–private · <kbd>Esc</kbd> back'
+  :                 '<kbd>↑</kbd><kbd>↓</kbd> move · <kbd>←</kbd><kbd>→</kbd> change · <kbd>Enter</kbd> chat / start · <kbd>Esc</kbd> leave';
+}
+function move(d) {
+  const p = page();
+  p.sel = (p.sel + d + p.items.length) % p.items.length;   // wraps, like the game's menus
+  draw();
+  p.items[p.sel].scrollIntoView({ block: 'nearest' });
+}
+function goPage(name) { document.body.dataset.page = name; draw(); }
+
+let sayTimer;
+function say(msg) {
+  const el = document.getElementById('say');
+  el.textContent = msg; el.classList.add('on');
+  clearTimeout(sayTimer);
+  sayTimer = setTimeout(() => el.classList.remove('on'), 1600);
+}
+
+/* an inline single-field editor, so naming yourself never leaves the keyboard */
+function editInline(host, initial, done, prefix) {
+  const slot = host.querySelector('.pvalue') || host;
+  const old = slot.innerHTML;
+  slot.innerHTML = (prefix ? `<span class="slabel">${prefix}</span>` : '') +
+                   `<input class="editbox" value="${initial}">`;
+  const input = slot.querySelector('input');
+  input.focus(); input.select();
+  const finish = (commit) => {
+    const v = input.value.trim();
+    slot.innerHTML = old;
+    paintValues();
+    if (commit && v) done(v);
+  };
+  input.addEventListener('keydown', (e) => {
+    e.stopPropagation();
+    if (e.key === 'Enter') finish(true);
+    if (e.key === 'Escape') finish(false);
+  });
+  input.addEventListener('blur', () => finish(false));
+}
+
+function fire() {
+  const p = page(), el = p.items[p.sel], act = el.dataset.act;
+  if (!act) return;                       // value rows: left/right is the whole interaction
+  el.classList.remove('fired'); void el.offsetWidth; el.classList.add('fired');
+  const [cmd, arg] = act.split(':');
+  switch (cmd) {
+    case 'menu':
+      if (+arg === 0) return goPage('sp');
+      if (+arg === 1) return goPage('mp');
+      return say(`→ ${MENU[+arg]} (not mocked up yet)`);
+    case 'opts':  return goPage('opts');
+    case 'back':  return goPage(BACK[document.body.dataset.page]);
+    case 'go':    return say(`→ race: ${vtext('car')} on ${vtext('stage')}`);
+    case 'name':  return editInline(el, myName, (v) => { myName = v; paintValues(); say(`→ name set to ${v}`); });
+    case 'join': {
+      const g = GAMES[+arg];
+      const enter = () => {
+        document.getElementById('lobby-name').textContent = g.n;
+        document.getElementById('lobby-meta').textContent = `${g.lock ? 'private' : 'public'} · Esc — leave`;
+        goPage('lobby');
+      };
+      // a private game asks for its password in place; there is no separate
+      // "join by code" row to get lost in
+      if (g.lock) return editInline(el, '', enter, 'password');
+      return enter();
+    }
+    case 'create':
+      document.getElementById('lobby-name').textContent = `${myName}'s game`;
+      document.getElementById('lobby-meta').textContent = `${vtext('privacy')} · Esc — leave`;
+      return goPage('lobby');
+    case 'chat':
+      return editInline(el, '', (v) => { CHAT.push([myName, v]); paintValues(); });
+    case 'start': {
+      const ready = PLAYERS.filter(p => p.ready).length;
+      return say(`→ launching with ${ready}/${PLAYERS.length} ready`);
+    }
+  }
+}
+
+// left/right changes the focused row's value; on the menu page the axis is
+// spare, so the mockup borrows it to flip styles.
+function sideways(d) {
+  if (document.body.dataset.page === 'menu') return cycleStyle(d);
+  const k = page().items[page().sel].dataset.row;
+  if (!k || !V[k]) return;
+  V[k].at = (V[k].at + d + V[k].vals.length) % V[k].vals.length;
+  paintValues();
+}
+
+/* ---- style switching ------------------------------------------------ */
+const strip = document.getElementById('styles');
+strip.innerHTML = STYLES.map(([k, n], i) => `<button data-k="${k}">${i + 1} ${n}</button>`).join('');
+function setStyle(k) {
+  document.body.dataset.style = k;
+  [...strip.children].forEach(b => b.setAttribute('aria-current', b.dataset.k === k));
+  bgReset();
+  if (calm.matches) BG[k]?.(innerWidth, innerHeight);
+}
+strip.addEventListener('click', (e) => {
+  const b = e.target.closest('button');
+  if (b) { setStyle(b.dataset.k); b.blur(); }
+});
+function cycleStyle(d) {
+  const i = STYLES.findIndex(([k]) => k === document.body.dataset.style);
+  setStyle(STYLES[(i + d + STYLES.length) % STYLES.length][0]);
+}
+
+/* ---- input ---------------------------------------------------------- */
+addEventListener('keydown', (e) => {
+  if (e.target.tagName === 'INPUT') return;      // an inline editor owns the keyboard
+  switch (e.key) {
+    case 'ArrowUp':    case 'w': case 'W': move(-1); break;
+    case 'ArrowDown':  case 's': case 'S': move(+1); break;
+    case 'ArrowLeft':  case 'a': case 'A': sideways(-1); break;
+    case 'ArrowRight': case 'd': case 'D': sideways(+1); break;
+    case 'Enter': case ' ': fire(); break;
+    case 'Escape': case 'Backspace': {
+      const b = BACK[document.body.dataset.page];
+      if (b) goPage(b);
+      break;
+    }
+    case 't': case 'T': document.getElementById('tune').classList.toggle('off'); break;
+    case 'Home': page().sel = 0; draw(); break;
+    case 'End':  page().sel = page().items.length - 1; draw(); break;
+    default:
+      if (e.key >= '1' && e.key <= String(STYLES.length)) setStyle(STYLES[+e.key - 1][0]);
+      else return;
+  }
+  e.preventDefault();
+});
+// pointer is secondary: hover moves the selection so mouse and keyboard never
+// disagree about what is focused.
+for (const p of Object.values(PAGES)) {
+  p.root.addEventListener('mousemove', (e) => {
+    const li = e.target.closest('.item');
+    const i = li ? p.items.indexOf(li) : -1;
+    if (i >= 0 && i !== p.sel) { p.sel = i; draw(); }
+  });
+  p.root.addEventListener('click', (e) => { if (e.target.closest('.item')) fire(); });
+}
+
+/* ---- font tuning panel ---------------------------------------------- */
+/* Seven sliders, one per kind of text. Values live on :root, so they apply
+   across every page and style at once; per-style differences are multipliers
+   in the CSS and ride along. `t` hides the panel. */
+const FS = [
+  ['title', 'title', 3],
+  ['item',  'rows',  1.5],
+  ['value', 'value', 1.5],
+  ['label', 'label', 1],
+  ['meta',  'meta',  1],
+  ['stat',  'stats', 1],
+  ['chat',  'chat',  1],
+];
+const tune = document.getElementById('tune');
+tune.innerHTML = `<h4><span>Font sizes</span><span>T hides</span></h4>` + FS.map(([k, label, def]) => `
+  <div class="t"><span>${label}</span>
+    <input type="range" id="fs-${k}" min=".4" max="3.4" step=".01" value="${def}">
+    <span class="n" id="fsn-${k}">${def.toFixed(2)}</span></div>`).join('') + `
+  <div class="btns"><button id="fs-reset">reset</button></div>
+  <div id="css"></div>`;
+
+function applyFS(k, v) {
+  document.documentElement.style.setProperty(`--fs-${k}`, v + 'rem');
+  document.getElementById(`fsn-${k}`).textContent = (+v).toFixed(2);
+}
+function fsReadout() {
+  const parts = FS.map(([k]) => `--fs-${k}: ${(+document.getElementById('fs-' + k).value).toFixed(2)}rem;`);
+  document.getElementById('css').textContent = parts.join(' ');
+  localStorage.setItem('nfm-fs', JSON.stringify(FS.map(([k]) => document.getElementById('fs-' + k).value)));
+}
+for (const [k] of FS) {
+  const el = document.getElementById('fs-' + k);
+  el.addEventListener('input', () => { applyFS(k, el.value); fsReadout(); });
+  // a focused range would eat the arrow keys the whole mockup runs on
+  el.addEventListener('keydown', (e) => e.stopPropagation());
+}
+document.getElementById('fs-reset').addEventListener('click', () => {
+  FS.forEach(([k, , def]) => { document.getElementById('fs-' + k).value = def; applyFS(k, def); });
+  fsReadout();
+});
+try {
+  const saved = JSON.parse(localStorage.getItem('nfm-fs') || 'null');
+  if (Array.isArray(saved)) FS.forEach(([k], i) => {
+    if (saved[i] != null) { document.getElementById('fs-' + k).value = saved[i]; applyFS(k, saved[i]); }
+  });
+} catch {}
+fsReadout();
+
+/* ---- backdrops ------------------------------------------------------ */
+const cv = document.getElementById('bg');
+const cx = cv.getContext('2d');
+let t = 0, streaks = [];
+function resize() {
+  const dpr = Math.min(devicePixelRatio || 1, 2);
+  cv.width  = Math.floor(innerWidth  * dpr);
+  cv.height = Math.floor(innerHeight * dpr);
+  cx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+addEventListener('resize', resize);
+resize();
+function bgReset() {
+  streaks = Array.from({ length: 60 }, () => ({
+    x: Math.random() * innerWidth, y: Math.random() * innerHeight,
+    v: 4 + Math.random() * 14, l: 30 + Math.random() * 140,
+  }));
+}
+
+const BG = {
+  // synthwave horizon: a receding grid under a banded sun
+  neon(w, h) {
+    const hz = h * .58;
+    const g = cx.createLinearGradient(0, 0, 0, hz);
+    g.addColorStop(0, '#12002b'); g.addColorStop(1, '#3a0a5c');
+    cx.fillStyle = g; cx.fillRect(0, 0, w, hz);
+    cx.fillStyle = '#07000f'; cx.fillRect(0, hz, w, h - hz);
+
+    const sr = h * .15, scx = w / 2, scy = hz - sr * .15;
+    cx.globalAlpha = .55;                    // the menu sits over it
+    const sg = cx.createLinearGradient(0, scy - sr, 0, scy + sr);
+    sg.addColorStop(0, '#ffe600'); sg.addColorStop(.5, '#ff6ad5'); sg.addColorStop(1, '#7b2bff');
+    cx.save();
+    cx.beginPath(); cx.arc(scx, scy, sr, 0, Math.PI * 2); cx.clip();
+    cx.fillStyle = sg; cx.fillRect(scx - sr, scy - sr, sr * 2, sr * 2);
+    cx.fillStyle = '#2b0748';                // bands painted, not cut
+    for (let i = 0; i < 7; i++) cx.fillRect(scx - sr, scy - sr * .1 + i * sr * .16, sr * 2, i * .9 + 1.5);
+    cx.restore();
+    cx.globalAlpha = 1;
+
+    cx.strokeStyle = '#ff3ce055'; cx.lineWidth = 1;
+    for (let i = -12; i <= 12; i++) {
+      cx.beginPath(); cx.moveTo(w / 2 + i * 14, hz); cx.lineTo(w / 2 + i * w * .16, h); cx.stroke();
+    }
+    cx.strokeStyle = '#00e5ff44';
+    for (let i = 0; i < 16; i++) {
+      const f = ((i + (t * .012) % 1) / 16) ** 2.6;
+      const y = hz + f * (h - hz);
+      cx.beginPath(); cx.moveTo(0, y); cx.lineTo(w, y); cx.stroke();
+    }
+  },
+  // iridescent haze: three slow washes plus a drifting light bar
+  holo(w, h) {
+    cx.fillStyle = '#060a14'; cx.fillRect(0, 0, w, h);
+    const blob = (x, y, r, c) => {
+      const g = cx.createRadialGradient(x, y, 0, x, y, r);
+      g.addColorStop(0, c); g.addColorStop(1, '#060a1400');
+      cx.fillStyle = g; cx.fillRect(0, 0, w, h);
+    };
+    blob(w * .28 + Math.sin(t * .004) * 120, h * .32, h * .8, '#16d0ff2e');
+    blob(w * .74 + Math.cos(t * .003) * 120, h * .66, h * .7, '#b44dff28');
+    blob(w * .5  + Math.sin(t * .002) * 200, h * .9,  h * .6, '#2bffc422');
+    cx.save();
+    cx.translate(((t * .5) % (w + 400)) - 200, 0);
+    cx.rotate(-.22);
+    const lg = cx.createLinearGradient(0, 0, 260, 0);
+    lg.addColorStop(0, '#ffffff00'); lg.addColorStop(.5, '#ffffff10'); lg.addColorStop(1, '#ffffff00');
+    cx.fillStyle = lg; cx.fillRect(0, -h, 260, h * 3);
+    cx.restore();
+  },
+  // paper: a slow vertical sweep, everything else is CSS
+  slab(w, h) {
+    cx.fillStyle = '#e8e4d9'; cx.fillRect(0, 0, w, h);
+    cx.save();
+    cx.globalAlpha = .07; cx.fillStyle = '#111';
+    cx.translate(-((t * .6) % 120), 0);
+    for (let x = -120; x < w + 240; x += 120) cx.fillRect(x, 0, 60, h);
+    cx.restore();
+  },
+  // near-white with two very slow tinted washes; deliberately almost nothing
+  quiet(w, h) {
+    cx.fillStyle = '#eef1f5'; cx.fillRect(0, 0, w, h);
+    const blob = (x, y, r, c) => {
+      const g = cx.createRadialGradient(x, y, 0, x, y, r);
+      g.addColorStop(0, c); g.addColorStop(1, '#eef1f500');
+      cx.fillStyle = g; cx.fillRect(0, 0, w, h);
+    };
+    blob(w * .25 + Math.sin(t * .003) * 60, h * .3, h * .7, '#2f7df618');
+    blob(w * .78 + Math.cos(t * .0025) * 60, h * .75, h * .6, '#12b88614');
+  },
+  // a scrolling starfield on a 4px grid — everything snaps to whole blocks
+  pix(w, h) {
+    cx.fillStyle = '#0f1020'; cx.fillRect(0, 0, w, h);
+    const G = 4, snap = (v) => Math.round(v / G) * G;
+    const off = snap((t * .5) % (w + 200));
+    for (const s of streaks) {
+      const x = ((s.x - off * (s.v / 18)) % (w + 40) + w + 40) % (w + 40) - 20;
+      cx.fillStyle = s.v > 12 ? '#7fe3c0' : '#4a4f8f';
+      cx.fillRect(snap(x), snap(s.y), G * (s.v > 12 ? 2 : 1), G);
+    }
+    // a chunky dither band along the bottom, like a tiled floor
+    cx.fillStyle = '#1b1e3a';
+    for (let x = 0; x < w; x += 8) {
+      for (let y = h - 40; y < h; y += 8) {
+        if (((x / 8 + y / 8) | 0) % 2 === 0) cx.fillRect(x, y, 8, 8);
+      }
+    }
+  },
+};
+
+const calm = matchMedia('(prefers-reduced-motion: reduce)');
+/* The backdrops drift slowly enough that 20fps is indistinguishable from the
+   display rate, and redrawing a full-screen canvas is the single biggest CPU
+   cost on this page. `t` advances by 3 per drawn frame so every backdrop keeps
+   the speed it had at 60fps. */
+const BG_MS = 50;
+let lastBg = -1e9;
+function frame(now) {
+  requestAnimationFrame(frame);
+  if (now - lastBg < BG_MS) return;
+  lastBg = now;
+  t += 3;
+  BG[document.body.dataset.style]?.(innerWidth, innerHeight);
+}
+// under reduced motion the backdrop is drawn once per style change / resize
+if (!calm.matches) requestAnimationFrame(frame);
+else addEventListener('resize', () => BG[document.body.dataset.style]?.(innerWidth, innerHeight));
+
+/* the pixel face from images.zip — decorative, so a failure is silent */
+import('./preview.js')
+  .then(m => m.faceURL())
+  .then(u => { document.getElementById('face').src = u; })
+  .catch(() => {});
+
+/* ?style=pix&page=lobby&sel=2 — so a screenshot can be taken of any state */
+const q = new URLSearchParams(location.search);
+if (PAGE_IDS.includes(q.get('page'))) document.body.dataset.page = q.get('page');
+if (q.has('sel')) {
+  const p = page();
+  p.sel = Math.min(Math.max(+q.get('sel') | 0, 0), p.items.length - 1);
+}
+setStyle(STYLES.some(([k]) => k === q.get('style')) ? q.get('style') : 'neon');
+paintValues();
+draw();
+</script>
+</body>
+</html>

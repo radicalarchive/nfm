@@ -143,6 +143,16 @@ and it has returned a negative fixed cost). Measure fixed costs with `?prof=1`.
 - [ ] Reported but unconfirmed: "some tracks have textures extending off
       screen" (stage 9). Not reproduced since the camera-clearance fix; needs
       a look with fresh eyes.
+- [ ] **Menu-mockup backdrops should probably be CSS, not a canvas**
+      (`web/menu-mockups.html`). Redrawing a full-screen canvas is the biggest
+      CPU cost on that page — it is throttled to 20fps only because it is
+      expensive. Every backdrop there is a repeating pattern under a fixed
+      transform: neon is horizontal lines sliding down from a screen midpoint,
+      which a `perspective()` + `rotateX()` on a `repeating-linear-gradient`
+      reproduces exactly, with the scroll as a compositor-only `translateY`
+      (see the hazard rail for the seamless-loop arithmetic). Same shape for
+      pixel's starfield and slab's bars. That would take the page's steady-state
+      cost to ~zero and remove the rAF loop entirely.
 
 ## Rendering / correctness
 
