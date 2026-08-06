@@ -25,6 +25,7 @@ import * as music from './music.js';
 import { captureCar, applyCar, encodePacket, decodePacket } from './netcodec.js';
 import { StateSync, driftOf } from './netsession.js';
 import { NetPeer, makeRoomCode } from './netpeer.js';
+import { Lobby } from './netlobby.js';
 
 const log = (msg) => {
   console.log(msg);
@@ -33,17 +34,19 @@ const log = (msg) => {
 };
 
 /**
- * Agree on the race before either side builds a world.
+ * Agree on the race before either side builds a world, from URL parameters.
+ *
+ * This is the headless path: `?net=host&humans=N` starts as soon as N people
+ * are in, `?net=join&room=CODE` waits to be told. It is what the browser tests
+ * drive, and what a shared link does. The LAUNCHER drives the same `Lobby`
+ * from its own screen instead, where a person presses Start -- one protocol,
+ * two drivers, so the tested path and the shipped path cannot drift apart.
  *
  * The host picks everything and the guest accepts it verbatim -- seed, stage,
  * the whole grid. Nothing is negotiated in the sense of being argued about:
  * two machines that each decided part of the setup would start from different
  * worlds, and while state sync would eventually drag the cars into agreement
  * it cannot fix a guest racing a different STAGE.
- *
- * The grid is sent explicitly rather than being re-derived from the seed:
- * sortcars() consumes randoms, so a client that regenerated it would advance
- * its PRNG differently and desync before the lights went out.
  */
 async function negotiate(mode, params, cfg, keep) {
   const net = new NetPeer({ onStatus: (m) => log(m) });
@@ -57,104 +60,51 @@ async function negotiate(mode, params, cfg, keep) {
   if (mode === 'host') {
     const code = (params.get('room') || makeRoomCode()).toUpperCase();
     const banner = document.getElementById('room');
-    const hint = () => {
+    const hint = (joined) => {
       if (!banner) return;
       document.getElementById('roomcode').textContent = code;
       document.getElementById('roomhint').textContent =
-        `Give this to the other players — ${net.conns.length}/${humanCount - 1} joined.`;
+        `Give this to the other players — ${joined}/${humanCount - 1} joined.`;
       banner.hidden = false;
     };
-    hint();
+    hint(0);
     await net.openRoom(code);
-
-    // The grid is drawn HERE, on the host, from the host's seed, and shipped
-    // verbatim. sortcars() consumes randoms, so a client that regenerated it
-    // would advance its PRNG differently.
-    setSeed(cfg.seed);
-    const cars = [];
-    {
-      const tmp = new XtGraphics();
-      tmp.cd = new CarDefine([], null, null, null);
-      tmp.sc[0] = cfg.car;
-      tmp.sortcars(cfg.stage);
-      for (let i = 0; i < 8; i++) cars[i] = tmp.sc[i];
-    }
-
-    // Guests fill slots 1..humanCount-1 in the order they finish connecting.
-    // Slot assignment has to be the host's alone: two guests choosing for
-    // themselves can pick the same one, and nothing downstream would notice
-    // until both drove the same car.
-    const names = [name || 'Host'];
-    // Greetings are BUFFERED, not merely awaited. A guest sends its hello the
-    // moment its channel opens, which can be before the host has got round to
-    // accepting that connection -- and a hello that arrives with nobody
-    // listening for it used to be dropped, leaving both ends waiting for the
-    // other. A guest that re-greets on every new peer also lands here more
-    // than once; the second copy resolves nothing and is discarded.
-    const heard = new Map();
-    const waiting = new Map();
-    net.onMessage = (msg, from) => {
-      if (!msg || msg.t !== 'hello') return;
-      heard.set(from, msg);
-      waiting.get(from)?.(msg);
-    };
-    const helloFrom = (from) => (heard.has(from)
-      ? Promise.resolve(heard.get(from))
-      : new Promise((resolve) => waiting.set(from, resolve)));
-    // Which connection carries which slot. Recorded rather than assumed: the
-    // mesh means a peer index is connection order, which happens to match join
-    // order on the HOST but does not on a guest, and a `start` sent to the
-    // wrong index tells a player it is a slot somebody else is already using.
-    const connOfSlot = [];
-    for (let slot = 1; slot < humanCount; slot++) {
-      const from = await net.accept();
-      const hello = await helloFrom(from);
-      if (Number.isInteger(hello.car)) cars[slot] = hello.car;
-      names[slot] = hello.name || `Player ${slot + 1}`;
-      connOfSlot[slot] = from;
-      log(`${names[slot]} joined (slot ${slot})`);
-      hint();
-    }
-
-    const humanSlots = [];
-    for (let i = 0; i < humanCount; i++) humanSlots.push(i);
-    // Each guest is told its OWN slot, so the message differs per connection.
-    for (let slot = 1; slot < humanCount; slot++) {
-      net.sendMessage({
-        t: 'start', seed: cfg.seed, stage: cfg.stage, players: cfg.players,
-        cars, humanSlots, names, localIndex: slot,
-      }, connOfSlot[slot]);
-    }
+    const lobby = new Lobby({
+      net, isHost: true, name: name || 'Host', car: cfg.car, seed: cfg.seed,
+      stage: cfg.stage, players: cfg.players, autoStart: humanCount,
+    });
+    lobby.onRoster = () => hint(lobby.roster.length - 1);
+    const start = await lobby.ready;
     if (banner) banner.hidden = true;
-    log(`racing ${names.slice(1).join(', ')} — room ${code}`);
-    return { ...cfg, cars, humanSlots, localIndex: 0, room: code, names };
+    log(`racing ${start.names.slice(1).join(', ')} — room ${code}`);
+    return { ...cfg, ...start };
   }
 
   const code = (params.get('room') || '').toUpperCase();
   if (!code) throw new Error('joining needs ?room=CODE');
   await net.join(code);
-  // Greet EVERYONE, and greet each late arrival as it appears. A guest cannot
-  // pick the host out of its peers -- on a mesh it meets the other guests too,
-  // in tracker/ICE order -- so it says hello to the room and the host is
-  // whoever replies with a `start`. The other guests ignore it.
-  const hello = { t: 'hello', name: name || 'Player', car: cfg.car };
-  net.sendMessage(hello);
-  net.onPeer = (idx) => net.sendMessage(hello, idx);
-  const start = await new Promise((resolve) => {
-    net.onMessage = (msg, from) => {
-      if (msg && msg.t === 'start') { net.hostIndex = from; resolve(msg); }
-    };
-  });
-  net.onPeer = null;
+  const lobby = new Lobby({ net, isHost: false, name: name || 'Player', car: cfg.car });
+  const start = await lobby.ready;
   net.localIndex = start.localIndex;
   log(`joined ${start.names[0]} as slot ${start.localIndex} — room ${code}`);
-  return { ...cfg, seed: start.seed, stage: start.stage, players: start.players,
-           cars: start.cars, humanSlots: start.humanSlots,
-           localIndex: start.localIndex, room: code, names: start.names };
+  return { ...cfg, ...start };
 }
 
-async function boot() {
-  const params = new URLSearchParams(location.search);
+/**
+ * Build a world and race it.
+ *
+ * Two callers. `main.html` passes nothing and every setting comes from the
+ * query string, which is what the tools and any shared link use. The LAUNCHER
+ * passes `params` it built from the menu plus, for a networked race, the
+ * `session` its lobby already negotiated -- the peer connection has to survive
+ * into the race, so the lobby cannot navigate here and a URL cannot carry it.
+ *
+ * @param opts.params   URLSearchParams to read settings from
+ * @param opts.session  { net, cfg } from an already-agreed lobby
+ * @param opts.onExit   called instead of navigating when the race ends
+ */
+export async function boot(opts = {}) {
+  const params = opts.params || new URLSearchParams(location.search);
   const base = await detectFpath(params.get('path'));
 
   // ---- netplay handshake --------------------------------------------------
@@ -177,9 +127,17 @@ async function boot() {
     cars: null,
     localIndex: 0,
   };
-  if (netMode === 'host' || netMode === 'join') {
+  if (opts.session) {
+    // The launcher already ran the lobby, on a connection that must not be
+    // torn down: everything below treats it exactly as a negotiated race.
+    net = opts.session.net;
+    cfg = { ...cfg, ...opts.session.cfg };
+    sync = new StateSync(cfg.localIndex, cfg.humanSlots, cfg.players);
+  } else if (netMode === 'host' || netMode === 'join') {
     cfg = await negotiate(netMode, params, cfg, (n) => { net = n; });
     sync = new StateSync(cfg.localIndex, cfg.humanSlots, cfg.players);
+  }
+  if (sync) {
     // Chat and lobby traffic. Everyone is connected to everyone, so a line
     // reaches the other players directly and nobody forwards anything.
     net.onMessage = (msg) => {
@@ -721,7 +679,8 @@ async function boot() {
     snd.stopAllLoops();
     music.stop();
     net?.close();
-    location.href = '../index.html';
+    if (opts.onExit) opts.onExit();
+    else location.href = '../index.html';
   }
 
   // ---- state sync ----------------------------------------------------------
@@ -1152,7 +1111,6 @@ function installInput(u, snd) {
   addEventListener('touchcancel', endTouch);
 }
 
-boot().catch((e) => {
-  log('BOOT FAILED: ' + e.message);
-  console.error(e);
-});
+// Nothing runs on import: `main.html` calls boot() with the query string, and
+// the launcher calls it with the config its menu built. A module that raced on
+// import could not be imported by a page that is not ready to race yet.

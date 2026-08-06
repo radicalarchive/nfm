@@ -51,7 +51,16 @@
             letter-spacing: .12em; color: #6cf; }
   #room em { color: #8a8f9c; font-style: normal; font-size: .9rem; }
 </style>
-<script type="module" src="./main.js"></script>
+<script type="module">
+  // The URL-driven entry: every setting comes from the query string. The
+  // launcher (index.html) imports the same boot() and hands it a config plus,
+  // for a networked race, the live connection its lobby negotiated.
+  import { boot } from './main.js';
+  boot().catch((e) => {
+    document.getElementById('log').textContent = 'BOOT FAILED: ' + e.message;
+    console.error(e);
+  });
+</script>
 <script type="module">
   // Scale-to-fit the 800x450 CSS box. This is a GPU-composited transform,
   // free per frame, and independent of RENDER resolution (main.js sets the

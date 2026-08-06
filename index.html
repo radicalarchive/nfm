@@ -5,548 +5,396 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Need for Madness</title>
 <style>
-  :root { color-scheme: dark; --line:#2c2f3a; --panel:#161821; --dim:#8a8f9c; --accent:#6cf; }
-  * { box-sizing: border-box; }
-  body {
-    margin: 0; padding: 1.5rem 1.25rem 3rem; color: #e6e8ee;
-    background: radial-gradient(120% 90% at 50% 0%, #1d2130 0%, #0d0f16 60%);
-    font: 15px/1.5 system-ui, sans-serif; min-height: 100vh;
+/* ---------------------------------------------------------------------------
+   The launcher: menu, single player, multiplayer browser, lobby, settings, and
+   the race itself. ONE page, because the lobby holds a live WebRTC connection
+   that a navigation would tear down -- see netlobby.js. `data-page` on <body>
+   says which screen is up, `race` being the one where the canvases show.
+
+   The visual language is the `slab` theme from web/menu-mockups.html: flat
+   outlines, no drop shadows, and the selected box inverts, strobes its border
+   and runs a hazard rail down its edge. Every selectable box is `.item`, so
+   one `.is-sel` rule covers a menu row, a tall car pane, an option row and the
+   chat input alike -- a treatment that only worked on one-line rows would fail
+   visibly here.
+--------------------------------------------------------------------------- */
+:root {
+  --fs-title: 3rem;     /* the wordmark */
+  --fs-item:  1.5rem;   /* menu rows, row labels */
+  --fs-value: 1.5rem;   /* the thing left/right changes */
+  --fs-label: 1rem;     /* small caps mono: CAR, STAGE, PLAYERS */
+  --fs-meta:  1rem;     /* secondary lines, table cells */
+  --fs-stat:  1rem;     /* stat bar names */
+  --fs-chat:  1rem;     /* player list + chat log */
+  --k-title: 1.55; --k-item: 1.04;
+  --ink: #111; --paper: #e8e4d9; --hi: #ffe400;
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+  margin: 0; overflow: hidden; background: var(--paper); color: var(--ink);
+  font: 16px/1.4 "Arial Black", "Helvetica Neue", system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* The backdrop is CSS, not a canvas. It is a repeating pattern under a fixed
+   transform, so a compositor-only translate reproduces it exactly at zero CPU
+   -- the mockup's rAF loop existed only because it was painting one. The strip
+   overhangs by more than one period and travels exactly one period, so the
+   loop is seamless. */
+#bg { position: fixed; inset: 0; z-index: 0; overflow: hidden; background: var(--paper); }
+#bg::before {
+  content: ""; position: absolute; top: 0; bottom: 0; left: -240px; right: -240px;
+  background: repeating-linear-gradient(90deg, #11111112 0 60px, #0000 60px 120px);
+  animation: drift 4s linear infinite;
+}
+@keyframes drift { to { transform: translateX(120px); } }
+
+/* ---- shell ---------------------------------------------------------- */
+.page {
+  position: relative; z-index: 2; height: 100%;
+  display: none; flex-direction: column; align-items: center; justify-content: center;
+  gap: 1rem; padding: 2.4rem 1rem 3.2rem;
+  overflow-y: auto; scrollbar-width: none;
+}
+.page::-webkit-scrollbar { width: 0; }
+.page > * { flex: none; }
+body[data-page="menu"]  #page-menu  { display: flex; }
+body[data-page="sp"]    #page-sp    { display: flex; }
+body[data-page="opts"]  #page-opts  { display: flex; }
+body[data-page="mp"]    #page-mp    { display: flex; }
+body[data-page="lobby"] #page-lobby { display: flex; }
+body[data-page="set"]   #page-set   { display: flex; }
+
+.brand { display: flex; flex-direction: column; align-items: center; gap: .2rem; }
+#face { height: 5rem; image-rendering: pixelated; filter: grayscale(1) contrast(2); }
+#face:not([src]) { display: none; }
+.title { margin: 0; font-size: calc(var(--fs-title) * var(--k-title)); line-height: .85;
+         letter-spacing: -.04em; text-transform: uppercase; text-align: center; }
+.sub { margin: .35rem 0 0; font-weight: 700; letter-spacing: .3em; font-size: .7rem;
+       background: var(--ink); color: var(--paper); padding: .25rem .5rem; }
+
+.menu { list-style: none; margin: 0; padding: 0; display: grid; gap: .35rem; width: min(34rem, 94vw); }
+.item {
+  position: relative; cursor: pointer; user-select: none;
+  display: flex; align-items: center; gap: .9rem;
+  padding: .85rem 1.1rem .85rem 2rem;   /* the left inset is the hazard rail's */
+  font-size: calc(var(--fs-item) * var(--k-item)); font-weight: 900;
+  letter-spacing: -.01em; text-transform: uppercase;
+  background: var(--paper); border: 3px solid var(--ink); color: var(--ink);
+}
+.item .label { flex: 1; }
+.item.is-sel {
+  background: var(--ink); color: var(--hi);
+  animation: slabStrobe .28s steps(2) infinite;
+  overflow: hidden;                     /* the rail runs past the box; clip it */
+}
+/* 45° stripes with a 16px period repeat exactly every 16/sin45 = 22.627px of
+   travel, so one period of TRANSFORM is a seamless loop. Animating
+   background-position instead put the phase on subpixel boundaries and the
+   seam visibly twitched. */
+.item.is-sel::before {
+  content: ""; position: absolute; top: -32px; bottom: -32px; left: 0; width: 18px;
+  background: repeating-linear-gradient(45deg, var(--hi) 0 8px, var(--ink) 8px 16px);
+  animation: hazard .7s linear infinite;
+}
+@keyframes slabStrobe { 0% { border-color: var(--hi); } 100% { border-color: #ff3b00; } }
+@keyframes hazard { from { transform: translateY(0); } to { transform: translateY(-22.627px); } }
+.item.fired { animation: fired .18s steps(2) 2 !important; }
+@keyframes fired { 50% { filter: invert(1); } }
+.item.off { opacity: .45; cursor: default; }
+
+/* ---- shared page furniture ------------------------------------------ */
+.wrap { width: min(54rem, 96vw); display: grid; gap: .55rem; }
+.phead {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 1rem;
+  font: 600 calc(var(--fs-label) * 1.18)/1 ui-monospace, Menlo, Consolas, monospace;
+  letter-spacing: .16em; text-transform: uppercase; margin-bottom: .2rem;
+}
+.rows { list-style: none; margin: 0; padding: 0; display: grid; gap: .5rem; }
+/* A UA scrollbar cuts across the design and the 3px borders overhang by
+   design, which made panels scroll that had nothing to scroll. */
+.scroll { scrollbar-width: none; -ms-overflow-style: none; padding: 4px; }
+.scroll::-webkit-scrollbar { width: 0; height: 0; }
+.panel { padding: .6rem .75rem .7rem; background: var(--paper); border: 3px dashed var(--ink); }
+.ptitle, .gtitle {
+  font: 700 var(--fs-label)/1 ui-monospace, Menlo, Consolas, monospace; letter-spacing: .2em;
+  text-transform: uppercase; opacity: .55;
+}
+.gtitle { display: flex; justify-content: space-between; align-items: baseline; margin: .1rem .3rem .5rem; }
+
+/* value rows: left/right changes the value, Enter does nothing */
+.pvalue { display: flex; align-items: center; gap: .7rem; font-size: var(--fs-value); font-weight: 700; }
+.pvalue .val { flex: 1; }
+.ar { opacity: .22; font-size: calc(var(--fs-value) * .78); transition: opacity .12s, transform .12s; }
+.is-sel .ar { opacity: 1; }
+.is-sel .ar.l { animation: nudgeL .9s ease-in-out infinite; }
+.is-sel .ar.r { animation: nudgeR .9s ease-in-out infinite; }
+@keyframes nudgeL { 50% { transform: translateX(-4px); } }
+@keyframes nudgeR { 50% { transform: translateX(4px); } }
+
+/* ---- single player --------------------------------------------------- */
+.pane { align-items: stretch; gap: 1.1rem; padding: .8rem 1rem .8rem 2rem; text-transform: none; }
+.thumb { flex: none; width: 12rem; aspect-ratio: 16 / 9; align-self: center;
+         position: relative; overflow: hidden; border: 3px solid var(--ink); background: #0b0d13; }
+.thumb canvas { position: absolute; display: block; }
+/* The car lands at (402, 264) in the game's 800x450 projection space, and that
+   space is ABSOLUTE -- the projection centre and focus point are screen
+   coordinates, so moving the camera would stop showing what the game's own
+   car-select screen shows. Crop to the part the car occupies instead; the 2x
+   backing store keeps it sharp under the ~3x magnification. */
+.thumb-car canvas { width: 308%; left: -105%; top: -131%; }
+.thumb-map canvas { width: 100%; height: 100%; left: 0; top: 0; object-fit: cover; }
+.pbody { flex: 1; display: flex; flex-direction: column; justify-content: center; gap: .3rem; min-width: 0; }
+.ar.solo { align-self: center; flex: none; }
+.pmeta { font: 500 var(--fs-meta)/1.3 ui-monospace, Menlo, Consolas, monospace; opacity: .55; }
+.pstats { flex: none; width: calc(var(--fs-stat) * 9.4 + 7rem); display: grid; gap: .3rem; align-content: center; }
+.pstat { display: grid; grid-template-columns: calc(var(--fs-stat) * 9.4) 1fr; align-items: center; gap: .5rem;
+         font: 500 var(--fs-stat)/1 ui-monospace, Menlo, Consolas, monospace; }
+.pstat span { opacity: .6; }
+/* The track's dimness is in the COLOUR, not in opacity -- opacity on the track
+   multiplies the fill inside it and the two could never differ. */
+.pstat .track { display: block; height: 7px; background: color-mix(in srgb, currentColor 16%, transparent); }
+.pstat .track i { display: block; height: 100%; background: currentColor; width: var(--v); }
+.pane.go { justify-content: center; text-transform: uppercase; letter-spacing: .18em; padding: .85rem 1rem; }
+.pane.go .label { flex: none; }
+@media (max-width: 46rem) { .pstats { display: none; } }
+
+/* ---- option rows ------------------------------------------------------ */
+.orow { padding: .55rem .9rem .55rem 2rem; font-size: calc(var(--fs-item) * .87);
+        font-weight: 600; text-transform: none; gap: .9rem; }
+.slabel { flex: none; width: 11rem; font: 600 var(--fs-label)/1 ui-monospace, Menlo, Consolas, monospace; opacity: .7; }
+.rhint { font: 500 var(--fs-label)/1 ui-monospace, Menlo, Consolas, monospace; opacity: .5; }
+.orow .pvalue { flex: 1; font-size: calc(var(--fs-value) * .81); }
+
+/* ---- multiplayer browser -------------------------------------------- */
+.grow { gap: .8rem; text-transform: none; font-size: calc(var(--fs-item) * .87); padding: .6rem .9rem .6rem 2rem; }
+.grow .gname { flex: 1; font-weight: 700; font-size: calc(var(--fs-item) * .96);
+               white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.grow .gcell { flex: none; font: 600 var(--fs-meta)/1 ui-monospace, Menlo, Consolas, monospace; opacity: .7; }
+.grow .gcell.w6 { width: 3.6rem; text-align: right; }
+.grow .gcell.w12 { width: calc(var(--fs-meta) * 13); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.namerow .pvalue { flex: 1; }
+.mplist { list-style: none; margin: 0; padding: 4px; max-height: 22rem; overflow: auto; display: grid; gap: .4rem; }
+.empty { font: 500 var(--fs-meta)/1.5 ui-monospace, Menlo, Consolas, monospace; opacity: .55; padding: .8rem .3rem; }
+.editbox {
+  flex: 1; font: 700 calc(var(--fs-value) * .81)/1 inherit; color: inherit;
+  background: color-mix(in srgb, currentColor 10%, transparent);
+  border: 0; border-bottom: 2px solid currentColor; padding: .25rem .3rem; min-width: 0; outline: none;
+  text-transform: none;
+}
+
+/* ---- lobby ----------------------------------------------------------- */
+.lobbygrid { display: grid; grid-template-columns: 1.5fr 1fr; gap: .55rem; align-items: stretch; }
+@media (max-width: 52rem) { .lobbygrid { grid-template-columns: 1fr; } }
+.lobbygrid .panel { display: flex; flex-direction: column; min-height: 16rem; }
+.plist { list-style: none; margin: 0; padding: 0; display: grid; gap: .25rem;
+         align-content: start; flex: 1; min-height: 0; overflow: auto; }
+.prow { display: flex; align-items: center; gap: .6rem; padding: .35rem .5rem;
+        font: 600 var(--fs-chat)/1.2 ui-monospace, Menlo, Consolas, monospace; }
+.prow .pn { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.prow .pcar { opacity: .6; font-size: calc(var(--fs-chat) * .87); }
+.prow.me { background: color-mix(in srgb, currentColor 10%, transparent); }
+.chatlog { display: grid; gap: .2rem; align-content: end; flex: 1; min-height: 0; overflow: auto;
+           font: 500 calc(var(--fs-chat) * .91)/1.35 ui-monospace, Menlo, Consolas, monospace; }
+.chatlog b { opacity: .75; font-weight: 700; }
+.chatlog div { opacity: .85; }
+.chatrow { padding: .5rem .8rem .5rem 2rem; text-transform: none; font-size: calc(var(--fs-item) * .83); }
+.chatrow .ph { opacity: .5; font: 500 var(--fs-label) ui-monospace, Menlo, Consolas, monospace; }
+.roomcode { font: 900 calc(var(--fs-value) * 1.1)/1 ui-monospace, Menlo, Consolas, monospace;
+            letter-spacing: .25em; background: var(--ink); color: var(--hi); padding: .2rem .5rem; }
+
+/* ---- footer hint + transient message --------------------------------- */
+.hint {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 3;
+  padding: .5rem 1rem; text-align: center; color: var(--ink); opacity: .8;
+  font: 500 .72rem/1.4 ui-monospace, Menlo, Consolas, monospace; letter-spacing: .08em;
+}
+.hint kbd { font: inherit; border: 1px solid currentColor; border-radius: 3px; padding: 0 .3em; }
+#say {
+  position: fixed; z-index: 4; left: 50%; bottom: 3rem; transform: translateX(-50%);
+  font: 600 .78rem/1 ui-monospace, Menlo, Consolas, monospace; letter-spacing: .12em;
+  padding: .45rem .8rem; background: var(--ink); color: var(--paper);
+  opacity: 0; transition: opacity .2s; pointer-events: none; max-width: 90vw; text-align: center;
+}
+#say.on { opacity: 1; }
+
+/* ---- the race -------------------------------------------------------- */
+/* Backing store is 2x while the CSS box stays 800x450, so the GPU rasterizes
+   at double resolution; game space is always 800x450 because the vertex shader
+   divides by u_size. */
+#stage { position: fixed; inset: 0; margin: auto; width: 800px; height: 450px;
+         transform-origin: center center; z-index: 5; display: none; }
+#stage canvas { position: absolute; left: 0; top: 0; width: 800px; height: 450px; }
+/* The 2D overlay carries drawString/drawImage and must sit on top of the
+   WebGL geometry -- the HUD is always foreground. */
+#overlay { pointer-events: none; }
+body[data-page="race"] { background: #000; }
+body[data-page="race"] #stage { display: block; }
+body[data-page="race"] #bg, body[data-page="race"] .hint { display: none; }
+#log {
+  position: fixed; left: 0; bottom: 0; right: 0; z-index: 6;
+  font: 12px/1.6 ui-monospace, Menlo, Consolas, monospace;
+  color: #9f9; background: rgba(0,0,0,.65); padding: 2px 8px; white-space: pre;
+  display: none;
+}
+body[data-page="race"] #log { display: block; }
+
+@media (prefers-reduced-motion: reduce) {
+  /* every selection stays READABLE; it just stops flashing */
+  .item.is-sel, .item.is-sel::before, .is-sel .ar, .item.fired, #bg::before {
+    animation: none !important;
   }
-  main { max-width: 62rem; margin: 0 auto; }
-  header { display: flex; align-items: center; justify-content: center; gap: .9rem; margin-bottom: 1.5rem; }
-  header > div { text-align: left; }
-  /* d1.png from images.zip, green-keyed at load. Pixel art, so no smoothing. */
-  #face { height: 4.4rem; width: auto; image-rendering: pixelated; filter: drop-shadow(0 2px 6px #0008); }
-  #face:not([src]) { display: none; }
-  h1 { font-size: 1.75rem; margin: 0; letter-spacing: .02em; }
-  header p { color: var(--dim); margin: .3rem 0 0; font-size: .9rem; }
-
-  .picks { display: grid; gap: 1.25rem; grid-template-columns: repeat(auto-fit, minmax(20rem, 1fr)); }
-  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 1rem 1.1rem 1.1rem; }
-  .card h2 { font-size: .78rem; text-transform: uppercase; letter-spacing: .09em; color: var(--dim); margin: 0 0 .7rem; font-weight: 700; }
-
-  .stage-view { position: relative; background: #0b0d13; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
-  canvas { display: block; width: 100%; height: auto; }
-  /* An author `display:block` beats the UA stylesheet's [hidden] rule, so the
-     hidden fallback canvas would still take up space. */
-  canvas[hidden] { display: none; }
-  /* The car preview renders in 800x450 game space because the original's
-     projection centre and focus point are absolute screen coordinates. Crop
-     to the part the car occupies rather than moving the camera. */
-  /* The car lands at (402, 264) in 800x450 game space, about 100px wide.
-     Crop to a 260x146 window around it; the 2x backing store keeps it sharp
-     under the ~3x magnification. */
-  .carview-crop { aspect-ratio: 16 / 9; }
-  .carview-crop canvas { position: absolute; width: 308%; left: -105%; top: -131%; }
-
-  .chooser { display: flex; align-items: center; gap: .6rem; margin-top: .8rem; }
-  .chooser select { flex: 1; }
-  select {
-    background: #0b0d13; color: #e6e8ee; border: 1px solid #39404f; border-radius: 6px;
-    padding: .45rem .55rem; font: 600 14px system-ui, sans-serif; width: 100%;
-  }
-  select:focus, input:focus, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-  .arrow {
-    width: 2.1rem; height: 2.1rem; flex: none; border-radius: 6px; cursor: pointer;
-    border: 1px solid #39404f; background: #1d212c; color: #e6e8ee; font-size: 1rem; line-height: 1;
-  }
-  .arrow:hover { background: #2a2f3d; }
-
-  .facts { display: flex; gap: 1rem; flex-wrap: wrap; color: var(--dim); font-size: .82rem; margin-top: .6rem; }
-  .facts b { color: #e6e8ee; font-weight: 600; }
-
-  .bars { margin-top: .8rem; display: grid; gap: .35rem; }
-  .bar { display: grid; grid-template-columns: 6.2rem 1fr; align-items: center; gap: .5rem; font-size: .8rem; color: var(--dim); }
-  /* Both are spans, so they need display:block or the heights do nothing. */
-  .bar .track { display: block; height: 8px; background: #0b0d13; border-radius: 4px; overflow: hidden; border: 1px solid #262b36; }
-  .bar .fill { display: block; height: 100%; background: linear-gradient(90deg, #3a7bd5, var(--accent)); }
-
-  .go { text-align: center; margin: 1.6rem 0 .5rem; }
-  .race {
-    font: 700 17px system-ui, sans-serif; padding: .7rem 3rem; border-radius: 9px; cursor: pointer;
-    border: 1px solid #4a8fe0; background: #2f6dc4; color: #fff;
-  }
-  .race:hover { filter: brightness(1.15); }
-  .race[disabled] { opacity: .5; cursor: default; filter: none; }
-
-  .opts { display: flex; gap: 1.2rem; justify-content: center; flex-wrap: wrap; align-items: center; margin-top: 1rem; color: var(--dim); font-size: .85rem; }
-  .opts label { display: flex; align-items: center; gap: .4rem; }
-  .opts select { width: auto; font-weight: 500; font-size: 13px; padding: .3rem .4rem; }
-
-  details.adv { margin-top: 2.2rem; border-top: 1px solid var(--line); padding-top: .9rem; }
-  details.adv > summary { cursor: pointer; color: var(--dim); font-size: .85rem; font-weight: 600; }
-  details.adv > summary:hover { color: #e6e8ee; }
-
-  .netrow { display: flex; gap: .6rem; align-items: center; margin: .5rem 0; flex-wrap: wrap; }
-  .netrow input[type=text] {
-    font: 600 13px ui-monospace, Menlo, Consolas, monospace; padding: .35rem .5rem;
-    border-radius: 5px; border: 1px solid #39404f; background: #12151d; color: #e6e8ee;
-  }
-
-  .bugreport { margin: 1.1rem 0 .2rem; text-align: center; color: var(--dim); font-size: .8rem; }
-  .bugreport a { color: var(--accent); }
-  .grid { display: grid; gap: .9rem; grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr)); margin-top: 1rem; }
-  fieldset { border: 1px solid var(--line); border-radius: 8px; padding: .6rem .8rem .8rem; margin: 0; background: var(--panel); }
-  legend { color: #9fe6a0; font-weight: 600; font-size: .78rem; padding: 0 .35rem; }
-  .row { display: grid; grid-template-columns: 7rem 1fr; align-items: center; gap: .45rem; margin: .4rem 0; }
-  .row > label { color: #b9bec9; font-size: .85rem; }
-  .hint { grid-column: 2; color: #6f747f; font-size: .74rem; margin-top: -.15rem; }
-  input[type=number], input[type=text] {
-    background: #0b0d13; color: #e6e8ee; border: 1px solid #39404f; border-radius: 5px;
-    padding: .22rem .4rem; font: 12px ui-monospace, Menlo, Consolas, monospace; width: 100%;
-  }
-  .check { display: flex; align-items: center; gap: .4rem; margin: .35rem 0; }
-  .check label { color: #b9bec9; font-size: .85rem; }
-  .changed > label, .check.changed label { color: #fff; font-weight: 600; }
-  .url { font: 11px ui-monospace, Menlo, Consolas, monospace; color: var(--accent); background: #0b0d13;
-         border: 1px solid var(--line); border-radius: 5px; padding: .45rem .55rem; margin-top: 1rem; word-break: break-all; }
-  .mini { font: 600 12px system-ui, sans-serif; padding: .3rem .7rem; border-radius: 5px; margin-top: .6rem;
-          border: 1px solid #39404f; background: #1d212c; color: #e6e8ee; cursor: pointer; }
-  .status { text-align: center; color: var(--dim); font-size: .85rem; min-height: 1.2rem; }
-  .mycars { display: flex; align-items: center; gap: .5rem; margin-top: .6rem; }
-  .mycars label, .mycars a { cursor: pointer; }
-  .mycars a { text-decoration: none; display: inline-block; }
-  .mycars #carmsg { font: 500 12px system-ui, sans-serif; color: var(--dim); }
-  code { font: 11px ui-monospace, Menlo, Consolas, monospace; background: #0b0d13; border: 1px solid var(--line); border-radius: 3px; padding: 0 .3em; }
+}
 </style>
 </head>
-<body>
-<main>
-  <header>
+<body data-page="menu">
+
+<div id="bg"></div>
+
+<!-- 1 : main menu -->
+<div class="page" id="page-menu">
+  <div class="brand">
     <img id="face" alt="">
     <div>
-      <h1>Need for Madness</h1>
-      <p>Pick a car and a stage.</p>
+      <h1 class="title">Need for<br>Madness</h1>
+      <p class="sub" id="brandsub">loading…</p>
     </div>
-  </header>
-
-  <div class="picks">
-    <section class="card">
-      <h2>Car</h2>
-      <div class="stage-view carview-crop"><canvas id="carview" width="1600" height="900"></canvas></div>
-      <div class="chooser">
-        <button class="arrow" id="carprev" type="button" aria-label="Previous car">‹</button>
-        <select id="car"></select>
-        <button class="arrow" id="carnext" type="button" aria-label="Next car">›</button>
-      </div>
-      <div class="facts"><span id="carclass"></span></div>
-      <div class="bars" id="carbars"></div>
-      <div class="mycars">
-        <a class="mini" id="editcar" href="./web/careditor.html">Open Car Maker</a>
-        <label class="mini" for="carfile">Import .rad</label>
-        <input type="file" id="carfile" accept=".rad,.txt,text/plain" hidden>
-        <button type="button" class="mini" id="cardel" hidden>Delete</button>
-        <span id="carmsg"></span>
-      </div>
-    </section>
-
-    <section class="card">
-      <h2>Stage</h2>
-      <div class="stage-view">
-        <canvas id="mapview" width="1600" height="900"></canvas>
-        <!-- A canvas holds one context type for life, so the flat fallback
-             map needs its own element rather than a 2D context on the GL one. -->
-        <canvas id="mapflat" width="800" height="450" hidden></canvas>
-      </div>
-      <div class="chooser">
-        <button class="arrow" id="stageprev" type="button" aria-label="Previous stage">‹</button>
-        <select id="stage"></select>
-        <button class="arrow" id="stagenext" type="button" aria-label="Next stage">›</button>
-      </div>
-      <div class="facts" id="stagefacts"></div>
-    </section>
   </div>
+  <ul class="menu" id="menu" role="menu" aria-label="Main menu"></ul>
+</div>
 
-  <div class="opts">
-    <label>Cars on track
-      <select id="players">
-        <option>2</option><option>3</option><option>4</option><option>5</option>
-        <option>6</option><option selected>7</option><option>8</option>
-      </select>
-    </label>
-    <label>Opponents
-      <select id="cars">
-        <option value="">chosen by stage</option>
-        <option value="same">same as mine</option>
-      </select>
-    </label>
+<!-- 2 : single player -->
+<div class="page" id="page-sp">
+  <div class="wrap">
+    <div class="phead"><span>Single Player</span><span>Esc — back</span></div>
+    <ul class="rows" id="sp-rows">
+      <li class="item pane" data-row="car">
+        <span class="thumb thumb-car"><canvas id="carview" width="1600" height="900"></canvas></span>
+        <span class="pbody">
+          <span class="ptitle">Car</span>
+          <span class="pvalue"><b class="ar l">◂</b><span class="val" data-val="car"></span></span>
+          <span class="pmeta" data-meta="car"></span>
+        </span>
+        <span class="pstats" id="carbars"></span>
+        <b class="ar r solo">▸</b>
+      </li>
+      <li class="item pane" data-row="stage">
+        <span class="thumb thumb-map">
+          <canvas id="mapview" width="1600" height="900"></canvas>
+          <!-- A canvas keeps one context type for life, so the flat fallback
+               map needs its own element rather than a 2D context on the GL one. -->
+          <canvas id="mapflat" width="800" height="450" hidden></canvas>
+        </span>
+        <span class="pbody">
+          <span class="ptitle">Stage</span>
+          <span class="pvalue"><b class="ar l">◂</b><span class="val" data-val="stage"></span><b class="ar r">▸</b></span>
+          <span class="pmeta" data-meta="stage"></span>
+        </span>
+      </li>
+      <li class="item pane" data-act="opts">
+        <span class="pbody">
+          <span class="ptitle">Race Options</span>
+          <span class="pvalue"><span class="val" id="optsum"></span><b class="ar r">▸</b></span>
+          <span class="pmeta">Enter to open</span>
+        </span>
+      </li>
+      <li class="item pane go" data-act="go"><span class="label">Start Race</span></li>
+    </ul>
   </div>
+</div>
 
-  <div class="go">
-    <button class="race" id="race" disabled>Loading…</button>
-    <div class="status" id="status"></div>
+<!-- 3 : race options -->
+<div class="page" id="page-opts">
+  <div class="wrap" style="width:min(40rem,94vw)">
+    <div class="phead"><span>Race Options</span><span>Esc — back</span></div>
+    <ul class="rows" id="opt-rows"></ul>
   </div>
+</div>
 
-  <details class="adv" id="netbox">
-    <summary>Two-player (experimental)</summary>
-    <p class="hint" style="margin:.6rem 0">
-      Peer to peer over WebRTC, no server of ours involved. One of you hosts and
-      reads out the room code; the other joins with it. The host's car, stage and
-      opponents are used for both. Lockstep, so a bad connection shows up as both
-      cars pausing together rather than as teleporting.
-    </p>
-    <div class="netrow">
-      <label for="netname">Your name</label>
-      <input type="text" id="netname" maxlength="12" placeholder="Player">
+<!-- 4 : multiplayer browser -->
+<div class="page" id="page-mp">
+  <div class="wrap">
+    <div class="phead"><span>Multiplayer</span><span>Esc — back</span></div>
+    <ul class="rows" id="mp-rows">
+      <li class="item namerow orow" data-act="name">
+        <span class="slabel">Your name</span>
+        <span class="pvalue"><span class="val" id="nameval"></span></span>
+        <span class="rhint">Enter to change</span>
+      </li>
+      <li class="panel">
+        <div class="gtitle"><span>Games</span><span id="gcount">looking…</span></div>
+        <ul class="mplist" id="gamelist"></ul>
+      </li>
+      <li class="item grow" data-row="visibility" data-act="host">
+        <span class="gname">Host a game</span>
+        <span class="pvalue"><b class="ar l">◂</b><span class="val" data-val="visibility"></span><b class="ar r">▸</b></span>
+      </li>
+      <li class="item grow" data-act="joincode">
+        <span class="gname">Join by code</span>
+        <span class="rhint">Enter to type a code</span>
+      </li>
+    </ul>
+  </div>
+</div>
+
+<!-- 5 : lobby -->
+<div class="page" id="page-lobby">
+  <div class="wrap">
+    <div class="phead">
+      <span id="lobby-name">lobby</span>
+      <span><span class="roomcode" id="lobby-code"></span> &nbsp;Esc — leave</span>
     </div>
-    <div class="netrow">
-      <button type="button" class="mini" id="nethost">Host a race</button>
-      <span class="hint">You pick the stage and cars above.</span>
-    </div>
-    <div class="netrow">
-      <button type="button" class="mini" id="netjoin">Join</button>
-      <input type="text" id="netroom" maxlength="6" placeholder="CODE" style="text-transform:uppercase;width:6rem">
-      <span class="hint">Your car choice is kept; everything else comes from the host.</span>
-    </div>
-  </details>
-
-  <details class="adv">
-    <summary>Advanced &amp; developer settings</summary>
-    <form id="f">
-      <div class="grid">
-        <fieldset>
-          <legend>Rendering</legend>
-          <div class="row"><label for="res">Resolution</label><input type="number" id="res" data-def="2" min="1" max="4" step="0.5">
-            <span class="hint">Backing store scale. Game space is always 800×450.</span></div>
-          <div class="row"><label for="textres">Overlay res</label><input type="number" id="textres" data-def="1" min="1" max="4" step="1"></div>
-          <div class="check"><input type="checkbox" id="aa"><label for="aa">MSAA — on by default only at res 1</label></div>
-          <div class="row"><label for="fill">Concave fill</label>
-            <select id="fill" data-def="trap">
-              <option value="trap">trapezoid (default)</option>
-              <option value="scan">scanline (old)</option>
-            </select></div>
-        </fieldset>
-
-        <fieldset>
-          <legend>Timing</legend>
-          <div class="row"><label for="tickms">Tick ms</label><input type="number" id="tickms" data-def="53" step="1">
-            <span class="hint">530ms per 10 frames. Changing this changes game speed.</span></div>
-          <div class="check"><input type="checkbox" id="interp" checked><label for="interp">Frame interpolation</label></div>
-          <span class="hint" style="grid-column:auto">On by default. Turning it off renders only on ticks, which pins the game to 18.9fps.</span>
-          <div class="row"><label for="maxfps">Max fps</label><input type="number" id="maxfps" data-def="0" min="0" step="1">
-            <span class="hint">0 = uncapped. Pinned to 18.9 without interpolation.</span></div>
-          <div class="row"><label for="seed">Seed</label><input type="number" id="seed" data-def="12345" step="1"></div>
-          <div class="row"><label for="path">Asset path</label><input type="text" id="path" data-def="" placeholder="auto-detect">
-            <span class="hint">Probes ./ then ../ when empty.</span></div>
-        </fieldset>
-
-        <fieldset>
-          <legend>Audio</legend>
-          <div class="row"><label for="sfxvol">Sound fx</label><input type="number" id="sfxvol" data-def="100" min="0" max="100" step="5">
-            <span class="hint">0-100. Engine, crashes, skids.</span></div>
-          <div class="row"><label for="musicvol">Music</label><input type="number" id="musicvol" data-def="100" min="0" max="100" step="5">
-            <span class="hint">0-100, scaling the track's own per-stage volume.</span></div>
-          <span class="hint" style="grid-column:auto">Audio needs a key press first — browsers block sound until then.</span>
-        </fieldset>
-
-        <fieldset>
-          <legend>Benchmark</legend>
-          <div class="check"><input type="checkbox" id="stats"><label for="stats">Show stats readout</label></div>
-          <div class="row"><label for="bench">Window (s)</label><input type="number" id="bench" data-def="" min="0" step="1" placeholder="3 when stats on">
-            <span class="hint">Averages, then freezes. R reruns.</span></div>
-          <div class="row"><label for="warmup">Warmup (ms)</label><input type="number" id="warmup" data-def="3000" min="0" step="500"></div>
-          <div class="check"><input type="checkbox" id="prof"><label for="prof">Time the backdrop separately</label></div>
-        </fieldset>
-
-        <fieldset>
-          <legend>Diagnostic stubs</legend>
-          <p class="hint" style="grid-column:auto;margin:.1rem 0 .5rem;color:#c09a5e">
-            Draw calls still happen but the work is discarded, so the caller
-            still pays for projection. The screen goes blank — stopwatches,
-            not rendering modes.
-          </p>
-          <div class="check"><input type="checkbox" id="geom"><label for="geom">Stub geometry batching</label></div>
-          <div class="check"><input type="checkbox" id="overlay"><label for="overlay">Stub Canvas2D overlay</label></div>
-          <div class="check"><input type="checkbox" id="raster"><label for="raster">Stub both</label></div>
-          <div class="check"><input type="checkbox" id="pool"><label for="pool">Array pooling — 30% slower</label></div>
-        </fieldset>
+    <div class="lobbygrid">
+      <div class="panel">
+        <div class="gtitle"><span>Chat</span><span>lobby only</span></div>
+        <div class="chatlog scroll" id="chatlog"></div>
       </div>
-      <div class="url" id="url">web/main.html</div>
-      <button type="button" class="mini" id="copy">Copy URL</button>
-      <button type="button" class="mini" id="reset">Reset advanced</button>
-    </form>
-  </details>
+      <div class="panel">
+        <div class="gtitle"><span>Players</span><span id="pcount"></span></div>
+        <ul class="plist scroll" id="plist"></ul>
+      </div>
+    </div>
+    <ul class="rows" id="lobby-rows">
+      <li class="item orow" data-row="car">
+        <span class="slabel">Your car</span>
+        <span class="pvalue"><b class="ar l">◂</b><span class="val" data-val="car"></span><b class="ar r">▸</b></span>
+      </li>
+      <li class="item orow" data-row="stage" data-host="1">
+        <span class="slabel">Stage</span>
+        <span class="pvalue"><b class="ar l">◂</b><span class="val" data-val="stage"></span><b class="ar r">▸</b></span>
+      </li>
+      <li class="item orow" data-row="players" data-host="1">
+        <span class="slabel">Cars on track</span>
+        <span class="pvalue"><b class="ar l">◂</b><span class="val" data-val="players"></span><b class="ar r">▸</b></span>
+      </li>
+      <li class="item chatrow" data-act="chat">
+        <span class="slabel">Say something</span>
+        <span class="ph">press Enter to type…</span>
+      </li>
+      <li class="item pane go" data-act="start"><span class="label" id="startlabel">Start Race</span></li>
+    </ul>
+  </div>
+</div>
 
-  <p class="bugreport">
-    Something wrong? <a href="https://github.com/radicalarchive/nfm/issues" target="_blank" rel="noopener">File a bug</a>
-  </p>
-</main>
+<!-- 6 : settings -->
+<div class="page" id="page-set">
+  <div class="wrap" style="width:min(40rem,94vw)">
+    <div class="phead"><span>Settings</span><span>Esc — back</span></div>
+    <ul class="rows" id="set-rows"></ul>
+  </div>
+</div>
 
-<script type="module">
-import { initPreview, carNames, carStats, drawCar, loadStage, stageName, drawMinimap,
-         faceURL, drawStage3D, CAR_COUNT, loadCustomCars } from './web/preview.js';
-import { writeCar, deleteCar, listStored } from './web/carstore.js';
+<!-- the race -->
+<div id="stage">
+  <canvas id="gl" width="800" height="450"></canvas>
+  <canvas id="overlay" width="800" height="450"></canvas>
+</div>
+<div id="log"></div>
 
-const $ = (id) => document.getElementById(id);
-const carSel = $('car'), stageSel = $('stage'), status = $('status');
-const STAGE_COUNT = 32;
+<div id="say"></div>
+<p class="hint" id="hint"></p>
 
-// ---- advanced form ---------------------------------------------------------
-const form = $('f');
-const fields = [...form.querySelectorAll('input, select')];
-// Two kinds of `=0` checkbox, and they are not the same:
-//   STUBS are off by default, so TICKING one emits `=0` (it disables a thing).
-//   DEFAULT_ON are on by default, so UNTICKING one emits `=0`.
-const STUBS = new Set(['geom', 'overlay', 'raster']);
-const DEFAULT_ON = new Set(['interp']);
-const defaultAA = () => parseFloat($('res').value || '2') <= 1;
-
-function buildURL() {
-  const p = new URLSearchParams();
-  const car = carSel.value, stage = stageSel.value;
-  // Custom cars occupy slots 16.., and which name lands in which slot depends
-  // on what is in browser storage. The game re-derives that from the same
-  // listing, so the URL carries the NAME -- a bare slot number would race a
-  // different car after you save another one.
-  if (+car >= CAR_COUNT) p.set('mycar', carSel.selectedOptions[0].dataset.name);
-  else if (car !== '1') p.set('car', car);
-  if (stage !== '1') p.set('stage', stage);
-  if ($('players').value !== '7') p.set('players', $('players').value);
-  if ($('cars').value) p.set('cars', $('cars').value);
-
-  for (const el of fields) {
-    let changed = false;
-    if (el.type === 'checkbox') {
-      if (el.id === 'aa') {
-        changed = el.checked !== defaultAA();
-        if (changed) p.set('aa', el.checked ? '1' : '0');
-      } else if (DEFAULT_ON.has(el.id)) {
-        changed = !el.checked;
-        if (changed) p.set(el.id, '0');
-      } else if (STUBS.has(el.id)) {
-        changed = el.checked;
-        if (changed) p.set(el.id, '0');
-      } else {
-        changed = el.checked;
-        if (changed) p.set(el.id, '1');
-      }
-    } else {
-      const val = el.value.trim();
-      changed = val !== '' && val !== (el.dataset.def ?? '');
-      if (changed) p.set(el.id, val);
-    }
-    const row = el.closest('.row') || el.closest('.check');
-    if (row) row.classList.toggle('changed', changed);
-  }
-  const qs = p.toString();
-  const url = 'web/main.html' + (qs ? '?' + qs : '');
-  $('url').textContent = url;
-  return url;
-}
-
-function resetAdvanced() {
-  for (const el of fields) {
-    if (el.type === 'checkbox') el.checked = DEFAULT_ON.has(el.id);
-    else el.value = el.dataset.def ?? '';
-  }
-  $('aa').checked = defaultAA();
-  buildURL();
-}
-
-// ---- car preview -----------------------------------------------------------
-let angle = 210, spinning = 0;
-
-function showCar() {
-  const car = parseInt(carSel.value, 10);
-  drawCar($('carview'), car, angle);
-  const { cls, bars } = carStats(car);
-  $('carclass').innerHTML = cls ? `Class <b>${cls}</b>` : '';
-  const name = carSel.selectedOptions[0]?.dataset.name;
-  $('cardel').hidden = !name || !storedNames.includes(name);
-  syncEditLink();
-  $('carbars').innerHTML = bars.map(([name, v]) =>
-    `<div class="bar"><span>${name}</span><span class="track"><span class="fill" style="width:${v}%"></span></span></div>`).join('');
-  buildURL();
-}
-
-/**
- * Reload the custom-car list into the picker. Slot numbers come from
- * loadCustomCars(), which loads them into CarDefine exactly as the game will,
- * so the preview and the stat bars read the real parsed car -- and a car whose
- * .rad the parser rejects simply never appears, rather than appearing and then
- * failing to race.
- */
-let storedNames = [];
-async function refreshCustomCars() {
-  carSel.querySelector('optgroup[label="My cars"]')?.remove();
-  const loaded = await loadCustomCars();
-  storedNames = await listStored();
-  if (loaded.length) {
-    const mine = document.createElement('optgroup');
-    mine.label = 'My cars';
-    loaded.forEach((name, i) => {
-      const o = new Option(name, CAR_COUNT + i);
-      o.dataset.name = name;
-      mine.appendChild(o);
-    });
-    carSel.add(mine);
-  }
-  return loaded;
-}
-
-$('carfile').onchange = async (e) => {
-  const file = e.target.files[0];
-  if (!file) return;
-  const name = file.name.replace(/\.rad$/i, '');
-  await writeCar(name, await file.text());
-  const loaded = await refreshCustomCars();
-  e.target.value = '';
-  if (!loaded.includes(name)) {
-    $('carmsg').textContent = `${name}: not a loadable car`;
-    return;
-  }
-  carSel.value = String(CAR_COUNT + loaded.indexOf(name));
-  $('carmsg').textContent = `imported ${name}`;
-  showCar();
-};
-
-$('cardel').onclick = async () => {
-  const opt = carSel.selectedOptions[0];
-  const name = opt?.dataset.name;
-  if (!name) return;
-  await deleteCar(name);
-  await refreshCustomCars();
-  carSel.value = '1';
-  $('carmsg').textContent = `deleted ${name}`;
-  showCar();
-};
-
-function spin() {
-  angle = (angle + 0.6) % 360;
-  drawCar($('carview'), parseInt(carSel.value, 10), angle);
-  spinning = requestAnimationFrame(spin);
-}
-
-// ---- stage preview ---------------------------------------------------------
-async function showStage() {
-  const n = parseInt(stageSel.value, 10);
-  try {
-    const s = await loadStage(n);
-    if (parseInt(stageSel.value, 10) !== n) return;      // superseded
-    // Must follow loadStage immediately: it reuses one placed-object array.
-    // Large stages need a wider view than the renderer supports, and come
-    // back empty; those fall back to the flat map.
-    const verts = drawStage3D($('mapview'), s);
-    const tooBig = verts < 200;
-    $('mapview').hidden = tooBig;
-    $('mapflat').hidden = !tooBig;
-    if (tooBig) drawMinimap($('mapflat'), s);
-    $('stagefacts').innerHTML =
-      `<span><b>${s.laps}</b> laps</span><span><b>${s.checkpoints}</b> checkpoints</span>`;
-  } catch (e) {
-    $('stagefacts').textContent = 'could not load this stage';
-    console.warn(e);
-  }
-  buildURL();
-}
-
-const step = (sel, d, count) => {
-  sel.selectedIndex = (sel.selectedIndex + d + count) % count;
-  sel.dispatchEvent(new Event('change'));
-};
-
-// ---- boot ------------------------------------------------------------------
-(async () => {
-  resetAdvanced();
-  try {
-    status.textContent = 'loading models…';
-    await initPreview();
-    // Decorative: a missing images.zip must not stop you racing.
-    faceURL().then((u) => { $('face').src = u; }).catch(() => {});
-
-    // Two groups, the same split the Car Maker's picker shows: the game's own
-    // sixteen, then whatever is in browser storage.
-    const defaults = document.createElement('optgroup');
-    defaults.label = 'Default Cars';
-    carNames().forEach((name, i) => defaults.appendChild(new Option(name, i)));
-    carSel.add(defaults);
-    carSel.value = '1';
-    await refreshCustomCars();
-
-    // Stage names come from the stage files themselves, fetched in parallel.
-    const names = await Promise.all(
-      Array.from({ length: STAGE_COUNT }, (_, i) => stageName(i + 1)));
-    names.forEach((name, i) => { if (name) stageSel.add(new Option(`${i + 1}. ${name}`, i + 1)); });
-    stageSel.value = '1';
-
-    // Restore a previous configuration from this page's own query string.
-    for (const [k, v] of new URLSearchParams(location.search)) {
-      const el = $(k);
-      if (!el) continue;
-      if (el.type === 'checkbox') {
-        el.checked = DEFAULT_ON.has(k) ? v !== '0'
-                   : STUBS.has(k) ? v === '0'
-                   : v === '1';
-      }
-      else el.value = v;
-    }
-
-    const wanted = new URLSearchParams(location.search).get('mycar');
-    if (wanted) {
-      const opt = [...carSel.options].find((o) => o.dataset.name === wanted);
-      if (opt) carSel.value = opt.value;
-    }
-
-    showCar();
-    await showStage();
-    spinning = requestAnimationFrame(spin);
-    status.textContent = '';
-    $('race').disabled = false;
-    $('race').textContent = 'Race';
-  } catch (e) {
-    status.textContent = 'Failed to load game data: ' + e.message;
-    console.error(e);
-  }
-})();
-
-carSel.onchange = showCar;
-
-// "Open Car Maker" edits the car you are looking at, when that car is one of
-// yours. There is nothing to edit about a built-in.
-function syncEditLink() {
-  const name = carSel.selectedOptions[0]?.dataset.name;
-  $('editcar').href = name
-    ? `./web/careditor.html?car=${encodeURIComponent(name)}`
-    : './web/careditor.html';
-}
-stageSel.onchange = showStage;
-$('carprev').onclick = () => step(carSel, -1, carSel.length);
-$('carnext').onclick = () => step(carSel, +1, carSel.length);
-$('stageprev').onclick = () => step(stageSel, -1, stageSel.length);
-$('stagenext').onclick = () => step(stageSel, +1, stageSel.length);
-$('players').onchange = buildURL;
-$('cars').onchange = buildURL;
-form.addEventListener('input', buildURL);
-$('race').onclick = () => { cancelAnimationFrame(spinning); location.href = buildURL(); };
-
-// Two-player. The URL is the launcher's single source of truth for every
-// setting, so netplay just adds parameters to the one buildURL already makes --
-// which means every advanced setting keeps working in a networked race.
-const netURL = (extra) => {
-  const u = new URL(buildURL(), location.href);
-  for (const [k, v] of Object.entries(extra)) u.searchParams.set(k, v);
-  return u.pathname + u.search;
-};
-$('nethost').onclick = () => {
-  cancelAnimationFrame(spinning);
-  location.href = netURL({ net: 'host', name: $('netname').value || 'Host' });
-};
-$('netjoin').onclick = () => {
-  const room = ($('netroom').value || '').trim().toUpperCase();
-  if (!room) { $('netroom').focus(); return; }
-  cancelAnimationFrame(spinning);
-  location.href = netURL({ net: 'join', room, name: $('netname').value || 'Player 2' });
-};
-$('reset').onclick = resetAdvanced;
-$('copy').onclick = async (e) => {
-  await navigator.clipboard.writeText(new URL(buildURL(), location.href).href);
-  e.target.textContent = 'Copied';
-  setTimeout(() => { e.target.textContent = 'Copy URL'; }, 1200);
-};
-addEventListener('keydown', (e) => {
-  if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
-  if (e.key === 'Enter') $('race').click();
-});
-</script>
+<script type="module" src="./web/launcher.js"></script>
 </body>
 </html>

@@ -125,12 +125,19 @@ and it has returned a negative fixed cost). Measure fixed costs with `?prof=1`.
 - [x] Packed vertex colour (uint32, 12 bytes/vertex). ~3%, pixel-identical.
 - [x] MSAA off above res=1 (~12%); overlay no longer scales with `?res=`.
 
-## Launcher (`index.html` + `web/preview.js`)
+## Launcher (`index.html` + `web/launcher.js` + `web/preview.js`)
+
+The launcher is the slab-themed menu app: main menu, single player, race
+options, multiplayer browser, lobby, settings — and the race itself, in the
+same page. `web/menu-mockups.html` is the design study it was built from.
 
 - [x] Car/stage picker with names, live rotating 3D car preview (the game's own
       car-select camera and car-maker spin), stat bars from CarDefine's tables,
-      the NFM face keyed as `loadude` keys it, and a collapsed advanced panel
-      carrying every query parameter.
+      the NFM face keyed as `loadude` keys it. ~~a collapsed advanced panel
+      carrying every query parameter~~ — replaced by a Settings screen carrying
+      only what a player changes (name, sound, music, resolution, smooth
+      frames), persisted in localStorage. The dev knobs are URL parameters on
+      `web/main.html`.
 - [x] Audio volume settings — sfx and music volume sliders in the advanced panel,
       piped to the audio and music modules.
 - [x] Stage-specific opponent grid (`xtGraphics.sortcars`).
@@ -143,6 +150,12 @@ and it has returned a negative fixed cost). Measure fixed costs with `?prof=1`.
 - [ ] Reported but unconfirmed: "some tracks have textures extending off
       screen" (stage 9). Not reproduced since the camera-clearance fix; needs
       a look with fresh eyes.
+- [x] **Menu-mockup backdrops should be CSS, not a canvas** — done for the
+      `slab` backdrop the real launcher uses: a `repeating-linear-gradient` on
+      an overhanging strip, translated exactly one period, compositor-only and
+      with no rAF loop at all. `web/menu-mockups.html` itself is unchanged and
+      still paints its five backdrops on a canvas; it is a reference document
+      now, not a page anyone plays through. Original note:
 - [ ] **Menu-mockup backdrops should probably be CSS, not a canvas**
       (`web/menu-mockups.html`). Redrawing a full-screen canvas is the biggest
       CPU cost on that page — it is throttled to 20fps only because it is
@@ -417,11 +430,35 @@ there is no backend of ours anywhere in this design.
       relay is deleted. **Confirmed in three real browsers** (`browsern.mjs 60
       3`): peers pair over the trackers, slots are distinct, state is heard
       both ways and every client saw every chat line.
-- [ ] **A public game browser is now buildable and is not built.** One
-      well-known identifier (`nfm-lobby`) that idle clients announce on gives a
-      real room list with no backend, since discovery is what p2pt provides.
-      Nothing else needs the trackers to agree about anything.
-- [ ] **Wire the multiplayer GUI (lobby / join / chat) to the netcode.** Build
+- [x] **Public game browser — built** (`web/netdirectory.js`). One well-known
+      identifier (`nfm-directory-v1`) that every client on the Multiplayer
+      screen announces on; hosts advertise `{code, name, stage, players, max}`
+      and browsers collect the replies. No registry, no authority, no
+      persistence — the list IS the set of hosts currently holding the screen
+      open. Entries expire after 16s (re-announced every 5s) because a host
+      that closes its laptop cannot withdraw, and ping is a round trip on the
+      directory channel. Unauthenticated like everything else here: anyone can
+      list a game that does not exist, so the room CODE stays the load-bearing
+      way in.
+- [x] **The multiplayer GUI is wired to the netcode.** `index.html` +
+      `web/launcher.js` are the launcher proper, built from the mockups' `slab`
+      theme: menu, single player, race options, multiplayer browser, lobby and
+      settings, keyboard-first with pointer support on the same two verbs.
+      `web/netlobby.js` holds the pre-race protocol (roster, chat, car and
+      stage choice, start) and is driven BOTH by the lobby screen and by
+      `main.js`'s `?net=host&humans=N`, so the tested path and the shipped path
+      are the same code. Settings persist in localStorage. The old advanced
+      form is gone; every dev knob still works as a URL parameter on
+      `web/main.html`, which remains the entry point for the tools and for
+      shared links.
+      **One page**, because a navigation would tear down the lobby's
+      connection: `boot({ params, session, onExit })` takes the live `{net,
+      cfg}` instead of re-negotiating, and the race ends by reloading the
+      launcher. **Verified end to end in two real browsers**
+      (`web/tools/browserlobby.mjs`): hosted, found in the public list, joined,
+      chatted both ways, raced, and each client applied the other's car state.
+      Original seam notes follow.
+- [x] ~~Wire the multiplayer GUI (lobby / join / chat) to the netcode.~~ Build
       it from `web/menu-mockups.html`'s `slab` theme. The seam, which otherwise
       exists only in the code:
       - **A lobby must live PRE-BOOT, not in the race loop.** `negotiate()`

@@ -44,12 +44,15 @@
 // listed trackers (novage, sloppyta, files.fm) refused or timed out. Several
 // are listed on purpose -- p2pt announces on all of them and dedupes the peers
 // it is handed, so one tracker going down costs nothing.
-const TRACKERS = [
+export const TRACKERS = [
   'wss://tracker.openwebtorrent.com',
   'wss://tracker.webtorrent.dev',
   'wss://tracker.btorrent.xyz',
 ];
 
+// Frames are tagged so one channel can carry both kinds of traffic; the
+// directory in netdirectory.js reuses the tags and the loader, because it is
+// the same p2pt talking to a different identifier.
 // Room codes are typed and read aloud, so no 0/O or 1/I/l.
 const CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
 // The identifier is hashed into a torrent info-hash and announced to PUBLIC
@@ -59,8 +62,8 @@ const ID_PREFIX = 'nfm-';
 // Frame tags. One DataChannel now carries both kinds of traffic, so the first
 // byte says which. 0x5E ('^') is p2pt's own JSON framing -- we never send it,
 // and we ignore anything wearing it, so the two layers cannot be confused.
-const TAG_STATE = 0x02;
-const TAG_MSG = 0x03;
+export const TAG_STATE = 0x02;
+export const TAG_MSG = 0x03;
 
 // How long to look for a room before giving up. Tracker announce plus ICE is
 // a few seconds on a good day; a code typed one character wrong waits this
@@ -87,13 +90,31 @@ let libLoaded = null;
  * vendored bundle touching `window` at import time breaks every node test that
  * transitively imports it.
  */
-async function loadP2PT() {
+export async function loadP2PT() {
   if (libLoaded) return libLoaded;
   libLoaded = import('./vendor/p2pt.js').then((m) => m.default);
   return libLoaded;
 }
 
-const asBytes = (d) => (d instanceof ArrayBuffer ? new Uint8Array(d)
+/**
+ * Tag a payload so the receiver knows which layer it belongs to.
+ *
+ * Binary is checked FIRST and deliberately: a Uint8Array is `typeof 'object'`,
+ * so an object test written first JSON-stringifies every state packet into
+ * `{"0":12,"1":88,...}`. It still sends, still arrives and still parses as a
+ * frame -- `decodePacket` merely returns null and the race runs on dead
+ * reckoning forever, with the lobby and chat working perfectly throughout.
+ */
+export function frame(tag, payload) {
+  const body = ArrayBuffer.isView(payload) ? payload
+    : new TextEncoder().encode(typeof payload === 'string' ? payload : JSON.stringify(payload));
+  const out = new Uint8Array(body.length + 1);
+  out[0] = tag;
+  out.set(body, 1);
+  return out;
+}
+
+export const asBytes = (d) => (d instanceof ArrayBuffer ? new Uint8Array(d)
   : ArrayBuffer.isView(d) ? new Uint8Array(d.buffer, d.byteOffset, d.byteLength)
   : new TextEncoder().encode(String(d)));
 
@@ -266,18 +287,13 @@ export class NetPeer {
 
   /** Send state to every peer. */
   send(data) {
-    const frame = new Uint8Array(data.length + 1);
-    frame[0] = TAG_STATE;
-    frame.set(data, 1);
-    for (let i = 0; i < this.conns.length; i++) this.#raw(i, frame);
+    const f = frame(TAG_STATE, data);
+    for (let i = 0; i < this.conns.length; i++) this.#raw(i, f);
   }
 
   /** Send state to one peer. */
   sendTo(i, data) {
-    const frame = new Uint8Array(data.length + 1);
-    frame[0] = TAG_STATE;
-    frame.set(data, 1);
-    this.#raw(i, frame);
+    this.#raw(i, frame(TAG_STATE, data));
   }
 
   /**
@@ -291,12 +307,9 @@ export class NetPeer {
    * directly: lobby and chat traffic must stay well under it.
    */
   sendMessage(data, i) {
-    const json = new TextEncoder().encode(typeof data === 'string' ? data : JSON.stringify(data));
-    const frame = new Uint8Array(json.length + 1);
-    frame[0] = TAG_MSG;
-    frame.set(json, 1);
+    const f = frame(TAG_MSG, data);
     const to = i === undefined ? this.conns.map((_, n) => n) : [i];
-    for (const n of to) this.#raw(n, frame);
+    for (const n of to) this.#raw(n, f);
   }
 
   close() {
