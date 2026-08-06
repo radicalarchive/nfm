@@ -182,6 +182,17 @@ const log = (c) => c.evaluate(`document.getElementById('chatlog').textContent`);
 const hl = await log(host), gl = await log(guest);
 check(hl.includes('from-the-guest'), 'host received the guest\'s line');
 check(gl.includes('from-the-host'), 'guest received the host\'s line');
+// ATTRIBUTION, not just delivery. A guest whose `hello` was dropped keeps
+// localIndex -1 and sends its chat as slot 0 -- the HOST's slot -- so the host
+// sees its own name on the guest's line and the guest, having no roster, shows
+// "me" and "Player 1". Every line still arrives, so a test that only checked
+// the text passed while the lobby was thoroughly confused about who was who.
+say(`  host log:  ${hl.replace(/\s+/g, ' ').trim()}`);
+say(`  guest log: ${gl.replace(/\s+/g, ' ').trim()}`);
+check(/HostHarry:\s*from-the-host/.test(hl) && /GuestGwen:\s*from-the-guest/.test(hl),
+  'host attributes both lines to the right player');
+check(/HostHarry:\s*from-the-host/.test(gl) && /GuestGwen:\s*from-the-guest/.test(gl),
+  'guest attributes both lines to the right player');
 
 // ---- start the race from the lobby ----------------------------------------
 say('\nhost starts the race');

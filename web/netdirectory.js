@@ -72,6 +72,12 @@ export class Directory {
       this.#changed();
     });
     this.p2.on('data', (peer, raw) => this.#recv(peer, asBytes(raw)));
+    // Warnings are noise, not failure: one tracker refusing costs nothing
+    // while another answers, and an unhandled 'error' on an EventEmitter
+    // throws.
+    this.p2.on('trackerwarning', (err) => console.warn('directory tracker:', err?.message || err));
+    this.p2.on('warning', (err) => console.warn('directory tracker:', err?.message || err));
+    this.p2.on('error', (err) => console.warn('directory:', err?.message || err));
     this.p2.start();
     this.timer = setInterval(() => this.#tick(), ANNOUNCE_MS);
   }
@@ -131,6 +137,11 @@ export class Directory {
 
   #tick() {
     if (this.listing) this.#all({ t: 'game', ...this.listing });
+    // Ask the trackers again rather than waiting for their own announce
+    // interval, which is theirs to choose and is often a minute or more. A
+    // host that opened a room ten seconds ago is invisible until somebody
+    // re-announces, which is most of why the list felt unreliable.
+    try { this.p2?.requestMorePeers?.(); } catch { /* tracker is down; the next tick retries */ }
     // Expire the silent. A host whose browser was closed cannot tell us.
     const now = performance.now();
     let dropped = false;

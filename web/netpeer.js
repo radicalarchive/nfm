@@ -132,8 +132,20 @@ export class NetPeer {
   constructor({ onData, onMessage, onStatus, onClose } = {}) {
     /** @type {(bytes:Uint8Array, from:number) => void} state frames. */
     this.onData = onData || (() => {});
-    /** @type {(msg:any, from:number) => void} lobby/chat frames. */
-    this.onMessage = onMessage || (() => {});
+    /**
+     * @type {(msg:any, from:number) => void} lobby/chat frames.
+     *
+     * An ACCESSOR, because messages arrive before anyone is listening. A guest
+     * greets the moment its channel opens, which can be while the host is
+     * still inside `openRoom()` and has not built its Lobby yet -- and a
+     * greeting is sent ONCE, so dropping it strands that player permanently:
+     * it never gets a slot, keeps localIndex -1, and its chat goes out as slot
+     * 0, which is the host's. That presents as the host seeing its own name on
+     * someone else's line. Early messages are queued and delivered when a
+     * handler is attached.
+     */
+    this._onMessage = onMessage || null;
+    this._earlyMsgs = [];
     /**
      * @type {(from:number) => void} a peer finished connecting.
      *
@@ -159,6 +171,23 @@ export class NetPeer {
     // that arrival would strand the player.
     this.pending = [];
     this.waiters = [];
+  }
+
+  set onMessage(fn) {
+    this._onMessage = fn;
+    if (!fn) return;
+    const queued = this._earlyMsgs;
+    this._earlyMsgs = [];
+    for (const [msg, from] of queued) fn(msg, from);
+  }
+
+  get onMessage() {
+    return this._onMessage;
+  }
+
+  #deliver(msg, from) {
+    if (this._onMessage) this._onMessage(msg, from);
+    else this._earlyMsgs.push([msg, from]);
   }
 
   #status(s) {
@@ -209,12 +238,21 @@ export class NetPeer {
       if (from === undefined || !bytes.length) return;
       if (bytes[0] === TAG_STATE) this.onData(bytes.subarray(1), from);
       else if (bytes[0] === TAG_MSG) {
+        let msg;
         try {
-          this.onMessage(JSON.parse(new TextDecoder().decode(bytes.subarray(1))), from);
-        } catch { /* a peer sending us garbage is not our problem to crash on */ }
+          msg = JSON.parse(new TextDecoder().decode(bytes.subarray(1)));
+        } catch { return; }   // a peer sending garbage is not ours to crash on
+        this.#deliver(msg, from);
       }
     });
-    this.p2.on('trackerwarning', (err) => this.#status(`tracker: ${err}`));
+    // A tracker warning is NOT a failure: p2pt announces on several trackers
+    // and one of them refusing, or answering with something unparseable
+    // ("invalid action in WS response: undefined"), costs nothing as long as
+    // another answers. Surfacing these as STATUS put a raw library error in
+    // front of the player at the exact moment they pressed Host, which reads
+    // as the room having failed to open when it is about to succeed.
+    this.p2.on('trackerwarning', (err) => console.warn('tracker:', err?.message || err));
+    this.p2.on('warning', (err) => console.warn('tracker:', err?.message || err));
     // Resolves when a tracker has taken our announce, which is the point at
     // which other peers can find us. It is NOT a peer connection.
     const announced = new Promise((resolve) => this.p2.once('trackerconnect', resolve));

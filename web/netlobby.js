@@ -106,6 +106,15 @@ export class Lobby {
       const hello = () => ({ t: 'hello', name: this._myName, car: this._myCar });
       net.sendMessage(hello());
       net.onPeer = (idx) => net.sendMessage(hello(), idx);
+      // Keep greeting until we are seated. The transport now queues a greeting
+      // that arrives before the host is listening, so this is a safety net
+      // rather than the mechanism -- but an unanswered hello is unrecoverable
+      // (the guest stays slot-less and its chat goes out as slot 0, wearing
+      // the host's name), and a retry costs one small message every 2s.
+      this._greeter = setInterval(() => {
+        if (this.localIndex >= 0 || this.started) { clearInterval(this._greeter); return; }
+        net.sendMessage(hello());
+      }, 2000);
     }
   }
 
@@ -162,6 +171,7 @@ export class Lobby {
       }
       case 'roster': {
         if (this.isHost) return;                 // only the host writes it
+        clearInterval(this._greeter);
         this.roster = msg.players.map((p) => ({ ...p, conn: -1 }));
         this.localIndex = msg.localIndex;
         this.stage = msg.stage;
@@ -182,6 +192,7 @@ export class Lobby {
       case 'start': {
         if (this.isHost || this.started) return;
         this.started = true;
+        clearInterval(this._greeter);
         this.net.onPeer = null;
         this._go({
           seed: msg.seed, stage: msg.stage, players: msg.players,

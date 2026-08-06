@@ -167,6 +167,49 @@ same page. `web/menu-mockups.html` is the design study it was built from.
       pixel's starfield and slab's bars. That would take the page's steady-state
       cost to ~zero and remove the rAF loop entirely.
 
+## Launcher bugs found in real use (2026-08-06)
+
+Reported after the first hands-on session with the new launcher. Two are
+fixed and verified, one is diagnosed and mitigated, one is measured and open.
+
+- [x] **Chat showed the wrong names** — host saw its own name twice, guest saw
+      "me" and "Player 1". Root cause is a dropped greeting: `NetPeer` had a
+      no-op `onMessage` until a `Lobby` was constructed, and a guest greets the
+      instant its channel opens, which can be while the host is still inside
+      `openRoom()`. The greeting is sent ONCE, so losing it is permanent: that
+      guest is never seated, keeps `localIndex = -1`, and its chat goes out as
+      slot 0 — the host's slot — which is exactly the symptom. Fixed in the
+      transport (early messages are queued and delivered when a handler
+      attaches) with a re-greet every 2s in `netlobby.js` as a safety net.
+      `browserlobby.mjs` now asserts ATTRIBUTION and not just delivery; the
+      old check passed while the lobby was thoroughly confused about who was
+      who, because every line still arrived.
+- [x] **"invalid action in WS response: undefined" when clicking Host.** Not an
+      error and nothing had failed: it is a tracker answering with something
+      `bittorrent-tracker` cannot parse, which costs nothing while another
+      tracker answers. `netpeer.js` was passing tracker warnings to `onStatus`,
+      which the launcher shows to the player — and since connection status is
+      now sticky, a raw library error sat on screen at the moment of pressing
+      Host. Warnings go to `console.warn` now.
+- [~] **The game list is unreliable.** Partly the public trackers, but mostly
+      ours: `Directory` never called `requestMorePeers()`, so it learned about
+      new hosts only when a tracker re-announced on its own schedule, which is
+      often a minute or more. It now asks every 5s alongside the re-announce.
+      **Not yet confirmed in real use** — worth watching, and if it is still
+      flaky the next suspect is tracker reachability rather than the protocol.
+- [ ] **First load takes ~10s of CPU, and this machine makes it ~13s.**
+      Measured per phase in a browser (`ready` is before the previews draw):
+      import modules 0.9s · `initPreview` (loadbase parsing models.zip) 2.8s ·
+      `loadCustomCars` 0.5s · 32x `stageName` 0.9s · `faceURL` (unzipping a
+      715 KB images.zip for one face) 1.2s · `drawCar` 0.5s · `loadStage(1)`
+      1.8s · `drawStage3D` 1.5s. **Warm load transfers 0 bytes and still takes
+      11.5s, so it is not the network.** Two things to do: the boot is serial
+      when most of it need not be (the menu needs none of the previews — show
+      it immediately and load behind it), and **the CPU was pinned at 798 MHz
+      again** (`intel_pstate` passive + `powersave`, the trap in WORK.md), so
+      every figure here is up to 3.6x pessimistic. Check the clock before
+      optimising any of it.
+
 ## Rendering / correctness
 
 - [x] **Stop patching per-effect state field by field — mark the pass instead.**
