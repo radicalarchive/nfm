@@ -85,18 +85,33 @@ async function negotiate(mode, params, cfg, keep) {
     // themselves can pick the same one, and nothing downstream would notice
     // until both drove the same car.
     const names = [name || 'Host'];
-    const hellos = new Map();
-    // The handshake rides the RELIABLE channel: a dropped `hello` or `start`
-    // does not heal itself the way a dropped state packet does, it strands the
-    // guest at "connecting" with nothing to retry.
+    // Greetings are BUFFERED, not merely awaited. A guest sends its hello the
+    // moment its channel opens, which can be before the host has got round to
+    // accepting that connection -- and a hello that arrives with nobody
+    // listening for it used to be dropped, leaving both ends waiting for the
+    // other. A guest that re-greets on every new peer also lands here more
+    // than once; the second copy resolves nothing and is discarded.
+    const heard = new Map();
+    const waiting = new Map();
     net.onMessage = (msg, from) => {
-      if (msg && msg.t === 'hello') hellos.get(from)?.(msg);
+      if (!msg || msg.t !== 'hello') return;
+      heard.set(from, msg);
+      waiting.get(from)?.(msg);
     };
+    const helloFrom = (from) => (heard.has(from)
+      ? Promise.resolve(heard.get(from))
+      : new Promise((resolve) => waiting.set(from, resolve)));
+    // Which connection carries which slot. Recorded rather than assumed: the
+    // mesh means a peer index is connection order, which happens to match join
+    // order on the HOST but does not on a guest, and a `start` sent to the
+    // wrong index tells a player it is a slot somebody else is already using.
+    const connOfSlot = [];
     for (let slot = 1; slot < humanCount; slot++) {
       const from = await net.accept();
-      const hello = await new Promise((resolve) => hellos.set(from, resolve));
+      const hello = await helloFrom(from);
       if (Number.isInteger(hello.car)) cars[slot] = hello.car;
       names[slot] = hello.name || `Player ${slot + 1}`;
+      connOfSlot[slot] = from;
       log(`${names[slot]} joined (slot ${slot})`);
       hint();
     }
@@ -108,7 +123,7 @@ async function negotiate(mode, params, cfg, keep) {
       net.sendMessage({
         t: 'start', seed: cfg.seed, stage: cfg.stage, players: cfg.players,
         cars, humanSlots, names, localIndex: slot,
-      }, slot - 1);
+      }, connOfSlot[slot]);
     }
     if (banner) banner.hidden = true;
     log(`racing ${names.slice(1).join(', ')} — room ${code}`);
@@ -118,10 +133,19 @@ async function negotiate(mode, params, cfg, keep) {
   const code = (params.get('room') || '').toUpperCase();
   if (!code) throw new Error('joining needs ?room=CODE');
   await net.join(code);
-  net.sendMessage({ t: 'hello', name: name || 'Player', car: cfg.car });
+  // Greet EVERYONE, and greet each late arrival as it appears. A guest cannot
+  // pick the host out of its peers -- on a mesh it meets the other guests too,
+  // in tracker/ICE order -- so it says hello to the room and the host is
+  // whoever replies with a `start`. The other guests ignore it.
+  const hello = { t: 'hello', name: name || 'Player', car: cfg.car };
+  net.sendMessage(hello);
+  net.onPeer = (idx) => net.sendMessage(hello, idx);
   const start = await new Promise((resolve) => {
-    net.onMessage = (msg) => { if (msg && msg.t === 'start') resolve(msg); };
+    net.onMessage = (msg, from) => {
+      if (msg && msg.t === 'start') { net.hostIndex = from; resolve(msg); }
+    };
   });
+  net.onPeer = null;
   net.localIndex = start.localIndex;
   log(`joined ${start.names[0]} as slot ${start.localIndex} — room ${code}`);
   return { ...cfg, seed: start.seed, stage: start.stage, players: start.players,
@@ -156,26 +180,20 @@ async function boot() {
   if (netMode === 'host' || netMode === 'join') {
     cfg = await negotiate(netMode, params, cfg, (n) => { net = n; });
     sync = new StateSync(cfg.localIndex, cfg.humanSlots, cfg.players);
-    // Chat and lobby traffic, on the reliable channel. The host relays it the
-    // same way it relays state, so a guest's line reaches the other guests.
-    net.onMessage = (msg, from) => {
+    // Chat and lobby traffic. Everyone is connected to everyone, so a line
+    // reaches the other players directly and nobody forwards anything.
+    net.onMessage = (msg) => {
       if (!msg || msg.t !== 'chat') return;
       const who = cfg.names[msg.slot] || `Player ${msg.slot + 1}`;
       log(`${who}: ${String(msg.text).slice(0, 80)}`);
-      if (sync.isHost) net.broadcastMessageExcept(from, msg);
     };
-    net.onData = (d, from) => {
-      const bytes = d instanceof ArrayBuffer ? new Uint8Array(d) : d;
-      const msg = decodePacket(bytes);
+    net.onData = (d) => {
+      const msg = decodePacket(d instanceof ArrayBuffer ? new Uint8Array(d) : d);
       if (!msg) return;
       inbox.push(msg);
-      // The host is the hub of the star, so it forwards a guest's packet to
-      // every other guest -- VERBATIM, keeping the originating client's slot
-      // and tick. Re-capturing those cars from the host's own world instead
-      // would make the host authoritative for them, which costs each guest a
-      // round trip of input lag on its own car and is the thing this topology
-      // exists to avoid.
-      if (sync.isHost) net.broadcastExcept(from, bytes);
+      // No relay: on a mesh every client already has the packet first-hand,
+      // and forwarding one would only deliver a duplicate that
+      // `StateSync.accepts()` refuses on the tick rule.
     };
   }
 
@@ -381,9 +399,8 @@ async function boot() {
   if (sync) {
     window.nfmChat = (text) => {
       const msg = { t: 'chat', slot: cfg.localIndex, text: String(text).slice(0, 80) };
-      // No relay branch here: a bare sendMessage already reaches every
-      // connection, which for the host IS every guest and for a guest is the
-      // host, who relays onward. Adding one would double the host's own lines.
+      // A bare sendMessage reaches every peer directly on a mesh, so there
+      // is nothing to forward and nobody to forward it.
       net.sendMessage(msg);
       log(`${cfg.names[cfg.localIndex]}: ${msg.text}`);
     };
@@ -786,8 +803,8 @@ async function boot() {
     // Naming the slots corrected, not just the worst number: it is the only
     // externally visible evidence of WHICH peers are actually being heard.
     // A guest hearing the host but not the other guests looks identical to a
-    // healthy session in a bare drift figure, and that is exactly the failure
-    // a relayed star can have.
+    // healthy session in a bare drift figure, and a mesh fails exactly that
+    // way when one of its links never comes up.
     const slots = [...sync.drift.keys()].sort((a, b) => a - b).join(',');
     console.log(`drift @${netTick}: ${worst.toFixed(1)} units slots=${slots}`);
     if (worst > 400) log(`large correction: ${worst.toFixed(0)} units`);

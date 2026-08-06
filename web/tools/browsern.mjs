@@ -2,15 +2,15 @@
 // tracked each other, using the Chrome DevTools Protocol rather than
 // --screenshot.
 //
-// This is the only test that exercises netpeer.js: the star topology, the
-// host's accept queue and its relay of guest packets exist nowhere else, and
-// PeerJS cannot be driven under node.
+// This is the only test that exercises netpeer.js: tracker discovery, the
+// mesh, the host's accept queue and the greet-everyone handshake exist nowhere
+// else, and p2pt cannot be driven under node (no WebRTC).
 //
 // `--virtual-time-budget` cannot be used here: it races the page clock ahead
-// while the network runs in real time, so the budget expires before PeerJS has
-// finished its handshake with the broker and both ends sit at "connecting".
-// CDP keeps the browsers alive on the wall clock instead, which is the only
-// way to exercise the transport headlessly.
+// while the network runs in real time, so the budget expires before the
+// trackers have answered and every end sits at "looking for room". CDP keeps
+// the browsers alive on the wall clock instead, which is the only way to
+// exercise the transport headlessly.
 //
 //   node web/tools/browsern.mjs [seconds] [players]
 //
@@ -100,9 +100,9 @@ for (let s = 0; s < SECONDS; s++) {
       + `dispatchEvent(new KeyboardEvent('keydown', { code: 'Enter' }));`
       + `dispatchEvent(new KeyboardEvent('keyup', { code: 'Enter' }));`);
   }
-  // Exercise the reliable channel from each client in turn, and check the
-  // others received it. Chat is the only traffic that must never be dropped,
-  // so it rides a separate ordered DataChannel from the state packets.
+  // Exercise lobby traffic from each client in turn, and check the others
+  // received it. It shares the one reliable, ordered DataChannel with state
+  // now, so this also proves the two frame tags do not confuse each other.
   if (s === 12) {
     for (const [i, c] of sockets.entries()) {
       await c.evaluate(`window.nfmChat && nfmChat('hello-from-${i}')`);
@@ -131,7 +131,7 @@ for (let s = 0; s < SECONDS; s++) {
 // pacing exactly. What this tool uniquely proves is that the TRANSPORT works:
 // that N peers pair, that the host assigns distinct slots, and that every
 // client hears every other one -- including guest-to-guest, which only exists
-// from three players up and only via the host's relay.
+// from three players up.
 const parsed = sockets.map((c) => c.logs
   .map((l) => /^drift @\d+: ([\d.]+) units slots=(\S*)/.exec(l))
   .filter(Boolean));
@@ -150,14 +150,14 @@ for (const [i, d] of drifts.entries()) {
 }
 
 // Every client must have heard every other PLAYER. Bots are host-owned, so a
-// guest hearing them proves nothing extra about the relay.
+// guest hearing them proves nothing extra about guest-to-guest links.
 let allHeard = true;
 for (let i = 0; i < PLAYERS; i++) {
   for (let j = 0; j < PLAYERS; j++) {
     if (i === j) continue;
     if (!heard[i].has(j)) {
       console.log(`  MISSING: client ${i} never heard player ${j}`
-        + (i !== 0 && j !== 0 ? '  (guest-to-guest — the relay path)' : ''));
+        + (i !== 0 && j !== 0 ? '  (guest-to-guest — the link only a mesh has)' : ''));
       allHeard = false;
     }
   }
@@ -176,8 +176,8 @@ for (const [i, c] of sockets.entries()) {
 sockets.forEach((c) => c.close());
 procs.forEach((p) => p.kill());
 // Chat: every client must have seen every other client's line. This is the
-// reliable channel's end-to-end check, and for guests it also proves the
-// host's chat relay, which is a separate path from the state relay.
+// lobby path's end-to-end check, and it shares a DataChannel with state, so a
+// missing line also means the frame tags collided.
 let allChat = true;
 for (let i = 0; i < PLAYERS; i++) {
   const seen = sockets[i].logs.filter((l) => /hello-from-\d/.test(l));

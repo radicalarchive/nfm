@@ -6,7 +6,14 @@
 // the DataChannel. Since the channel it replaces is unreliable and unordered,
 // this relay is too, on purpose.
 //
-//   node web/tools/netloop.mjs [ticks] [lossPct] [latencyTicks] [reorderPct] [humans]
+//   node web/tools/netloop.mjs [ticks] [lossPct] [latencyTicks] [reorderPct] [humans] [mode]
+//
+// `mode` is `unreliable` (the default, and what the DataChannel is configured
+// as) or `reliable`, which emulates a reliable/ordered channel -- what a
+// transport like p2pt, built on simple-peer's defaults, would give instead. A
+// lost packet is then not lost: it is retransmitted a round trip later, and
+// every packet behind it on the same link waits for it (head-of-line
+// blocking). Nothing else changes, so the two arms are directly comparable.
 //
 // WHAT IT CHECKS, and why it is not what the lockstep version checked. Under
 // lockstep the assertion was bit-identical state and any difference was fatal.
@@ -28,6 +35,8 @@ const LOSS = parseFloat(process.argv[3] || '0');
 const LATENCY = parseInt(process.argv[4] || '2', 10);   // ticks each way
 const REORDER = parseFloat(process.argv[5] || '0');
 const HUMANS = parseInt(process.argv[6] || '2', 10);
+const MODE = process.argv[7] || 'unreliable';
+const RELIABLE = MODE === 'reliable';
 const SEED = 20260802;
 const PLAYERS = 6;      // slots 0..HUMANS-1 human; the rest bots, host-owned
 
@@ -70,13 +79,45 @@ let owned = [];
  * one hop would understate the lag that dead reckoning has to cover, and the
  * harness would report a tracking quality no real session could reach.
  */
+// Reliable mode is per-LINK, so each hop keeps its own delivery clock: the
+// arrival of the last packet it delivered. Ordering is a property of the
+// channel, and a guest-to-guest packet crosses two of them.
+const linkAt = new Map();
+const stalls = { held: 0, ticksHeld: 0, worst: 0, retransmits: 0 };
+
 function relay(from, bytes) {
   const hop = (to, hops) => {
-    if (rnd() * 100 < LOSS) return;                      // dropped entirely
-    // Latency, plus optional jitter that lands a packet behind a later one --
-    // which is exactly how an unordered channel misbehaves.
-    let at = clock + LATENCY * hops;
-    if (rnd() * 100 < REORDER) at += 1 + Math.floor(rnd() * 2);
+    const wire = clock + LATENCY * hops;
+    if (!RELIABLE) {
+      if (rnd() * 100 < LOSS) return;                    // dropped entirely
+      // Latency, plus optional jitter that lands a packet behind a later one
+      // -- which is exactly how an unordered channel misbehaves.
+      let at = wire;
+      if (rnd() * 100 < REORDER) at += 1 + Math.floor(rnd() * 2);
+      flight.push({ to, bytes, at });
+      return;
+    }
+    // Reliable/ordered. A drop costs a round trip on that hop to notice and
+    // resend, and the resend can drop too. Nothing is ever lost, only late.
+    let at = wire;
+    while (rnd() * 100 < LOSS) {
+      at += 2 * LATENCY * hops;                          // nack + retransmit
+      stalls.retransmits++;
+    }
+    // Head-of-line blocking: an ordered channel cannot deliver this packet
+    // before the one in front of it, however late that one is. This is the
+    // whole cost of the reliable channel, and it is why reorder does not
+    // apply here -- an ordered channel has no reordering to model.
+    const link = `${from}->${to}`;
+    const floor = linkAt.get(link) ?? -Infinity;
+    const held = Math.max(0, floor - at);
+    if (held > 0) {
+      stalls.held++;
+      stalls.ticksHeld += held;
+      stalls.worst = Math.max(stalls.worst, held);
+    }
+    at = Math.max(at, floor);
+    linkAt.set(link, at);
     flight.push({ to, bytes, at });
   };
   if (from === 0) {
@@ -205,7 +246,11 @@ function finish() {
   }
 
   console.log(`\n${HUMANS} humans + ${PLAYERS - HUMANS} bots, ticks ${TICKS}, `
-    + `loss ${LOSS}%, latency ${LATENCY} ticks/hop, reorder ${REORDER}%`);
+    + `loss ${LOSS}%, latency ${LATENCY} ticks/hop, reorder ${REORDER}%, ${MODE}`);
+  if (RELIABLE) {
+    console.log(`retransmits ${stalls.retransmits}; ${stalls.held} packets held behind an `
+      + `earlier one, ${stalls.ticksHeld} tick-delays total, worst stall ${stalls.worst} ticks`);
+  }
 
   // What passes and what merely gets reported.
   //

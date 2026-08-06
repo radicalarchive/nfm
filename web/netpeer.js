@@ -1,27 +1,71 @@
-// The transport half of netplay: PeerJS, WebRTC, and the handshake.
+// The transport half of netplay: peer discovery, WebRTC, and the join
+// handshake's plumbing.
 //
 // Kept apart from netsession.js so the sync rules stay testable under node.
 // Nothing here decides anything about the simulation; it moves bytes and
 // reports connection state.
 //
-// There is no backend of ours. Signalling (the SDP exchange) runs over PeerJS's
-// free public broker, which is the one third party in the whole design, and it
-// is only needed to *establish* the connection -- once the DataChannel is open
-// the traffic is peer to peer and the broker could vanish mid-race without
-// anyone noticing. That is what makes this deployable on GitHub Pages.
+// There is no backend of ours. Signalling runs over public WebTorrent
+// WebSocket trackers via p2pt, which is the only third party in the design and
+// is needed only to ESTABLISH connections -- once the DataChannels are open the
+// traffic is peer to peer and every tracker could vanish mid-race without
+// anyone noticing. That is what keeps this deployable on static hosting.
+//
+// WHY p2pt AND NOT PeerJS (swapped 2026-08-06). PeerJS resolves an id you
+// already know and offers no way to LEARN one: its broker's peer-listing
+// endpoint is disabled on the public server, so a room list was impossible
+// without either squatting a hardcoded id or running a registry of our own.
+// p2pt announces on a tracker under an IDENTIFIER and the tracker hands back
+// everyone else announcing the same one, which is exactly the rendezvous that
+// was missing -- a room is an identifier, and a future game browser is one
+// well-known identifier that every idle client announces on.
+//
+// WHAT IT COSTS. p2pt builds on simple-peer's default DataChannel, which is
+// RELIABLE and ORDERED; the PeerJS version ran state on an unreliable,
+// unordered channel and lobby traffic on a second reliable one. Measured with
+// `netloop.mjs <ticks> <loss> <latency> <reorder> <humans> reliable`, which
+// emulates head-of-line blocking: at 0-2% loss reliable is BETTER than
+// unreliable (steady-state residual 22 -> 3 units clean, 46 -> 9 at 2%),
+// because retransmission costs less than the unordered channel's reordering.
+// It degrades above ~10% loss (residual 101 units, stalls to 11 ticks) and
+// badly at 30% (354 units, 19-tick stalls) -- a regime where the game is
+// already unpleasant. The trade was taken deliberately for the discovery.
+//
+// THE TOPOLOGY IS NOW A MESH, not a star. Every peer on an identifier
+// discovers every other, so a guest sends its own car straight to the other
+// guests instead of paying a second hop through the host. The host still
+// assigns slots and owns the bots (`GameSparker.java:1348`) -- that is
+// ownership, not routing. There is no relay any more, and nothing should
+// reintroduce one: a relayed copy alongside a direct one is a duplicate, and
+// while `StateSync.accepts()` refuses it on the tick rule, spending the
+// bandwidth to be refused is pointless.
 
-const PEER_SCRIPT = './vendor/peerjs.js';
+// Reachability checked from the target machine 2026-08-06; the other commonly
+// listed trackers (novage, sloppyta, files.fm) refused or timed out. Several
+// are listed on purpose -- p2pt announces on all of them and dedupes the peers
+// it is handed, so one tracker going down costs nothing.
+const TRACKERS = [
+  'wss://tracker.openwebtorrent.com',
+  'wss://tracker.webtorrent.dev',
+  'wss://tracker.btorrent.xyz',
+];
 
 // Room codes are typed and read aloud, so no 0/O or 1/I/l.
 const CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
-// PeerJS ids are global to the broker, so a bare six-letter code would collide
-// with every other project using the public server. Namespace it.
+// The identifier is hashed into a torrent info-hash and announced to PUBLIC
+// trackers, so it must not collide with another project's. Namespace it.
 const ID_PREFIX = 'nfm-';
 
-// DataChannel labels. The host pairs a guest's two channels by these, so they
-// are protocol and cannot be changed on one side alone.
-const CHAN_STATE = 'state';
-const CHAN_MSG = 'msg';
+// Frame tags. One DataChannel now carries both kinds of traffic, so the first
+// byte says which. 0x5E ('^') is p2pt's own JSON framing -- we never send it,
+// and we ignore anything wearing it, so the two layers cannot be confused.
+const TAG_STATE = 0x02;
+const TAG_MSG = 0x03;
+
+// How long to look for a room before giving up. Tracker announce plus ICE is
+// a few seconds on a good day; a code typed one character wrong waits this
+// long and then says so, which is better than hanging forever.
+const JOIN_TIMEOUT_MS = 45000;
 
 export function makeRoomCode(len = 6) {
   const out = [];
@@ -33,67 +77,65 @@ export function makeRoomCode(len = 6) {
   return out.join('');
 }
 
-let peerLoaded = null;
+let libLoaded = null;
 
 /**
- * Load the vendored PeerJS once.
+ * Load the vendored p2pt once.
  *
- * It is an IIFE that assigns `window.Peer`, not an ES module, so this is an
- * import for side effects. Deliberately dynamic and lazy: a static import
- * would run at module load, and `web/vendor/bassoonplayer.js` has already
- * taught this project that a vendored bundle touching `window` at import time
- * breaks every node test that transitively imports it.
+ * Deliberately dynamic and lazy. A static import would run at module load, and
+ * `web/vendor/bassoonplayer.js` has already taught this project that a
+ * vendored bundle touching `window` at import time breaks every node test that
+ * transitively imports it.
  */
-async function loadPeer() {
-  if (peerLoaded) return peerLoaded;
-  peerLoaded = (async () => {
-    await import(PEER_SCRIPT);
-    if (!globalThis.Peer) throw new Error('PeerJS did not define window.Peer');
-    return globalThis.Peer;
-  })();
-  return peerLoaded;
+async function loadP2PT() {
+  if (libLoaded) return libLoaded;
+  libLoaded = import('./vendor/p2pt.js').then((m) => m.default);
+  return libLoaded;
 }
+
+const asBytes = (d) => (d instanceof ArrayBuffer ? new Uint8Array(d)
+  : ArrayBuffer.isView(d) ? new Uint8Array(d.buffer, d.byteOffset, d.byteLength)
+  : new TextEncoder().encode(String(d)));
 
 /**
  * One end of a session.
  *
- * The topology is a STAR centred on the host: the host holds one connection
- * per guest, and a guest holds exactly one, to the host. Guests never speak to
- * each other directly -- the host relays. That is what keeps this cheap as
- * players are added, and it suits state sync specifically: a guest transmits
- * only its own car however many players there are, so its upload is flat,
- * while only the host's scales. A full mesh would be N(N-1)/2 connections and
- * N-1 uploads per guest for no gain, since the packets are absolute state and
- * a relayed copy is worth exactly as much as a direct one.
- *
- * The cost is that guest-to-guest traffic takes two hops. Dead reckoning
- * covers that latency; see netsession.js.
+ * `conns` is every peer this client is connected to, in the order they
+ * connected, and an index into it is what `from` means in every callback. On
+ * the host that order is join order, so it is also what maps a guest to the
+ * slot it was given; the caller records the mapping rather than assuming it,
+ * because on a GUEST the array holds the host and the other guests mixed
+ * together.
  */
 export class NetPeer {
   constructor({ onData, onMessage, onStatus, onClose } = {}) {
-    /** @type {(bytes:any, from:number) => void} state channel. `from` indexes `conns`. */
+    /** @type {(bytes:Uint8Array, from:number) => void} state frames. */
     this.onData = onData || (() => {});
-    /** @type {(msg:any, from:number) => void} reliable channel. */
+    /** @type {(msg:any, from:number) => void} lobby/chat frames. */
     this.onMessage = onMessage || (() => {});
+    /**
+     * @type {(from:number) => void} a peer finished connecting.
+     *
+     * A guest needs this because it cannot tell which peer is the host: on a
+     * mesh it meets the other GUESTS too, and in whatever order the trackers
+     * and ICE happen to produce. So it greets everyone and re-greets whoever
+     * turns up late, and the host is simply whoever answers.
+     */
+    this.onPeer = null;
     this.onStatus = onStatus || (() => {});
     this.onClose = onClose || (() => {});
-    this.peer = null;
-    /** Host: one per guest. Guest: exactly one, to the host. */
+    this.p2 = null;
+    /** Every connected peer, in connection order. */
     this.conns = [];
-    /** The reliable channel, index-aligned with `conns`. */
-    this.msgs = [];
-    // Two channels per guest arrive as two independent `connection` events,
-    // and with several guests joining at once they interleave. Pairing them by
-    // arrival order would eventually hand one player's state channel to
-    // another's chat; PeerJS gives the remote peer's id on every connection,
-    // so pair on that.
-    this.byPeer = new Map();
+    this.byId = new Map();
     this.code = null;
     this.localIndex = 0;
     this.open = false;
-    // Connections that arrive before anyone is waiting for them. A guest can
-    // complete its handshake while the host is still awaiting an earlier one,
-    // and dropping that connection would strand the player.
+    /** A guest's index for the host, learned from who answers the greeting. */
+    this.hostIndex = -1;
+    // Peers that arrive before anyone is waiting for them. A guest can finish
+    // connecting while the host is still awaiting an earlier one, and dropping
+    // that arrival would strand the player.
     this.pending = [];
     this.waiters = [];
   }
@@ -102,150 +144,163 @@ export class NetPeer {
     this.onStatus(s);
   }
 
-  #bind(state, msg) {
-    const idx = this.conns.length;
-    this.conns.push(state);
-    this.msgs.push(msg);
-    state.on('data', (d) => this.onData(d, idx));
-    msg.on('data', (d) => this.onMessage(typeof d === 'string' ? JSON.parse(d) : d, idx));
-    for (const c of [state, msg]) {
-      c.on('close', () => this.onClose('peer closed the connection', idx));
-      c.on('error', (e) => this.onClose('connection error: ' + e, idx));
-    }
-    return idx;
-  }
-
   /**
-   * Record half of a guest's pair, and bind once both halves are up.
+   * Bind a peer, or recognise one we already know.
    *
-   * accept() deliberately resolves only when BOTH channels are open: the
-   * handshake that follows it goes out over the reliable one, and a host that
-   * started talking as soon as the state channel appeared would send `start`
-   * into a channel that did not exist yet.
+   * p2pt can hand the same peer id back on a different channel (one per
+   * tracker that reported it), so this is keyed on the id: a second sighting
+   * updates the object we send through and keeps the index it already had.
    */
-  #half(conn) {
-    let e = this.byPeer.get(conn.peer);
-    if (!e) { e = { state: null, msg: null }; this.byPeer.set(conn.peer, e); }
-    e[conn.label === CHAN_MSG ? 'msg' : 'state'] = conn;
-    if (!e.state || !e.msg) return;
-    const idx = this.#bind(e.state, e.msg);
-    this.open = true;
-    const w = this.waiters.shift();
-    if (w) w(idx); else this.pending.push(idx);
+  #add(peer) {
+    let idx = this.byId.get(peer.id);
+    if (idx === undefined) {
+      idx = this.conns.length;
+      this.byId.set(peer.id, idx);
+      this.conns.push(peer);
+      this.open = true;
+      const w = this.waiters.shift();
+      if (w) w(idx); else this.pending.push(idx);
+      this.onPeer?.(idx);
+    } else {
+      this.conns[idx] = peer;
+    }
+    this.#status(`connected to ${this.conns.length} peer(s)`);
   }
 
-  /** Host: create the room and start accepting. Resolves once the broker has us. */
-  async openRoom(code = makeRoomCode()) {
-    const Peer = await loadPeer();
+  #drop(peer) {
+    const idx = this.byId.get(peer.id);
+    if (idx === undefined) return;
+    this.onClose('peer left the room', idx);
+  }
+
+  /** Attach to the room named by `code`. Host and guest differ only in what they wait for. */
+  async #enter(code) {
+    const P2PT = await loadP2PT();
     this.code = code;
+    this.p2 = new P2PT(TRACKERS, ID_PREFIX + code);
+    this.p2.on('peerconnect', (peer) => this.#add(peer));
+    this.p2.on('peerclose', (peer) => this.#drop(peer));
+    // Every frame arrives here, including p2pt's own '^' JSON, which we never
+    // send and therefore never expect.
+    this.p2.on('data', (peer, raw) => {
+      const bytes = asBytes(raw);
+      const from = this.byId.get(peer.id);
+      if (from === undefined || !bytes.length) return;
+      if (bytes[0] === TAG_STATE) this.onData(bytes.subarray(1), from);
+      else if (bytes[0] === TAG_MSG) {
+        try {
+          this.onMessage(JSON.parse(new TextDecoder().decode(bytes.subarray(1))), from);
+        } catch { /* a peer sending us garbage is not our problem to crash on */ }
+      }
+    });
+    this.p2.on('trackerwarning', (err) => this.#status(`tracker: ${err}`));
+    // Resolves when a tracker has taken our announce, which is the point at
+    // which other peers can find us. It is NOT a peer connection.
+    const announced = new Promise((resolve) => this.p2.once('trackerconnect', resolve));
+    this.p2.start();
+    await announced;
+  }
+
+  /** Host: open the room and start accepting. Resolves once we are announced. */
+  async openRoom(code = makeRoomCode()) {
     this.localIndex = 0;
     this.#status(`opening room ${code}...`);
-    this.peer = new Peer(ID_PREFIX + code);
-    await new Promise((resolve, reject) => {
-      this.peer.on('open', resolve);
-      this.peer.on('error', reject);
-    });
-    // Listen for the WHOLE session, not just for the next guest: registering
-    // this once and queueing arrivals is what allows more than one of them.
-    this.peer.on('connection', (conn) => {
-      conn.on('open', () => this.#half(conn));
-    });
+    await this.#enter(code);
     this.#status(`room ${code} open — waiting for players`);
     return code;
   }
 
-  /** Host: resolve with the index of the next guest to finish connecting. */
+  /** Host: resolve with the index of the next peer to finish connecting. */
   accept() {
     if (this.pending.length) return Promise.resolve(this.pending.shift());
     return new Promise((resolve) => this.waiters.push(resolve));
   }
 
-  /** Guest: join an existing room. */
+  /**
+   * Guest: join an existing room.
+   *
+   * Resolves once SOMEBODY in the room has connected, which is not necessarily
+   * the host -- on a mesh a late guest can meet an earlier guest first. Who
+   * the host is comes out of the handshake above this, not out of the
+   * transport.
+   */
   async join(code) {
-    const Peer = await loadPeer();
-    this.code = code;
-    this.#status(`connecting to ${code}...`);
-    this.peer = new Peer();
-    await new Promise((resolve, reject) => {
-      this.peer.on('open', resolve);
-      this.peer.on('error', reject);
-    });
-    // Two channels over the ONE peer connection, so the second costs a
-    // channel and not another ICE/DTLS negotiation.
-    //
-    // State is unreliable and unordered: packets are absolute and
-    // self-superseding, so a lost one needs no retransmission -- the next
-    // replaces it entirely and a resend would only deliver stale data late.
-    //
-    // Everything else -- the join handshake, lobby, chat -- is reliable and
-    // ordered, because dropping a chat line or a `start` message is not
-    // self-healing the way a dropped position is. A missed `start` strands the
-    // guest at "connecting" forever.
-    const state = this.peer.connect(ID_PREFIX + code,
-      { label: CHAN_STATE, reliable: false, ordered: false });
-    const msg = this.peer.connect(ID_PREFIX + code,
-      { label: CHAN_MSG, reliable: true });
-    await Promise.all([state, msg].map((c) => new Promise((resolve, reject) => {
-      c.on('open', resolve);
-      c.on('error', reject);
-      this.peer.on('error', reject);
-    })));
-    this.#bind(state, msg);
-    this.open = true;
+    this.localIndex = -1;                     // "not the host" until slotted
+    this.#status(`looking for room ${code}...`);
+    await this.#enter(code);
+    const idx = await Promise.race([
+      this.accept(),
+      new Promise((_, reject) => setTimeout(
+        () => reject(new Error(`no room ${code} found — check the code`)), JOIN_TIMEOUT_MS)),
+    ]);
     this.#status('connected');
-    return state;
-  }
-
-  /** Send state to every connection. Unreliable. */
-  send(data) {
-    for (let i = 0; i < this.conns.length; i++) this.sendTo(i, data);
+    return this.conns[idx];
   }
 
   /**
-   * Send to one connection.
+   * The live channel for a peer.
    *
-   * `except` on the broadcast path is what makes the host's relay safe: a
-   * packet echoed back to the guest that sent it would be a record for a car
-   * that guest owns, and while netsession.js refuses those, spending the
-   * bandwidth to be refused is pointless.
+   * p2pt keeps every channel it has for an id and any one of them may have
+   * died, so fall back to a sibling rather than sending into a closed one.
    */
-  sendTo(i, data) {
-    const conn = this.conns[i];
-    if (!this.open || !conn) return;
+  #live(idx) {
+    const peer = this.conns[idx];
+    if (!peer) return null;
+    if (peer.connected) return peer;
+    for (const alt of Object.values(this.p2?.peers?.[peer.id] || {})) {
+      if (alt.connected) return alt;
+    }
+    return null;
+  }
+
+  #raw(idx, frame) {
+    const peer = this.#live(idx);
+    if (!this.open || !peer) return;
     try {
-      conn.send(data);
+      peer.send(frame);
     } catch {
-      // A send failing mid-race must not take the frame loop down with it;
-      // the next tick's packet supersedes this one anyway.
+      // A send failing mid-race must not take the frame loop down with it; the
+      // next tick's packet supersedes this one anyway.
     }
   }
 
-  /** Send state to every connection but one. The host's relay path. */
-  broadcastExcept(skip, data) {
-    for (let i = 0; i < this.conns.length; i++) if (i !== skip) this.sendTo(i, data);
+  /** Send state to every peer. */
+  send(data) {
+    const frame = new Uint8Array(data.length + 1);
+    frame[0] = TAG_STATE;
+    frame.set(data, 1);
+    for (let i = 0; i < this.conns.length; i++) this.#raw(i, frame);
   }
 
-  /** Send a lobby/chat message. Reliable and ordered. */
+  /** Send state to one peer. */
+  sendTo(i, data) {
+    const frame = new Uint8Array(data.length + 1);
+    frame[0] = TAG_STATE;
+    frame.set(data, 1);
+    this.#raw(i, frame);
+  }
+
+  /**
+   * Send a lobby/chat message. Reliable and ordered, like everything else on
+   * this transport.
+   *
+   * Framed by us rather than through p2pt's `send()`, which wraps a message in
+   * its own JSON envelope and registers a response callback that nothing ever
+   * resolves -- a small leak per message, and a chunking layer these messages
+   * are far too short to need. The 16KB DataChannel limit therefore applies
+   * directly: lobby and chat traffic must stay well under it.
+   */
   sendMessage(data, i) {
-    const json = typeof data === 'string' ? data : JSON.stringify(data);
-    const to = i === undefined ? this.msgs.map((_, n) => n) : [i];
-    for (const n of to) {
-      const conn = this.msgs[n];
-      if (!conn) continue;
-      try { conn.send(json); } catch { /* the channel is gone; onClose reports it */ }
-    }
-  }
-
-  /** Send a message to every connection but one. The host's chat relay. */
-  broadcastMessageExcept(skip, data) {
-    for (let i = 0; i < this.msgs.length; i++) if (i !== skip) this.sendMessage(data, i);
+    const json = new TextEncoder().encode(typeof data === 'string' ? data : JSON.stringify(data));
+    const frame = new Uint8Array(json.length + 1);
+    frame[0] = TAG_MSG;
+    frame.set(json, 1);
+    const to = i === undefined ? this.conns.map((_, n) => n) : [i];
+    for (const n of to) this.#raw(n, frame);
   }
 
   close() {
     this.open = false;
-    for (const c of [...this.conns, ...this.msgs]) {
-      try { c.close(); } catch { /* already gone */ }
-    }
-    try { this.peer?.destroy(); } catch { /* already gone */ }
+    try { this.p2?.destroy(); } catch { /* already gone */ }
   }
 }

@@ -298,10 +298,11 @@ and it has returned a negative fixed cost). Measure fixed costs with `?prof=1`.
 Decided 2026-08-02, nothing built yet. Static hosting only (GitHub Pages), so
 there is no backend of ours anywhere in this design.
 
-- **Transport:** PeerJS over its free public broker, WebRTC DataChannel in
-  unreliable/unordered mode, each packet carrying the last ~8 ticks of input so
-  a drop self-heals without retransmission. Manual copy-paste of offer/answer
-  stays worth keeping as a fallback that depends on nobody.
+- **Transport:** p2pt over public WebTorrent WebSocket trackers (swapped from
+  PeerJS 2026-08-06), one reliable/ordered DataChannel per peer. A room is a
+  tracker IDENTIFIER, so peers discover each other instead of resolving an id
+  someone already knows — which is what makes a game browser possible at all.
+  Full mesh: every peer talks to every other, and there is no relay.
 - **Sync:** lockstep with a fixed input delay. Rollback is wanted later, so
   keep the world's snapshot/restore path (`main.js`'s `capture`/`restore`)
   general rather than assuming inputs never need re-simulating.
@@ -338,7 +339,7 @@ there is no backend of ours anywhere in this design.
       lockstep, and it cannot recur: state sync measures drift against a packet
       that has by definition already ARRIVED, so there is no tick-in-flight to
       race. Original note kept below for the shape of the bug.
-- [!] **The browser-level sync check has never compared anything, and reports
+- [x] **The browser-level sync check has never compared anything, and reports
       that as success.** `netCheck()` (main.js) sends its hash for tick N and
       then reads `peerChecks.get(N)` *synchronously*. The peer's hash for tick
       N is still crossing the network at that moment — two lockstepped clients
@@ -385,12 +386,41 @@ there is no backend of ours anywhere in this design.
       still shrinking (x0.92). **Confirmed in three real browsers**
       (`browsern.mjs 45 3`): peers pair, slots are distinct, and each guest
       hears the other guest through the relay.
+- [x] ~~**Second DataChannel for lobby/chat**~~ — gone with the p2pt swap
+      (2026-08-06), which offers one reliable/ordered channel per peer and
+      nothing to split. Lobby and state now share it, distinguished by a frame
+      tag byte. The reason it existed still holds and is why the handshake must
+      stay on a delivered-guaranteed path: a dropped `hello`/`start` strands a
+      guest, where a dropped state packet heals itself. Original note follows.
 - [x] **Second DataChannel for lobby/chat**, reliable and ordered, over the
       same peer connection (`netpeer.js` `sendMessage`/`onMessage`, paired by
       `conn.peer`). The join handshake moved onto it — it was previously riding
       the unreliable channel, where a dropped `hello`/`start` stranded the
       guest. Chat is relayed by the host like state. Verified guest-to-guest in
       three browsers. The lobby and chat SCREENS are still unported xtGraphics.
+- [x] **Transport swapped from PeerJS to p2pt.** PeerJS's broker cannot list
+      peers (discovery endpoint 404s), so a room could only ever be JOINED by a
+      code someone read out — a game browser would have needed a hardcoded id
+      squatted by one player's tab, or a registry of ours. p2pt announces on
+      public WebTorrent trackers under an identifier and is handed everyone
+      else on it. `netpeer.js` is the only file that changed shape; the codec,
+      the session rules and the launcher parameters are untouched.
+      **What it cost:** simple-peer's channel is reliable and ordered, so the
+      unreliable state channel and the second lobby channel are both gone.
+      Measured first (`netloop.mjs ... reliable`, which emulates head-of-line
+      blocking): residual 22 -> 3 units clean and 46 -> 9 at 2% loss — reliable
+      is BETTER there, because retransmission beats the unordered channel's
+      reordering — and 24 -> 101 at 10%, 40 -> 354 at 30%, with 11-19 tick
+      stalls in that range.
+      **What it bought besides discovery:** the star became a mesh, so
+      guest-to-guest state goes direct instead of through the host and the
+      relay is deleted. **Confirmed in three real browsers** (`browsern.mjs 60
+      3`): peers pair over the trackers, slots are distinct, state is heard
+      both ways and every client saw every chat line.
+- [ ] **A public game browser is now buildable and is not built.** One
+      well-known identifier (`nfm-lobby`) that idle clients announce on gives a
+      real room list with no backend, since discovery is what p2pt provides.
+      Nothing else needs the trackers to agree about anything.
 - [ ] **Wire the multiplayer GUI (lobby / join / chat) to the netcode.** Build
       it from `web/menu-mockups.html`'s `slab` theme. The seam, which otherwise
       exists only in the code:
@@ -408,8 +438,8 @@ there is no backend of ours anywhere in this design.
         localIndex}`, sent per guest since `localIndex` differs. Slot
         assignment is the host's alone — two guests choosing for themselves can
         collide, and nothing downstream notices until both drive the same car.
-      - **Chat** already works end to end on the reliable channel
-        (`net.sendMessage`/`onMessage`, host relays on receive).
+      - **Chat** already works end to end (`net.sendMessage`/`onMessage`);
+        on the mesh it reaches every peer directly and nobody relays.
         `window.nfmChat(text)` in `main.js` is a console stub standing in for
         the missing UI — replace it, do not build alongside it.
 - [ ] **Measure the correction distribution properly, before smoothing it.**
