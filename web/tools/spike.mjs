@@ -78,7 +78,11 @@ const browser = spawn('chromium', [
   // browser session") and never opens a debugging port -- which presents as
   // "no devtools target" and looks like a CDP bug.
   `--user-data-dir=/tmp/nfm-spike-${process.pid}`,
-  '--autoplay-policy=no-user-gesture-required',
+  // Unblocked so the audio path runs, muted so it stays off the speakers
+  // during a profiling run. --mute-audio nulls the output SINK; the Web Audio
+  // graph, including BassoonTracker's main-thread ScriptProcessorNode, still
+  // renders, so the mixer cost this tool exists to measure is preserved.
+  '--autoplay-policy=no-user-gesture-required', '--mute-audio',
   '--window-size=900,560',
   URL,
 ], { stdio: ['ignore', 'ignore', openSync('/tmp/nfm-spike.err', 'w')], detached: true });
@@ -119,7 +123,7 @@ const t0 = Date.now();
 while (Date.now() - t0 < SECONDS * 1000) {
   // The input listeners are not installed until the assets finish loading, so
   // a key dispatched at navigation is lost. Re-assert it every second, the
-  // same reason browser2p.mjs does.
+  // same reason browsern.mjs does.
   await cdp.send('Input.dispatchKeyEvent', {
     type: 'keyDown', windowsVirtualKeyCode: 38, code: 'ArrowUp', key: 'ArrowUp',
   });

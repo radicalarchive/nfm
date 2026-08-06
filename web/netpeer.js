@@ -1,7 +1,7 @@
 // The transport half of netplay: PeerJS, WebRTC, and the handshake.
 //
-// Kept apart from netsync.js so that the rules of lockstep stay testable under
-// node. Nothing here decides anything about the simulation; it moves bytes and
+// Kept apart from netsession.js so the sync rules stay testable under node.
+// Nothing here decides anything about the simulation; it moves bytes and
 // reports connection state.
 //
 // There is no backend of ours. Signalling (the SDP exchange) runs over PeerJS's
@@ -50,22 +50,37 @@ async function loadPeer() {
 }
 
 /**
- * One end of a two-player session.
+ * One end of a session.
  *
- * Host and guest differ only in who waits and who dials; after `ready`
- * resolves the two are symmetric and the caller cannot tell them apart except
- * by `localIndex`.
+ * The topology is a STAR centred on the host: the host holds one connection
+ * per guest, and a guest holds exactly one, to the host. Guests never speak to
+ * each other directly -- the host relays. That is what keeps this cheap as
+ * players are added, and it suits state sync specifically: a guest transmits
+ * only its own car however many players there are, so its upload is flat,
+ * while only the host's scales. A full mesh would be N(N-1)/2 connections and
+ * N-1 uploads per guest for no gain, since the packets are absolute state and
+ * a relayed copy is worth exactly as much as a direct one.
+ *
+ * The cost is that guest-to-guest traffic takes two hops. Dead reckoning
+ * covers that latency; see netsession.js.
  */
 export class NetPeer {
   constructor({ onData, onStatus, onClose } = {}) {
+    /** @type {(bytes:any, from:number) => void} `from` indexes `conns`. */
     this.onData = onData || (() => {});
     this.onStatus = onStatus || (() => {});
     this.onClose = onClose || (() => {});
     this.peer = null;
-    this.conn = null;
+    /** Host: one per guest. Guest: exactly one, to the host. */
+    this.conns = [];
     this.code = null;
     this.localIndex = 0;
     this.open = false;
+    // Connections that arrive before anyone is waiting for them. A guest can
+    // complete its handshake while the host is still awaiting an earlier one,
+    // and dropping that connection would strand the player.
+    this.pending = [];
+    this.waiters = [];
   }
 
   #status(s) {
@@ -73,17 +88,16 @@ export class NetPeer {
   }
 
   #bind(conn) {
-    this.conn = conn;
-    conn.on('data', (d) => this.onData(d));
-    conn.on('close', () => { this.open = false; this.onClose('peer closed the connection'); });
-    conn.on('error', (e) => { this.open = false; this.onClose('connection error: ' + e); });
+    const idx = this.conns.length;
+    this.conns.push(conn);
+    conn.on('data', (d) => this.onData(d, idx));
+    conn.on('close', () => this.onClose('peer closed the connection', idx));
+    conn.on('error', (e) => this.onClose('connection error: ' + e, idx));
+    return idx;
   }
 
-  /**
-   * Create a room and wait for one guest.
-   * @returns {Promise<object>} the guest's hello payload
-   */
-  async host(code = makeRoomCode()) {
+  /** Host: create the room and start accepting. Resolves once the broker has us. */
+  async openRoom(code = makeRoomCode()) {
     const Peer = await loadPeer();
     this.code = code;
     this.localIndex = 0;
@@ -93,32 +107,39 @@ export class NetPeer {
       this.peer.on('open', resolve);
       this.peer.on('error', reject);
     });
-    this.#status(`room ${code} open — waiting for a player`);
-    const conn = await new Promise((resolve, reject) => {
-      this.peer.on('connection', resolve);
-      this.peer.on('error', reject);
+    // Listen for the WHOLE session, not just for the next guest: registering
+    // this once and queueing arrivals is what allows more than one of them.
+    this.peer.on('connection', (conn) => {
+      conn.on('open', () => {
+        const idx = this.#bind(conn);
+        this.open = true;
+        const w = this.waiters.shift();
+        if (w) w(idx); else this.pending.push(idx);
+      });
     });
-    await new Promise((resolve) => conn.on('open', resolve));
-    this.#bind(conn);
-    this.open = true;
-    this.#status('player connected');
-    return conn;
+    this.#status(`room ${code} open — waiting for players`);
+    return code;
   }
 
-  /** Join an existing room. */
+  /** Host: resolve with the index of the next guest to finish connecting. */
+  accept() {
+    if (this.pending.length) return Promise.resolve(this.pending.shift());
+    return new Promise((resolve) => this.waiters.push(resolve));
+  }
+
+  /** Guest: join an existing room. */
   async join(code) {
     const Peer = await loadPeer();
     this.code = code;
-    this.localIndex = 1;
     this.#status(`connecting to ${code}...`);
     this.peer = new Peer();
     await new Promise((resolve, reject) => {
       this.peer.on('open', resolve);
       this.peer.on('error', reject);
     });
-    // Unreliable and unordered: lockstep packets carry their own redundancy
-    // (see netsync.REDUNDANCY), so retransmission would only add latency to
-    // data that is already stale by the time it arrives.
+    // Unreliable and unordered: state packets are absolute and self-
+    // superseding, so a lost one needs no retransmission -- the next one
+    // replaces it entirely, and a resend would only deliver stale data late.
     const conn = this.peer.connect(ID_PREFIX + code, { reliable: false, ordered: false });
     await new Promise((resolve, reject) => {
       conn.on('open', resolve);
@@ -131,20 +152,38 @@ export class NetPeer {
     return conn;
   }
 
+  /** Send to every connection. */
   send(data) {
-    if (this.open && this.conn) {
-      try {
-        this.conn.send(data);
-      } catch {
-        // A send failing mid-race must not take the frame loop down with it;
-        // the next packet's redundancy covers the gap anyway.
-      }
+    for (let i = 0; i < this.conns.length; i++) this.sendTo(i, data);
+  }
+
+  /**
+   * Send to one connection.
+   *
+   * `except` on the broadcast path is what makes the host's relay safe: a
+   * packet echoed back to the guest that sent it would be a record for a car
+   * that guest owns, and while netsession.js refuses those, spending the
+   * bandwidth to be refused is pointless.
+   */
+  sendTo(i, data) {
+    const conn = this.conns[i];
+    if (!this.open || !conn) return;
+    try {
+      conn.send(data);
+    } catch {
+      // A send failing mid-race must not take the frame loop down with it;
+      // the next tick's packet supersedes this one anyway.
     }
+  }
+
+  /** Send to every connection but one. The host's relay path. */
+  broadcastExcept(skip, data) {
+    for (let i = 0; i < this.conns.length; i++) if (i !== skip) this.sendTo(i, data);
   }
 
   close() {
     this.open = false;
-    try { this.conn?.close(); } catch { /* already gone */ }
+    for (const c of this.conns) { try { c.close(); } catch { /* already gone */ } }
     try { this.peer?.destroy(); } catch { /* already gone */ }
   }
 }

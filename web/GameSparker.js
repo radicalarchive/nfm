@@ -405,17 +405,20 @@ export class GameSparker {
     }
   }
 
-  #draw(rd, medium, xtGraphics, array2, array3) {
-    // Rebuilding a wasted car's model is structurally inside draw(), but it is
-    // a SIMULATION event: ContO's constructor randomises the mesh of every
-    // `gr == -15` plane, and that mesh is the collision geometry Mad.regx()
-    // deforms and reads damage out of. Left on the draw stream the two clients
-    // would build differently-shaped cars.
-    // ...and an INTERPOLATED redraw must not do it at all. It is a mutation,
-    // and interpolated frames re-render the tick's world rather than advancing
-    // it; letting one rebuild here consumed the newcar flag and randomised a
-    // fresh mesh on whichever client happened to draw more frames.
-    setDrawPhase(false);
+  /**
+   * Respawn every car whose `newcar` flag is set.
+   *
+   * Lives here rather than inline in draw() because it is a SIMULATION event
+   * that happens to sit on the draw path, so a caller that skips rendering
+   * (`?draw=0`) still has to run it — otherwise a wasted car never returns and
+   * its flag stays set forever. Must run on the SIM half of the PRNG: ContO's
+   * constructor randomises the mesh of every `gr == -15` plane, and that mesh
+   * is the collision geometry Mad.regx() deforms and reads damage out of.
+   */
+  rebuildNewCars(medium, xtGraphics, array2, array3) {
+    // An interpolated redraw must not do it at all: those frames re-render the
+    // tick's world rather than advancing it, so rebuilding here would consume
+    // the flag and randomise a fresh mesh on whichever client drew more frames.
     for (let n33 = 0; !medium.interpolating && n33 < xtGraphics.nplayers; ++n33) {
       if (array3[n33].newcar) {
         const xz = array2[n33].xz;
@@ -428,6 +431,20 @@ export class GameSparker {
         array3[n33].newcar = false;
       }
     }
+  }
+
+  #draw(rd, medium, xtGraphics, array2, array3) {
+    // Rebuilding a wasted car's model is structurally inside draw(), but it is
+    // a SIMULATION event: ContO's constructor randomises the mesh of every
+    // `gr == -15` plane, and that mesh is the collision geometry Mad.regx()
+    // deforms and reads damage out of. Left on the draw stream the two clients
+    // would build differently-shaped cars.
+    // ...and an INTERPOLATED redraw must not do it at all. It is a mutation,
+    // and interpolated frames re-render the tick's world rather than advancing
+    // it; letting one rebuild here consumed the newcar flag and randomised a
+    // fresh mesh on whichever client happened to draw more frames.
+    setDrawPhase(false);
+    this.rebuildNewCars(medium, xtGraphics, array2, array3);
     setDrawPhase(true);
     medium.d(rd);
     let n34 = 0;
@@ -488,10 +505,17 @@ export class GameSparker {
       // of those slots, and running preform() on it would have the AI drive
       // the other player's car -- differently on each machine, since preform
       // reads state the two clients legitimately hold at different moments.
+      //
+      // `remote` widens that to every car this client is not AUTHORITATIVE
+      // for, which under state sync includes the BOTS on a guest: the host
+      // simulates them and ships their state, exactly as the original does
+      // (`GameSparker.java:1348` runs preform() for bots only when im == 0).
+      // A guest still runs drive() for them -- that is the dead reckoning
+      // between packets -- but must not re-decide what they intend to do.
       for (let n46 = 0; n46 < xtGraphics.nplayers; ++n46) {
         // The local slot is human by definition, so single-player needs no
         // setup and cannot accidentally hand the player's car to the AI.
-        if (n46 === xtGraphics.im || this.u[n46].human) continue;
+        if (n46 === xtGraphics.im || this.u[n46].human || this.u[n46].remote) continue;
         this.u[n46].preform(array3[n46], array2[n46], checkPoints, trackers);
       }
     } else {

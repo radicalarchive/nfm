@@ -334,13 +334,17 @@ there is no backend of ours anywhere in this design.
         bit-identical across JS engines, and players will be on different ones.
       - Acceptance: two independently built worlds tick 1000 times to
         bit-identical state, asserted in a test.
+- [x] ~~**The browser-level sync check has never compared anything.**~~ Gone with
+      lockstep, and it cannot recur: state sync measures drift against a packet
+      that has by definition already ARRIVED, so there is no tick-in-flight to
+      race. Original note kept below for the shape of the bug.
 - [!] **The browser-level sync check has never compared anything, and reports
       that as success.** `netCheck()` (main.js) sends its hash for tick N and
       then reads `peerChecks.get(N)` *synchronously*. The peer's hash for tick
       N is still crossing the network at that moment — two lockstepped clients
       reach the same tick at nearly the same time — so `theirs` is essentially
       always `undefined`, the comparison is skipped, and nothing ever reads the
-      entry once it lands: the only read is that one. So `browser2p.mjs`
+      entry once it lands: the only read is that one. So `browsern.mjs`
       reports "desyncs: 0" while performing zero checks. Verified 2026-08-05:
       both peers pair and race (host "racing Guest", guest "joined Host") for
       35s and produce 0 sync-ok checkpoints where ~5 were due.
@@ -350,14 +354,57 @@ there is no backend of ours anywhere in this design.
       whose hash has ARRIVED, not the tick you are on. Note this does not
       touch `netloop.mjs`'s 8000-tick result, which runs two node processes
       and compares fields directly.
-- [ ] **Reconsider lockstep before adding a 3rd player.** The original is
-      host-authoritative state sync: `UDPMistro.setinfo()` sends inputs AND
-      absolute state per car per tick, and the host simulates the bots
+- [x] **Switched from lockstep to client-authoritative state sync.** Each
+      client is authoritative for its own car and the host only for the bots,
+      so the trust model is that every player is honest about themselves —
+      fine for a private game, and no basis for anti-cheat. `netcodec.js`/`netsession.js`
+      transcribes `UDPMistro.setinfo`/`readinfo`: 16 booleans and 20 numbers per
+      car, humans owning their own slot and the host owning every bot
+      (`GameSparker.java:1348`). `netcodec.test.js` + `netsession.test.js` (18 tests) pins the field set
+      by PARSING `UDPMistro.java` — a round-trip test is symmetric and would
+      agree with any self-consistent mistake. `main.js` has no gate and no
+      stall: a quiet peer costs accuracy on its own car and nothing else, and
+      the lockstep input-shadow control is gone, so local input latency is zero.
+      `Control.remote` stops a guest running the AI for the host's bots.
+      **Measured** (`netloop.mjs`, two processes, lossy relay): the guest's view
+      of a host-owned car trails by exactly LATENCY ticks with a residual of
+      0.0–4.8 units clean, 11.8 at 10% loss, 31.4 at 30% loss + 20% reorder, and
+      drift SHRINKS across every run (x0.52 / x0.97 / x0.72 first half to
+      second). The lockstep implementation (`netsync.js` and its 12 tests) is
+      deleted; git history has it if rollback ever wants the input timeline.
+- [x] **3+ players.** Star topology centred on the host: `netpeer.js` holds one
+      connection per guest (`openRoom`/`accept`/`broadcastExcept`), the host
+      assigns slots and relays each guest's packet to the others VERBATIM, and
+      `netcodec.js`/`netsession.js` needed no change — it was already slot-general. A guest
+      transmits only its own car however many are racing, so guest upload is
+      flat and only the host's scales. `?humans=N` on the host URL.
+      **Measured** (`netloop.mjs`, N processes, two-hop relay modelled): at 3
+      players clean, 1-hop views trail exactly LATENCY ticks and relayed
+      guest-to-guest views exactly 2xLATENCY, residual 4.5–5.3 units, bots
+      0.0; at 4 players with 12% loss and 15% reorder, residual 42.6 and drift
+      still shrinking (x0.92). **Confirmed in three real browsers**
+      (`browsern.mjs 45 3`): peers pair, slots are distinct, and each guest
+      hears the other guest through the relay.
+- [ ] **Host migration, or bot reassignment on disconnect.** `ownerOf` gives
+      every bot to `humanSlots[0]`, so if the host leaves, the bots have no
+      owner and freeze. At two players the race is over anyway; at four it is
+      not. A decision rather than a port.
+- [ ] **Smooth the correction on the render side.** The one real cost of the
+      switch: a run of lost packets lets the prediction wander and the snap back
+      reaches ~600 units at 30% loss. That is the price of the loss, not a
+      protocol defect — `netloop.mjs` reports it as "the render-side smoothing
+      budget" rather than failing on it. Correct the DRAWN position toward the
+      authoritative one over a few frames; do NOT smooth inside `applyCar`,
+      which would make the simulation and the wire disagree about where a car
+      is, the exact bug state sync exists to avoid.
+- [ ] ~~Reconsider lockstep before adding a 3rd player.~~ (done, above) The original is
+      client-authoritative state sync: `UDPMistro.setinfo()` sends inputs AND
+      absolute state per car per tick, and the host simulates only the bots
       (`GameSparker.java:1348`). Lockstep gates every peer on the laggiest one,
       needs an N(N-1)/2 mesh and can't do drop-in, and its one big win — the AI
       syncing for free — is worth nothing once humans fill those slots.
       Switching costs `netsync.js` and its 12 tests (~20-25% of the netplay
-      work); `netpeer.js`, the launcher UI, `browser2p.mjs` and every
+      work); `netpeer.js`, the launcher UI, `browsern.mjs` and every
       determinism fix survive — determinism is what would make state sync's
       dead reckoning accurate enough that corrections never show.
       - Write the transport fresh in JS: `UDPMistro`/`udpServe`/`udpOnline` are

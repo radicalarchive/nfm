@@ -22,8 +22,8 @@ import { readZip, readText, detectFpath } from './vfs.js';
 import { loadHudImages } from './images.js';
 import { Audio } from './audio.js';
 import * as music from './music.js';
-import { InputSync, packInput, applyInput, DEFAULT_DELAY,
-         worldHash, encodeCheck, decodeCheck } from './netsync.js';
+import { captureCar, applyCar, encodePacket, decodePacket } from './netcodec.js';
+import { StateSync, driftOf } from './netsession.js';
 import { NetPeer, makeRoomCode } from './netpeer.js';
 
 const log = (msg) => {
@@ -36,10 +36,10 @@ const log = (msg) => {
  * Agree on the race before either side builds a world.
  *
  * The host picks everything and the guest accepts it verbatim -- seed, stage,
- * the whole grid, the input delay. Nothing is negotiated in the sense of being
- * argued about, because two machines that each decided part of the setup would
- * start from different worlds and lockstep has no way to notice, let alone
- * recover.
+ * the whole grid. Nothing is negotiated in the sense of being argued about:
+ * two machines that each decided part of the setup would start from different
+ * worlds, and while state sync would eventually drag the cars into agreement
+ * it cannot fix a guest racing a different STAGE.
  *
  * The grid is sent explicitly rather than being re-derived from the seed:
  * sortcars() consumes randoms, so a client that regenerated it would advance
@@ -49,20 +49,27 @@ async function negotiate(mode, params, cfg, keep) {
   const net = new NetPeer({ onStatus: (m) => log(m) });
   keep(net);
   const name = (params.get('name') || '').slice(0, 12);
-  const delay = Math.max(1, parseInt(params.get('delay') || String(DEFAULT_DELAY), 10));
+  // How many people are racing. The rest of the grid is bots, which the host
+  // owns and simulates.
+  const humanCount = Math.max(2, Math.min(cfg.players,
+    parseInt(params.get('humans') || '2', 10)));
 
   if (mode === 'host') {
     const code = (params.get('room') || makeRoomCode()).toUpperCase();
-    // Big enough to read out. Hidden again as soon as someone joins.
     const banner = document.getElementById('room');
-    if (banner) {
+    const hint = () => {
+      if (!banner) return;
       document.getElementById('roomcode').textContent = code;
       document.getElementById('roomhint').textContent =
-        'Give this to the other player — they pick Join on the launcher.';
+        `Give this to the other players — ${net.conns.length}/${humanCount - 1} joined.`;
       banner.hidden = false;
-    }
-    await net.host(code);
-    // The grid is drawn HERE, on the host, from the host's seed.
+    };
+    hint();
+    await net.openRoom(code);
+
+    // The grid is drawn HERE, on the host, from the host's seed, and shipped
+    // verbatim. sortcars() consumes randoms, so a client that regenerated it
+    // would advance its PRNG differently.
     setSeed(cfg.seed);
     const cars = [];
     {
@@ -72,38 +79,55 @@ async function negotiate(mode, params, cfg, keep) {
       tmp.sortcars(cfg.stage);
       for (let i = 0; i < 8; i++) cars[i] = tmp.sc[i];
     }
-    const hello = await new Promise((resolve) => {
-      const prev = net.onData;
-      net.onData = (d) => {
-        const msg = typeof d === 'string' ? JSON.parse(d) : d;
-        if (msg && msg.t === 'hello') { net.onData = prev; resolve(msg); }
-      };
-    });
-    // Slot 1 is the guest, and it races the car the guest picked.
-    cars[1] = Number.isInteger(hello.car) ? hello.car : cars[1];
-    const start = { t: 'start', seed: cfg.seed, stage: cfg.stage, players: cfg.players,
-                    cars, delay, hostName: name || 'Host', guestName: hello.name || 'Player 2' };
-    net.send(JSON.stringify(start));
+
+    // Guests fill slots 1..humanCount-1 in the order they finish connecting.
+    // Slot assignment has to be the host's alone: two guests choosing for
+    // themselves can pick the same one, and nothing downstream would notice
+    // until both drove the same car.
+    const names = [name || 'Host'];
+    const hellos = new Map();
+    net.onData = (d, from) => {
+      const msg = typeof d === 'string' ? JSON.parse(d) : d;
+      if (msg && msg.t === 'hello') hellos.get(from)?.(msg);
+    };
+    for (let slot = 1; slot < humanCount; slot++) {
+      const from = await net.accept();
+      const hello = await new Promise((resolve) => hellos.set(from, resolve));
+      if (Number.isInteger(hello.car)) cars[slot] = hello.car;
+      names[slot] = hello.name || `Player ${slot + 1}`;
+      log(`${names[slot]} joined (slot ${slot})`);
+      hint();
+    }
+
+    const humanSlots = [];
+    for (let i = 0; i < humanCount; i++) humanSlots.push(i);
+    // Each guest is told its OWN slot, so the message differs per connection.
+    for (let slot = 1; slot < humanCount; slot++) {
+      net.sendTo(slot - 1, JSON.stringify({
+        t: 'start', seed: cfg.seed, stage: cfg.stage, players: cfg.players,
+        cars, humanSlots, names, localIndex: slot,
+      }));
+    }
     if (banner) banner.hidden = true;
-    log(`racing ${start.guestName} — room ${code}`);
-    return { ...cfg, cars, delay, localIndex: 0, room: code,
-             names: [start.hostName, start.guestName] };
+    log(`racing ${names.slice(1).join(', ')} — room ${code}`);
+    return { ...cfg, cars, humanSlots, localIndex: 0, room: code, names };
   }
 
   const code = (params.get('room') || '').toUpperCase();
   if (!code) throw new Error('joining needs ?room=CODE');
   await net.join(code);
-  net.send(JSON.stringify({ t: 'hello', name: name || 'Player 2', car: cfg.car }));
+  net.send(JSON.stringify({ t: 'hello', name: name || 'Player', car: cfg.car }));
   const start = await new Promise((resolve) => {
     net.onData = (d) => {
       const msg = typeof d === 'string' ? JSON.parse(d) : d;
       if (msg && msg.t === 'start') resolve(msg);
     };
   });
-  log(`joined ${start.hostName} — room ${code}`);
+  net.localIndex = start.localIndex;
+  log(`joined ${start.names[0]} as slot ${start.localIndex} — room ${code}`);
   return { ...cfg, seed: start.seed, stage: start.stage, players: start.players,
-           cars: start.cars, delay: start.delay, localIndex: 1, room: code,
-           names: [start.hostName, start.guestName] };
+           cars: start.cars, humanSlots: start.humanSlots,
+           localIndex: start.localIndex, room: code, names: start.names };
 }
 
 async function boot() {
@@ -113,15 +137,15 @@ async function boot() {
   // ---- netplay handshake --------------------------------------------------
   //
   // Done BEFORE the world is built, because the host dictates every input to
-  // the world's construction: seed, stage, grid and player count. Lockstep
-  // requires the two worlds to be identical at tick 0, and the cheapest way to
-  // guarantee that is for only one machine to decide any of it.
+  // the world's construction: seed, stage, grid and slot assignment. State
+  // sync corrects a car that drifts, but it cannot reconcile two clients that
+  // built different WORLDS, so only one machine decides any of it.
   const netMode = params.get('net');                 // 'host' | 'join' | null
-  let net = null, sync = null, netDelay = DEFAULT_DELAY;
-  // tick -> the peer's hash for it. Compared as our own ticks pass; see the
-  // note by CHECK_EVERY.
-  const peerChecks = new Map();
-  let desynced = false;
+  let net = null, sync = null;
+  // Packets that have arrived and not yet been folded in. Applied at the tick
+  // boundary rather than from the data callback, so a car never moves in the
+  // middle of a simulation step.
+  const inbox = [];
   let cfg = {
     seed: parseInt(params.get('seed') || '12345', 10),
     stage: parseInt(params.get('stage') || '1', 10),
@@ -132,13 +156,19 @@ async function boot() {
   };
   if (netMode === 'host' || netMode === 'join') {
     cfg = await negotiate(netMode, params, cfg, (n) => { net = n; });
-    netDelay = cfg.delay;
-    sync = new InputSync(cfg.localIndex, [0, 1], netDelay);
-    net.onData = (d) => {
+    sync = new StateSync(cfg.localIndex, cfg.humanSlots, cfg.players);
+    net.onData = (d, from) => {
       const bytes = d instanceof ArrayBuffer ? new Uint8Array(d) : d;
-      const check = decodeCheck(bytes);
-      if (check) peerChecks.set(check.tick, check.hash);
-      else sync.decode(bytes);
+      const msg = decodePacket(bytes);
+      if (!msg) return;
+      inbox.push(msg);
+      // The host is the hub of the star, so it forwards a guest's packet to
+      // every other guest -- VERBATIM, keeping the originating client's slot
+      // and tick. Re-capturing those cars from the host's own world instead
+      // would make the host authoritative for them, which costs each guest a
+      // round trip of input lag on its own car and is the thing this topology
+      // exists to avoid.
+      if (sync.isHost) net.broadcastExcept(from, bytes);
     };
   }
 
@@ -182,6 +212,19 @@ async function boot() {
   // when scene weight varies by too little, and returns a negative fixed cost
   // when pushed.
   const PROFILE = params.get('prof') === '1';
+  // ?draw=0 skips gs.draw() outright — no projection, no backdrop, no
+  // geometry. The simulation still runs at full rate, so the game plays
+  // itself blind. Intended for netplay and physics tests, where the renderer
+  // is the whole cost and none of the subject: `?raster=0` only stubs the
+  // emit path, leaving Plane.d's per-vertex projection and medium.d()'s
+  // backdrop to run in full.
+  //
+  // Safe only because draw()'s one genuine output, ContO.dist, feeds the
+  // depth sort and NOTHING in the simulation. That was not always true: the
+  // repair mechanic used to branch on it, which made the game ask "is anyone
+  // looking at this car" and then change the physics. Re-check this flag if
+  // anything in the sim ever reads dist again.
+  const DRAW = params.get('draw') !== '0';
   const RASTER = params.get('raster') !== '0';
   const GEOMETRY = params.get('geom') !== '0';
   const OVERLAY = params.get('overlay') !== '0';
@@ -234,16 +277,23 @@ async function boot() {
     // Which slots are people. Simulation branches key on this rather than on
     // `im`, so both clients treat both human cars the same way; see
     // XtGraphics.human().
-    xt.humans = new Set([0, 1]);
+    xt.humans = new Set(cfg.humanSlots);
     // The original's own way of telling a human from a bot: a name containing
     // "MadBot". stat() at :1005 already reads it, so labelling here is enough
     // for the game to treat the remote player as a player.
     for (let i = 0; i < xt.nplayers; ++i) {
-      const human = i === 0 || i === 1;
+      const human = cfg.humanSlots.includes(i);
       xt.isbot[i] = !human;
       xt.plnames[i] = human ? (cfg.names[i] || `Player ${i + 1}`) : `MadBot${i}`;
     }
-    gs.u[1 - cfg.localIndex].human = true;   // the peer drives their own slot
+    // Every other person drives their own car; none of them is ours to steer.
+    for (const slot of cfg.humanSlots) {
+      if (slot !== cfg.localIndex) gs.u[slot].human = true;
+    }
+    // Under state sync the host owns the bots, so a guest must not run their
+    // AI locally -- it would fight the state arriving on the wire. See the
+    // `remote` gate in GameSparker.simulate().
+    for (let i = 0; i < 8; ++i) gs.u[i].remote = sync ? sync.isRemote(i) : false;
   } else if (sameCars) {
     for (let i = 1; i < 8; ++i) xt.sc[i] = car;
   } else {
@@ -306,14 +356,16 @@ async function boot() {
   snd.load().catch((e) => console.warn('sound unavailable:', e));
 
   log(`stage "${checkPoints.name}"  objects=${gs.nob}  checkpoints=${checkPoints.nsp}  laps=${checkPoints.nlaps}`);
-  // In a netplay session the keyboard writes to a SHADOW control, not to the
-  // live one. netApply() overwrites the live Control every tick with the input
-  // agreed for that tick, so a key RELEASE would be undone: the keyup sets
-  // up=false, netApply immediately restores the older up=true, no further
-  // event ever arrives, and the car accelerates forever. The shadow is only
-  // ever written by input events and only ever read when deciding what to
-  // send, so it always reflects what the player is actually holding.
-  const pad = sync ? new Control(medium) : gs.u[cfg.localIndex];
+  // The keyboard drives the live Control directly, in netplay as in single
+  // player: this client is authoritative for its own car, so its input applies
+  // the instant it happens and the net layer only ever overwrites cars it does
+  // NOT own. Local input latency is therefore zero.
+  //
+  // Any scheme that rewrites the local Control from the network needs a shadow
+  // control instead -- overwriting the live one undoes key RELEASES (the keyup
+  // clears a flag, the net layer restores it, no further event ever arrives)
+  // and the car accelerates forever.
+  const pad = gs.u[cfg.localIndex];
   installInput(pad, snd);
 
   let backdropMs = 0;
@@ -634,68 +686,90 @@ async function boot() {
     location.href = '../index.html';
   }
 
-  // ---- lockstep ------------------------------------------------------------
+  // ---- state sync ----------------------------------------------------------
   //
   // netTick counts ticks from 0 on both machines, so "tick N" needs no clock
   // agreement: the race starts when both peers have exchanged start, and the
   // count is the shared reference from then on.
   //
-  // Each tick we decide the input for netTick + delay and send it; the tick
-  // about to run consumes input decided `delay` ticks ago and already
-  // delivered. If it has not arrived, we stall -- no prediction, no rollback,
-  // so a stall is visible as a freeze rather than as a rubber-band.
+  // Every tick this client publishes the absolute state of the cars it owns
+  // and folds in whatever has arrived for the ones it does not. Between
+  // packets a remote car is dead-reckoned: `Mad.drive` runs for it locally
+  // with the last control flags received, exactly as the original does.
+  //
+  // NOTHING BLOCKS. There is no gate and no stall -- a peer that goes quiet
+  // costs accuracy on its own car and nothing else, where lockstep froze the
+  // whole race for everyone. That is the property being bought here, and the
+  // reason a 3rd player is now a matter of slots rather than of topology.
   let netTick = 0;
-  let stalledSince = 0;
-  const remoteSlot = 1 - cfg.localIndex;
+  let silentSince = 0;
 
-  /** @returns true when the tick may run. */
-  function netGate() {
-    if (!sync) return true;
-    if (!net.open) return false;              // peer gone: freeze, don't drift
-    // Decide and publish our own input for the far end of the delay window.
-    const future = netTick + netDelay;
-    if (sync.lastSent < future) {
-      const packed = packInput(pad);
-      sync.setLocal(future, packed);
-      // Quantise in place too, so what this machine simulates is exactly what
-      // the other one will. See netsync.packInput.
-      applyInput(pad, packed);
-      sync.lastSent = future;
-      net.send(sync.encode(future));
-    }
-    return sync.ready(netTick);
-  }
-
-  /** Put every human's agreed input in place for the tick about to run. */
-  function netApply() {
+  /** Fold everything that has arrived, then publish our own cars. */
+  function netExchange(now) {
     if (!sync) return;
-    applyInput(gs.u[cfg.localIndex], sync.get(cfg.localIndex, netTick));
-    applyInput(gs.u[remoteSlot], sync.get(remoteSlot, netTick));
+
+    // ---- receive. Applied at the tick boundary, before the tick runs, so
+    // the simulation steps forward FROM authoritative state rather than
+    // having a car teleport mid-step.
+    while (inbox.length) {
+      const msg = inbox.shift();
+      for (const rec of msg.cars) {
+        if (!sync.accepts(rec.slot, msg.tick)) continue;   // stale or ours
+        // Drift is measured BEFORE the fold: it is how far this client's dead
+        // reckoning had wandered from the truth, which is the honest health
+        // metric for this topology. Note it needs no round trip and cannot
+        // repeat lockstep's checker bug -- there is nothing to wait for,
+        // because the packet being compared against has by definition arrived.
+        const drift = driftOf(rec, array2[rec.slot]);
+        applyCar(rec, {
+          mad: array3[rec.slot], contO: array2[rec.slot], control: gs.u[rec.slot],
+        });
+        sync.markApplied(rec.slot, msg.tick, drift);
+      }
+      if (msg.cars.length) silentSince = 0;
+    }
+
+    // ---- send. One packet carrying every car we own: our own, plus the
+    // bots if we are the host.
+    const records = sync.owned.map((slot) => captureCar(slot, {
+      mad: array3[slot],
+      contO: array2[slot],
+      control: gs.u[slot],
+      holdit: xt.holdit,
+      pos: checkPoints.pos[slot],
+      magperc: checkPoints.magperc[slot],
+    }));
+    net.send(encodePacket(netTick, records));
+
+    // A quiet peer is not an error -- we keep racing on dead reckoning -- but
+    // it is worth saying so, because the alternative is a player wondering why
+    // the other car is driving in a straight line into a wall.
+    if (!silentSince) silentSince = now;
+    else if (now - silentSince > 3000) {
+      log('no packets from the other player -- still racing on prediction');
+      silentSince = now;
+    }
   }
 
-  // How often the two clients compare world hashes. Lockstep is silent when it
-  // fails -- both sides keep trading inputs while rendering different races --
-  // so without this a desync is something you notice minutes later, if at all.
-  // Cheap enough to leave on permanently: 9 bytes every ~3 seconds.
-  const CHECK_EVERY = 60;
+  // How often the worst recent correction is reported. Under lockstep this was
+  // a world-hash comparison, which is meaningless here: the two clients are
+  // EXPECTED to disagree between packets, and the useful question is by how
+  // much. Drift in game units answers it -- a car is ~200 units across, the
+  // stage runs to +/-83000, so single digits are invisible and hundreds are a
+  // rubber-band the player can see.
+  const DRIFT_EVERY = 60;
 
-  function netCheck() {
-    if (netTick % CHECK_EVERY !== 0) return;
-    const mine = worldHash(array2, array3, xt.nplayers);
-    net.send(encodeCheck(netTick, mine));
-    // The peer's hash for a tick can arrive before or after we reach it, so
-    // compare whatever has already landed rather than waiting for a round trip.
-    const theirs = peerChecks.get(netTick);
-    if (theirs !== undefined) {
-      peerChecks.delete(netTick);
-      if (theirs !== mine && !desynced) {
-        desynced = true;
-        log(`DESYNC at tick ${netTick}: ${mine.toString(16)} vs ${theirs.toString(16)}`);
-        console.warn(`netplay desync at tick ${netTick}`);
-      } else if (theirs === mine) {
-        console.log(`sync ok @${netTick} ${mine.toString(16)}`);
-      }
-    }
+  function netReport() {
+    if (netTick % DRIFT_EVERY !== 0) return;
+    const worst = sync.worstDrift();
+    // Naming the slots corrected, not just the worst number: it is the only
+    // externally visible evidence of WHICH peers are actually being heard.
+    // A guest hearing the host but not the other guests looks identical to a
+    // healthy session in a bare drift figure, and that is exactly the failure
+    // a relayed star can have.
+    const slots = [...sync.drift.keys()].sort((a, b) => a - b).join(',');
+    console.log(`drift @${netTick}: ${worst.toFixed(1)} units slots=${slots}`);
+    if (worst > 400) log(`large correction: ${worst.toFixed(0)} units`);
   }
 
   function frame(now) {
@@ -763,17 +837,7 @@ async function boot() {
 
     let stepped = false;
     while (acc >= TICK_MS) {
-      if (!netGate()) {
-        // Waiting on the peer. Hold the accumulator at one tick so the moment
-        // input lands we run exactly one tick, not a burst that would make the
-        // catch-up visible as a lurch.
-        acc = TICK_MS;
-        if (!stalledSince) stalledSince = now;
-        else if (now - stalledSince > 4000) log('waiting for the other player...');
-        break;
-      }
-      stalledSince = 0;
-      netApply();
+      netExchange(now);
       // Snapshot BEFORE the tick, so after the loop snapPrev holds the state
       // entering the most recent tick and snapCurr the state leaving it --
       // correct even when several ticks run to catch up.
@@ -788,7 +852,9 @@ async function boot() {
       // configuration we care about.
       rd.begin();
       const t0 = performance.now();
-      gs.draw(rd, medium, xt, array2, array3);
+      // The respawn is simulation, not rendering, so it runs either way.
+      if (DRAW) gs.draw(rd, medium, xt, array2, array3);
+      else gs.rebuildNewCars(medium, xt, array2, array3);
       const t1 = performance.now();
       // Everything simulate() emits lands after the scene, on top: the HUD's
       // damage and power bars, and the checkpoint arrow. Keep those vertices
@@ -806,9 +872,7 @@ async function boot() {
       stepped = true;
       if (sync) {
         netTick++;
-        // Ticks older than the delay window can never be needed again.
-        if ((netTick & 63) === 0) sync.forget(netTick - netDelay - 1);
-        netCheck();
+        netReport();
       }
 
       // End of race. stat() runs the whole finish sequence itself -- it sets
@@ -830,7 +894,7 @@ async function boot() {
       // keepOverlay: the HUD was drawn on the overlay by simulate() and is
       // not part of the geometry being re-projected here.
       rd.begin(true);
-      gs.draw(rd, medium, xt, array2, array3);
+      if (DRAW) gs.draw(rd, medium, xt, array2, array3);
       rd.replay(hudVerts);       // HUD last, so it stays on top
       medium.interpolating = false;
       restoreCurr();

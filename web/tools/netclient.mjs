@@ -5,9 +5,10 @@
 // process share a stream that two browser tabs never would, and a test built
 // that way proves nothing about two machines.
 //
-// The parent (netloop.mjs) relays packets between two of these and compares
-// their world hashes. Everything below the IPC seam -- InputSync, the tick
-// gate, the order of pack/apply -- is the same code main.js runs.
+// The parent (netloop.mjs) relays packets between two of these with latency and
+// loss, and measures how far each client's dead reckoning wanders from the
+// authoritative state. Everything below the IPC seam -- StateSync, ownership,
+// the fold, the order of receive/send/tick -- is the same code main.js runs.
 
 import { readFileSync } from 'node:fs';
 import { parseZip } from '../vfs.js';
@@ -22,18 +23,22 @@ import { Mad } from '../Mad.js';
 import { GameSparker } from '../GameSparker.js';
 import { XtGraphics } from '../XtGraphics.js';
 import { objArray, setSeed } from '../java.js';
-import { InputSync, packInput, applyInput, worldHash } from '../netsync.js';
+import { captureCar, applyCar, encodePacket, decodePacket } from '../netcodec.js';
+import { StateSync, driftOf } from '../netsession.js';
 
 const R = new URL('../../', import.meta.url);
 const readRepo = (p, enc) => readFileSync(new URL(p, R), enc);
 
 const localIndex = parseInt(process.argv[2], 10);
 const seed = parseInt(process.argv[3], 10);
-const delay = parseInt(process.argv[4], 10);
-const players = parseInt(process.argv[5], 10);
+const players = parseInt(process.argv[4], 10);
+const humanCount = parseInt(process.argv[7], 10);
+const humanSlots = [];
+for (let i = 0; i < humanCount; i++) humanSlots.push(i);
 // How many interpolated frames this client draws per tick -- the asymmetry a
-// shared PRNG stream would turn into a desync.
-const interp = parseInt(process.argv[6], 10);
+// shared PRNG stream would turn into a divergence.
+const interp = parseInt(process.argv[5], 10);
+const TARGET = parseInt(process.argv[6], 10);
 
 setSeed(seed);
 const zip = await parseZip(new Uint8Array(readRepo('data/models.zip')));
@@ -64,128 +69,108 @@ xt.starcnt = 0;                       // skip the intro; this is about sync
 medium.trk = 0; medium.iw = 0; medium.ih = 0; medium.w = 800; medium.h = 450;
 
 xt.im = localIndex;
-xt.humans = new Set([0, 1]);
-gs.u[1 - localIndex].human = true;
+xt.humans = new Set(humanSlots);
+for (const slot of humanSlots) if (slot !== localIndex) gs.u[slot].human = true;
 
-const sync = new InputSync(localIndex, [0, 1], delay);
-const pad = new Control(medium);
+const sync = new StateSync(localIndex, humanSlots, players);
+// A guest must not run the AI for the host's bots: it dead-reckons them from
+// the host's packets instead. This is the flag GameSparker.simulate() gates on.
+for (let i = 0; i < 8; ++i) gs.u[i].remote = sync.isRemote(i);
+
+const pad = gs.u[localIndex];
 let netTick = 0;
+const inbox = [];
+
+// Drift, sampled at every correction. This is the harness's real output: under
+// state sync the two clients are EXPECTED to differ between packets, so the
+// question is never "do they agree" but "by how much, and does it stay
+// bounded". A run whose drift grows without limit is a broken dead reckoning
+// even if no single packet was lost.
+const driftSamples = [];
 
 /**
- * Everything worth comparing, per car, as name/value pairs.
+ * A scripted input, different per client, deterministic from the tick.
  *
- * Deliberately wider than the world hash: the hash is the shipping detector
- * and has to stay cheap, while this exists to answer "which field first" and
- * is only paid in a test. `mesh` matters more than it looks -- the collision
- * geometry is deformed by regx/regy/regz and read back as damage, so it can
- * diverge a thousand ticks before any position does.
+ * The per-client offsets matter: identical inputs would drive identical cars,
+ * and two cars in the same state never collide (colide() picks a dominant car
+ * by |power * speed * moment| and neither dominates on an exact tie), so the
+ * collision paths would go untested while every assertion still passed.
  */
-function stateVector() {
-  return [0, 1, 2, 3].map((i) => {
-    const o = array2[i], m = array3[i];
-    let mesh = 0x811c9dc5;
-    for (let q = 0; q < o.npl; q++) {
-      const pl = o.p[q];
-      // pl.ox.length, NOT pl.n: Plane.s() sets n to 12 or 20 as a distance
-      // LOD, so hashing to `n` makes this a function of the CAMERA -- and each
-      // client has its own camera. That produced a convincing phantom "mesh
-      // desync at tick 3" that cost an hour.
-      for (let r = 0; r < pl.ox.length; r++) {
-        for (const v of [pl.ox[r], pl.oy[r], pl.oz[r]]) {
-          mesh ^= v | 0;
-          mesh = Math.imul(mesh, 16777619) >>> 0;
-        }
-      }
-    }
-    // Wide on purpose. The hash surfaces a desync only when it reaches a
-    // hashed field; the cause is usually in the collision bookkeeping that
-    // feeds it, several hundred ticks earlier.
-    let wheels = 0;
-    for (const w of [m.scx, m.scy, m.scz]) if (w) for (const v of w) wheels = (Math.imul(wheels ^ (v | 0), 16777619)) >>> 0;
-    return ['x', o.x, 'y', o.y, 'z', o.z, 'xz', o.xz, 'xy', o.xy, 'zy', o.zy,
-            'speed', m.speed, 'power', m.power, 'powerup', m.powerup,
-            'hitmag', m.hitmag, 'nlaps', m.nlaps, 'trcnt', m.trcnt,
-            'travxy', m.travxy, 'travzy', m.travzy, 'travxz', m.travxz,
-            'surfer', m.surfer, 'capsized', m.capsized, 'skid', m.skid,
-            'mxz', m.mxz, 'fixes', m.fixes, 'cntdest', m.cntdest,
-            'shakedam', m.shakedam, 'outshakedam', m.outshakedam,
-            'colidim', m.colidim, 'lastcolido', m.lastcolido,
-            'squash', m.squash, 'dest', m.dest, 'clear', m.clear,
-            'focus', m.focus, 'missedcp', m.missedcp, 'wtouch', m.wtouch,
-            'gtouch', m.gtouch, 'mtouch', m.mtouch, 'loop', m.loop,
-            'pzy', m.pzy, 'pxy', m.pxy, 'tilt', m.tilt,
-            'wheels', wheels, 'mesh', mesh >>> 0,
-            'cxz', m.cxz, 'point', m.point, 'pcleared', m.pcleared,
-            'ucomp', m.ucomp, 'dcomp', m.dcomp, 'lcomp', m.lcomp, 'rcomp', m.rcomp,
-            'capcnt', m.capcnt, 'srfcnt', m.srfcnt, 'xtpower', m.xtpower,
-            'newcar', m.newcar, 'lxz', m.lxz, 'travx', m.travx,
-            'keys', (() => { let h = 0x811c9dc5;
-              for (const arr of [o.keyx, o.keyz, o.keyy]) if (arr) for (const v of arr) {
-                h ^= v | 0; h = Math.imul(h, 16777619) >>> 0;
-              }
-              return h >>> 0; })()].join(',');
-  });
+function drive(t) {
+  const k = localIndex + 1;
+  pad.up = true;
+  pad.left = (t % (37 + k * 3)) < 10 + k;
+  pad.right = (t % (29 + k * 5)) < 8 + k;
+  pad.handb = (t % (97 + k)) === 0;
+  pad.steer = Math.sin((t + k * 11) / (9 + k));
 }
 
-/** A scripted input, different per client, deterministic from the tick. */
-function drive(t) {
-  pad.up = true;
-  pad.left = localIndex === 0 && (t % 40) < 12;
-  pad.right = localIndex === 1 ? (t % 30) < 10 : (t % 55) < 8;
-  pad.handb = (t % 97) === 0;
-  pad.steer = localIndex === 0 ? Math.sin(t / 9) : -Math.cos(t / 13);
+/**
+ * Every car's position, for the parent to compare across processes.
+ *
+ * Position only, deliberately. The wide field-by-field vector the lockstep
+ * harness dumped existed to find the first field that DIVERGED, which was the
+ * right question when divergence was fatal. Here divergence is the normal
+ * operating state and only its magnitude means anything, so the comparison is
+ * in game units and covers the cars a player can actually see going wrong.
+ */
+function positions() {
+  const out = [];
+  for (let i = 0; i < players; i++) {
+    const o = array2[i];
+    out.push([o.x | 0, o.y | 0, o.z | 0, o.xz | 0]);
+  }
+  return out;
 }
 
 process.on('message', (m) => {
-  if (m.k === 'packet') sync.decode(Uint8Array.from(m.b));
-  else if (m.k === 'run') pump();
+  if (m.k === 'packet') {
+    const msg = decodePacket(Uint8Array.from(m.b));
+    if (msg) inbox.push(msg);
+    return;
+  }
+  if (m.k === 'step') { step(); return; }
 });
 
-const TARGET = parseInt(process.argv[7], 10);
-
-function pump() {
-  // Run every tick whose inputs have arrived, then hand control back so the
-  // parent can deliver more packets. Exactly the shape of main.js's frame().
-  for (;;) {
-    if (netTick >= TARGET) {
-      process.send({ k: 'done', tick: netTick });
-      return;
-    }
-    const future = netTick + delay;
-    if (sync.lastSent < future) {
-      drive(future);
-      const packed = packInput(pad);
-      sync.setLocal(future, packed);
-      applyInput(pad, packed);
-      sync.lastSent = future;
-      process.send({ k: 'packet', b: Array.from(sync.encode(future)) });
-    }
-    if (!sync.ready(netTick)) {
-      process.send({ k: 'stalled', tick: netTick, missing: sync.missing(netTick) });
-      return;
-    }
-    applyInput(gs.u[0], sync.get(0, netTick));
-    applyInput(gs.u[1], sync.get(1, netTick));
-
-    rd.begin();
-    gs.tick(rd, medium, trackers, checkPoints, xt, record, array2, array3);
-    for (let f = 0; f < interp; f++) {
-      medium.interpolating = true;
-      rd.begin(true);
-      gs.draw(rd, medium, xt, array2, array3);
-      medium.interpolating = false;
-    }
-    netTick++;
-    // Report every tick. The hash is what netplay itself checks; the field
-    // dump is what makes a desync findable -- "the hashes differ" is not a
-    // debuggable statement, "car1.travxz is -53 here and 53 there" is.
-    process.send({ k: 'hash', tick: netTick,
-                   h: worldHash(array2, array3, xt.nplayers),
-                   cars: stateVector() });
+function step() {
+  if (netTick >= TARGET) {
+    process.send({ k: 'done', tick: netTick, drift: driftSamples });
+    return;
   }
+
+  // ---- receive: fold authoritative state in before the tick runs.
+  while (inbox.length) {
+    const msg = inbox.shift();
+    for (const rec of msg.cars) {
+      if (!sync.accepts(rec.slot, msg.tick)) continue;
+      const d = driftOf(rec, array2[rec.slot]);
+      applyCar(rec, { mad: array3[rec.slot], contO: array2[rec.slot], control: gs.u[rec.slot] });
+      sync.markApplied(rec.slot, msg.tick, d);
+      // Ignore the first few ticks: the cars start stacked on the grid and a
+      // correction there measures the handshake, not the reckoning.
+      if (netTick > 10) driftSamples.push([rec.slot, netTick, d]);
+    }
+  }
+
+  // ---- local input, then publish every car we own.
+  drive(netTick);
+  const records = sync.owned.map((slot) => captureCar(slot, {
+    mad: array3[slot], contO: array2[slot], control: gs.u[slot],
+    holdit: xt.holdit,
+    pos: checkPoints.pos[slot], magperc: checkPoints.magperc[slot],
+  }));
+  process.send({ k: 'packet', b: Array.from(encodePacket(netTick, records)) });
+
+  rd.begin();
+  gs.tick(rd, medium, trackers, checkPoints, xt, record, array2, array3);
+  for (let f = 0; f < interp; f++) {
+    medium.interpolating = true;
+    rd.begin(true);
+    gs.draw(rd, medium, xt, array2, array3);
+    medium.interpolating = false;
+  }
+  netTick++;
+  process.send({ k: 'stepped', tick: netTick, pos: positions() });
 }
 
-// Report the world BEFORE any tick runs. Nothing checked construction until
-// now, and "identical at tick 1" does not imply "identical at tick 0".
-process.send({ k: 'hash', tick: 0, h: worldHash(array2, array3, xt.nplayers), cars: stateVector() });
-process.send({ k: 'ready' });
+process.send({ k: 'ready', owned: sync.owned });
