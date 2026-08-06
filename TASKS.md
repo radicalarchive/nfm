@@ -395,6 +395,19 @@ there is no backend of ours anywhere in this design.
       every bot to `humanSlots[0]`, so if the host leaves, the bots have no
       owner and freeze. At two players the race is over anyway; at four it is
       not. A decision rather than a port.
+- [ ] **Measure the correction distribution properly, before smoothing it.**
+      The drift line samples the most recent correction every ~3s rather than
+      logging each one, so nothing here knows how OFTEN a large correction
+      happens — and the distribution is heavily tailed (`netloop`: mean ~4
+      units, max ~437 on a clean channel), so a mean and a max describe neither
+      the typical case nor the felt one. Log every correction and histogram it.
+      Two things make this matter more than it looks: 300 units is ~1.5 car
+      lengths, and this game is about ramming people, so a hit that connected
+      locally may not have connected on their machine — smoothing hides that
+      visually without making the two machines agree about the collision. Note
+      the browser figures (256–420 units) came from **localhost with zero
+      packet loss**, so the cause was CPU/tick-rate jitter, not the network;
+      a run over a real connection is needed before trusting any number.
 - [ ] **Smooth the correction on the render side.** The one real cost of the
       switch: a run of lost packets lets the prediction wander and the snap back
       reaches ~600 units at 30% loss. That is the price of the loss, not a
