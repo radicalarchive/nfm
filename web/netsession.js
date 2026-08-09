@@ -99,6 +99,14 @@ export class StateSync {
     this.appliedTick = new Map();
     // slot -> drift measured at the last correction, for diagnostics.
     this.drift = new Map();
+    // slot -> that player's own `holdit`, which is true once they are on an
+    // end-of-race screen. A car whose owner is holding is still transmitting
+    // but is no longer racing, and that is the difference between "quiet
+    // because the network broke" and "quiet because they finished".
+    this.holding = new Map();
+    // Slots whose owner left. Their car is wasted locally so the race can
+    // still reach an end condition; nothing more is expected from them.
+    this.gone = new Set();
   }
 
   /** True when `slot` is somebody else's to move and we only predict it. */
@@ -126,6 +134,25 @@ export class StateSync {
   markApplied(slot, tick, drift) {
     this.appliedTick.set(slot, tick);
     if (drift !== undefined) this.drift.set(slot, drift);
+  }
+
+  /** Note whether `slot`'s owner is sitting on an end-of-race screen. */
+  setHolding(slot, holding) {
+    this.holding.set(slot, !!holding);
+  }
+
+  /**
+   * Note that `slot`'s owner has left.
+   *
+   * The caller is responsible for wasting the car; this is the record that
+   * stops us waiting on a player who cannot answer. A race whose end condition
+   * is "everyone else is wasted" can never be met by a car that simply stops
+   * receiving updates, which is why a disconnect has to become a game event
+   * rather than a network one.
+   */
+  markGone(slot) {
+    this.gone.add(slot);
+    this.holding.delete(slot);
   }
 
   /** Largest drift seen at the most recent correction of any car. */

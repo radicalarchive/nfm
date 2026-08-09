@@ -23,7 +23,7 @@ import { loadHudImages } from './images.js';
 import { Audio } from './audio.js';
 import * as music from './music.js';
 import { captureCar, applyCar, encodePacket, decodePacket } from './netcodec.js';
-import { StateSync, driftOf } from './netsession.js';
+import { StateSync, driftOf, ownerOf } from './netsession.js';
 import { NetPeer, makeRoomCode } from './netpeer.js';
 import { Lobby } from './netlobby.js';
 
@@ -137,11 +137,28 @@ export async function boot(opts = {}) {
     cfg = await negotiate(netMode, params, cfg, (n) => { net = n; });
     sync = new StateSync(cfg.localIndex, cfg.humanSlots, cfg.players);
   }
+  // Peer id -> slot, from the host's start message. Room indices are private
+  // to each client, so this is the only thing that can say WHICH player a
+  // dropped connection was.
+  const slotOfPeer = new Map();
+  for (const [slot, id] of (cfg.ids || []).entries()) if (id) slotOfPeer.set(id, slot);
+
+  // Who has finished building their world. Both clients load their own assets
+  // after the lobby says go, and that takes seconds and differs per machine —
+  // so without a barrier the faster one runs the countdown alone and starts
+  // racing into a car that is still parsing zips. See `waitForEveryone`.
+  const worldReady = new Set();
   if (sync) {
     // Chat and lobby traffic. Everyone is connected to everyone, so a line
     // reaches the other players directly and nobody forwards anything.
     net.onMessage = (msg) => {
-      if (!msg || msg.t !== 'chat') return;
+      if (!msg) return;
+      if (msg.t === 'ready') { worldReady.add(msg.slot); return; }
+      // Quitting no longer drops the connection -- one swarm, and the peer
+      // stays for the room we both return to -- so a player who leaves says
+      // so, and it is handled exactly like the connection going away.
+      if (msg.t === 'bye') { playerGone(msg.slot); return; }
+      if (msg.t !== 'chat') return;
       const who = cfg.names[msg.slot] || `Player ${msg.slot + 1}`;
       log(`${who}: ${String(msg.text).slice(0, 80)}`);
     };
@@ -153,6 +170,37 @@ export async function boot(opts = {}) {
       // and forwarding one would only deliver a duplicate that
       // `StateSync.accepts()` refuses on the tick rule.
     };
+    // A dropped connection is a game event, not just a network one: see
+    // `playerGone`.
+    net.onClose = (_reason, from) => playerGone(slotOfPeer.get(net.idOf(from)));
+  }
+
+  /**
+   * A player left, whether by quitting or by their browser going away.
+   *
+   * Their car is WASTED locally, because a car nobody is transmitting simply
+   * dead-reckons forever: it never becomes `dest`, so "everyone else is
+   * wasted" can never be satisfied and that race can never end. `dested = 3`
+   * is the original's own marker for a disconnect (`Mad` preserves a 3 where
+   * it would clear a 1 or 2), and it is what makes `stat()` announce the
+   * player as disconnected rather than as wasted by somebody.
+   */
+  function playerGone(slot) {
+    if (slot === undefined || slot === cfg.localIndex || !sync) return;
+    if (sync.gone.has(slot)) return;
+    sync.markGone(slot);
+    log(`${cfg.names?.[slot] || `Player ${slot + 1}`} left the race`);
+    // Everything they were driving, not just their own car. The host owns the
+    // BOTS, so a host that leaves strands one car per bot: nobody transmits
+    // them, they dead-reckon forever, they never become `dest`, and the
+    // survivors' "everyone else is wasted" can never be satisfied -- which is
+    // exactly how a player was left sitting in a race that could not end.
+    // There is no host migration to hand them to (TASKS.md), so they go.
+    for (let i = 0; i < cfg.players; i++) {
+      if (ownerOf(i, cfg.humanSlots) !== slot) continue;
+      if (array3[i]) array3[i].dest = true;
+      checkPoints.dested[i] = 3;
+    }
   }
 
   const stage = cfg.stage;
@@ -305,7 +353,15 @@ export async function boot(opts = {}) {
   medium.ih = 0;
   medium.w = 800;
   medium.h = 450;
-  xt.fase = 0;
+  // A networked race has to LOOK networked to the transcribed game. `fase`
+  // 7001 and `lan` are what every multiplayer branch of `stat()` keys on:
+  // player names in the wasted announcer instead of car names
+  // (XtGraphics:1737), the "(Disconnected)" line, and `exitm = 4` — spectate
+  // until the race actually ends — instead of dropping the wasted player
+  // straight out (:1106). Racing at fase 0 meant the game believed it was in
+  // single player, which is exactly what both of those bugs were.
+  xt.fase = sync ? 7001 : 0;
+  xt.lan = !!sync;
   // The Java sets this entering the race from stage select (xtGraphics:2587),
   // not in resetstat: the x of the translucent NFM guy behind the countdown.
   // -1 suppresses him entirely.
@@ -349,7 +405,22 @@ export async function boot(opts = {}) {
   // clears a flag, the net layer restores it, no further event ever arrives)
   // and the car accelerates forever.
   const pad = gs.u[cfg.localIndex];
-  installInput(pad, snd);
+  // INTERIM, and the port of `multistat()` supersedes it -- delete this
+  // callback and the `onEscape` parameter when that lands (see TASKS.md,
+  // "Port the multiplayer race lifecycle").
+  //
+  // Single player has a way out through `stat()`'s `fase == 0` branch, but at
+  // fase 7001 that branch defers to `exitm`'s confirm menu, which lives in the
+  // unported, mouse-driven `multistat()`. Until that exists there is no way to
+  // leave a networked race at all. `fase = -2` is the Java's own "leave the
+  // race" signal, so this takes the same path the end of a race does.
+  //
+  // Deliberately unconditional, `holdit` included: a wasted player is
+  // SPECTATING there with `exitm == 4` swallowing Enter until the race ends,
+  // which is exactly when someone wants out.
+  installInput(pad, snd, () => {
+    if (sync) xt.fase = -2;
+  });
 
   // Chat send. Deliberately tiny -- the point is that the reliable channel is
   // wired end to end, not that this is the final UI; the real lobby and chat
@@ -673,11 +744,40 @@ export async function boot(opts = {}) {
   // asynchronous, so without the flag every remaining frame would fire it
   // again, and the engine loops would be stopped repeatedly on the way out.
   let leaving = false;
-  function leaveRace() {
+  async function leaveRace() {
     if (leaving) return;
     leaving = true;
     snd.stopAllLoops();
     music.stop();
+    // A networked race returns to the ROOM it came from, not to the main menu.
+    // The launcher reloads on the way out -- boot() installs input listeners,
+    // an rAF loop, an audio graph and a music mixer, and unwinding all of that
+    // by hand is teardown nobody would ever exercise -- so the room has to
+    // survive the reload as data. It is cheap to act on now that rejoining is
+    // a message rather than a tracker rendezvous.
+    if (sync) {
+      // Tell the others before the page goes away. A player who quits early is
+      // a car nobody will transmit again, and the race has to be able to end
+      // without them.
+      try {
+        net.sendMessage({ t: 'bye', slot: cfg.localIndex });
+        // And let it leave. The reload below tears the connection down, and a
+        // goodbye still sitting in the DataChannel buffer is a goodbye nobody
+        // hears -- which puts the others back in the state this message exists
+        // to prevent.
+        await net.flush();
+      } catch { /* already gone */ }
+    }
+    if (sync && cfg.room) {
+      try {
+        sessionStorage.setItem('nfm.rejoin', JSON.stringify({
+          code: cfg.room,
+          isHost: cfg.localIndex === 0,
+          stage: cfg.stage,
+          players: cfg.players,
+        }));
+      } catch { /* private mode, or storage full: we just land on the menu */ }
+    }
     net?.close();
     if (opts.onExit) opts.onExit();
     else location.href = '../index.html';
@@ -718,9 +818,16 @@ export async function boot(opts = {}) {
         // repeat lockstep's checker bug -- there is nothing to wait for,
         // because the packet being compared against has by definition arrived.
         const drift = driftOf(rec, array2[rec.slot]);
+        const hold = {};
         applyCar(rec, {
           mad: array3[rec.slot], contO: array2[rec.slot], control: gs.u[rec.slot],
+          holdit: hold,
         });
+        // The owner's own leaderboard position. `checkstat` recomputes this
+        // every tick, but only from data it has; taking the sender's value
+        // makes the standings agree immediately instead of after a lap.
+        checkPoints.pos[rec.slot] = rec.pos;
+        sync.setHolding(rec.slot, hold.holdit);
         sync.markApplied(rec.slot, msg.tick, drift);
       }
       if (msg.cars.length) silentSince = 0;
@@ -743,7 +850,14 @@ export async function boot(opts = {}) {
     // the other car is driving in a straight line into a wall.
     if (!silentSince) silentSince = now;
     else if (now - silentSince > 3000) {
-      log('no packets from the other player -- still racing on prediction');
+      // Distinguish the two silences. A player on their end-of-race screen has
+      // told us so through `holdit` and is not a network problem; only report
+      // the ones we have heard nothing from at all.
+      const quiet = (cfg.humanSlots || []).filter((s) => s !== cfg.localIndex
+        && !sync.gone.has(s) && !sync.holding.get(s));
+      if (quiet.length) {
+        log('no packets from the other player -- still racing on prediction');
+      }
       silentSince = now;
     }
   }
@@ -988,13 +1102,47 @@ export async function boot(opts = {}) {
       lastFpsAt = now;
     }
   }
+  /**
+   * Hold the start until every human's world exists.
+   *
+   * The lobby's `start` message is the decision to race, not the moment to
+   * race: each client then loads its own stage, HUD images and sounds, which
+   * is seconds and differs per machine. Whoever finished first would otherwise
+   * run the 3-2-1 alone and be racing while somebody else's car was still an
+   * unparsed zip — and that player takes the hits.
+   *
+   * Announced repeatedly rather than once, because a `ready` sent while the
+   * other client is still in `boot()` arrives before it has replaced the
+   * lobby's message handler, and the lobby drops what it does not recognise.
+   *
+   * The timeout is not a formality: it is what stops one player's broken load
+   * from stranding everyone else, so it gives up and races.
+   */
+  async function waitForEveryone() {
+    const humans = (cfg.humanSlots || []).filter((s) => !sync.gone.has(s));
+    worldReady.add(cfg.localIndex);
+    const deadline = performance.now() + 30000;
+    log('waiting for the other players…');
+    for (;;) {
+      net.sendMessage({ t: 'ready', slot: cfg.localIndex });
+      if (humans.every((s) => worldReady.has(s) || sync.gone.has(s))) return;
+      if (performance.now() > deadline) {
+        log('starting without everyone — someone is still loading');
+        return;
+      }
+      await new Promise((r) => setTimeout(r, 250));
+    }
+  }
+
+  if (sync) await waitForEveryone();
   requestAnimationFrame(frame);
 }
 
 /** Keyboard -> Control, matching GameSparker.keyDown/keyUp. */
-function installInput(u, snd) {
+function installInput(u, snd, onEscape) {
   const set = (e, v) => {
     switch (e.code) {
+      case 'Escape': if (v) onEscape?.(); e.preventDefault(); return true;
       case 'ArrowUp':    case 'KeyW': u.up = v; break;
       case 'ArrowDown':  case 'KeyS': u.down = v; break;
       case 'ArrowLeft':  case 'KeyA': u.left = v; break;

@@ -1,11 +1,9 @@
 // The public game list, with no server anywhere.
 //
-// One well-known tracker identifier that every client sitting on the
-// Multiplayer screen announces on. Hosts advertise their room; browsers ask
-// who is there and collect the replies. That is the whole design, and it is
-// only possible because p2pt discovers peers by identifier -- PeerJS could
-// resolve a room code you already knew and offered no way to LEARN one, which
-// is why the transport was swapped (see netpeer.js).
+// Every client on the Multiplayer screen is on the one swarm (see netpeer.js),
+// so the list is not a network of its own -- it is a conversation over
+// connections the page already has. Hosts advertise their room; browsers ask
+// who is there and collect the replies.
 //
 // WHAT THIS IS NOT. There is no registry, no authority and no persistence: the
 // list is exactly the set of hosts currently holding this page open, and it is
@@ -15,23 +13,26 @@
 //
 // WHY ENTRIES EXPIRE RATHER THAN BEING WITHDRAWN. A host that closes its
 // laptop sends nothing, so a list that only removed entries on request would
-// accumulate ghosts forever. Every announcement carries a timestamp of its
-// own arrival and is dropped when it goes stale; a live host re-announces well
-// inside that window.
+// accumulate ghosts forever. Every announcement carries a timestamp of its own
+// arrival and is dropped when it goes stale; a live host re-announces well
+// inside that window. `peerclose` removes the entry immediately in the case
+// the swarm does notice.
+//
+// WHAT IT USED TO DO. It ran its own p2pt on a second identifier and called
+// `requestMorePeers()` every 5s to fight a list that felt unreliable. Both are
+// gone: the second swarm was itself the cause (netpeer.js's header has the
+// mechanism), and the polling was redundant anyway -- a tracker pushes a
+// NEWCOMER's offers to everyone already in the swarm, measured at ~120ms, so
+// sitting still is enough to be found.
 
-import { TRACKERS, TAG_MSG, loadP2PT, frame, asBytes } from './netpeer.js';
-
-// Version the identifier. It is a wire protocol shared with every other copy
-// of this game on the internet, and an incompatible change to the message
-// shape needs a new room to happen in rather than a confusing half-parse.
-const DIRECTORY_ID = 'nfm-directory-v1';
+import { TAG_DIR, mesh, frame } from './netpeer.js';
 
 /** Re-announce this often; entries older than STALE_MS are dropped. */
 const ANNOUNCE_MS = 5000;
 const STALE_MS = 16000;
 
 /**
- * A client's presence on the directory identifier.
+ * A client's presence on the game list.
  *
  * Both roles are the same object because they are the same connection: a host
  * that is also browsing (it is sitting on the same screen) answers queries and
@@ -40,65 +41,61 @@ const STALE_MS = 16000;
 export class Directory {
   constructor({ onChange } = {}) {
     this.onChange = onChange || (() => {});
-    this.p2 = null;
-    this.peers = new Map();          // peer id -> peer object
-    /** code -> { code, name, stage, players, max, at, ping } */
+    /** code -> { code, name, stage, players, max, from, at, ping } */
     this.games = new Map();
     /** What we advertise, or null when we are only browsing. */
     this.listing = null;
     this.timer = null;
     this.pings = new Map();          // peer id -> time the ping was sent
+    this.started = false;
   }
 
   async start() {
-    if (this.p2) return;
-    const P2PT = await loadP2PT();
-    this.p2 = new P2PT(TRACKERS, DIRECTORY_ID);
-    this.p2.on('peerconnect', (peer) => {
-      this.peers.set(peer.id, peer);
-      // Ask what they have, tell them what we have, and time the round trip.
-      this.#to(peer, { t: 'who' });
-      if (this.listing) this.#to(peer, { t: 'game', ...this.listing });
-      this.pings.set(peer.id, performance.now());
-      this.#to(peer, { t: 'ping' });
-    });
-    this.p2.on('peerclose', (peer) => {
-      this.peers.delete(peer.id);
-      // Drop whatever that peer was advertising: a host that leaves the screen
-      // should vanish from the list at once rather than linger until it goes
-      // stale, which is the difference between a list that feels live and one
-      // that feels wrong.
-      for (const [code, g] of this.games) if (g.from === peer.id) this.games.delete(code);
-      this.#changed();
-    });
-    this.p2.on('data', (peer, raw) => this.#recv(peer, asBytes(raw)));
-    // Warnings are noise, not failure: one tracker refusing costs nothing
-    // while another answers, and an unhandled 'error' on an EventEmitter
-    // throws.
-    this.p2.on('trackerwarning', (err) => console.warn('directory tracker:', err?.message || err));
-    this.p2.on('warning', (err) => console.warn('directory tracker:', err?.message || err));
-    this.p2.on('error', (err) => console.warn('directory:', err?.message || err));
-    this.p2.start();
+    if (this.started) return;
+    this.started = true;
+    this._onDir = (msg, id) => this.#recv(msg, id);
+    this._onPeer = (id, gone) => (gone ? this.#gone(id) : this.#greet(id));
+    mesh.dirHandlers.add(this._onDir);
+    mesh.peerHandlers.add(this._onPeer);
+    await mesh.start();
+    // Anyone already connected -- the swarm may have been up since the page
+    // reached the multiplayer screen, and joining a room does not leave it.
+    for (const id of mesh.ids()) this.#greet(id);
     this.timer = setInterval(() => this.#tick(), ANNOUNCE_MS);
   }
 
-  #to(peer, obj) {
-    try {
-      if (peer.connected) peer.send(frame(TAG_MSG, obj));
-    } catch { /* the peer went away between the check and the send */ }
+  /** Ask what they have, tell them what we have, and time the round trip. */
+  #greet(id) {
+    this.#to(id, { t: 'who' });
+    if (this.listing) this.#to(id, { t: 'game', ...this.listing });
+    this.pings.set(id, performance.now());
+    this.#to(id, { t: 'ping' });
+  }
+
+  /**
+   * Drop whatever a departing peer was advertising: a host that leaves the
+   * screen should vanish from the list at once rather than linger until it
+   * goes stale, which is the difference between a list that feels live and one
+   * that feels wrong.
+   */
+  #gone(id) {
+    let dropped = false;
+    for (const [code, g] of this.games) if (g.from === id) { this.games.delete(code); dropped = true; }
+    if (dropped) this.#changed();
+  }
+
+  #to(id, obj) {
+    mesh.send(id, frame(TAG_DIR, obj));
   }
 
   #all(obj) {
-    for (const peer of this.peers.values()) this.#to(peer, obj);
+    mesh.broadcast(frame(TAG_DIR, obj));
   }
 
-  #recv(peer, bytes) {
-    if (!bytes.length || bytes[0] !== TAG_MSG) return;   // p2pt's own '^' frames
-    let msg;
-    try { msg = JSON.parse(new TextDecoder().decode(bytes.subarray(1))); } catch { return; }
+  #recv(msg, id) {
     switch (msg?.t) {
       case 'who':
-        if (this.listing) this.#to(peer, { t: 'game', ...this.listing });
+        if (this.listing) this.#to(id, { t: 'game', ...this.listing });
         return;
       case 'game': {
         if (!msg.code) return;
@@ -109,7 +106,7 @@ export class Directory {
           stage: msg.stage | 0,
           players: msg.players | 0,
           max: msg.max | 0,
-          from: peer.id,
+          from: id,
           at: performance.now(),
           ping: was?.ping,
         });
@@ -120,28 +117,24 @@ export class Directory {
         if (this.games.delete(msg.code)) this.#changed();
         return;
       case 'ping':
-        this.#to(peer, { t: 'pong' });
+        this.#to(id, { t: 'pong' });
         return;
       case 'pong': {
-        const sent = this.pings.get(peer.id);
+        const sent = this.pings.get(id);
         if (sent === undefined) return;
         const rtt = Math.round(performance.now() - sent);
-        this.pings.delete(peer.id);
-        for (const g of this.games.values()) if (g.from === peer.id) g.ping = rtt;
+        this.pings.delete(id);
+        for (const g of this.games.values()) if (g.from === id) g.ping = rtt;
         this.#changed();
         return;
       }
       default:
+        // 'find'/'here' share this channel and belong to netpeer.js.
     }
   }
 
   #tick() {
     if (this.listing) this.#all({ t: 'game', ...this.listing });
-    // Ask the trackers again rather than waiting for their own announce
-    // interval, which is theirs to choose and is often a minute or more. A
-    // host that opened a room ten seconds ago is invisible until somebody
-    // re-announces, which is most of why the list felt unreliable.
-    try { this.p2?.requestMorePeers?.(); } catch { /* tracker is down; the next tick retries */ }
     // Expire the silent. A host whose browser was closed cannot tell us.
     const now = performance.now();
     let dropped = false;
@@ -177,13 +170,18 @@ export class Directory {
     this.#all({ t: 'gone', code });
   }
 
+  /**
+   * Stop listing games. The SWARM stays up -- a lobby or a race may be running
+   * on it, and it is also how we will be found next time.
+   */
   stop() {
     this.withdraw();
     clearInterval(this.timer);
     this.timer = null;
-    try { this.p2?.destroy(); } catch { /* already gone */ }
-    this.p2 = null;
-    this.peers.clear();
+    mesh.dirHandlers.delete(this._onDir);
+    mesh.peerHandlers.delete(this._onPeer);
     this.games.clear();
+    this.pings.clear();
+    this.started = false;
   }
 }

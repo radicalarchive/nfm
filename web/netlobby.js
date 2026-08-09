@@ -86,6 +86,8 @@ export class Lobby {
     this.onRoster = () => {};
     /** @type {(who:string, text:string) => void} */
     this.onChat = () => {};
+    /** @type {() => void} the host left; this lobby is over. Guests only. */
+    this.onHostGone = () => {};
     this.localIndex = isHost ? 0 : -1;
     // Resolves with the agreed race config. Everything the world is built from
     // crosses the wire in ONE message, so there is no window in which a client
@@ -93,27 +95,33 @@ export class Lobby {
     this.ready = new Promise((resolve) => { this._go = resolve; });
 
     net.onMessage = (msg, from) => this.#recv(msg, from);
+    // A player who closes the tab says nothing, so the connection dropping IS
+    // the message. Without this the host keeps a ghost on the roster, keeps
+    // advertising it, and seats it in the race -- a car with nobody to drive
+    // it, which under state sync never moves and never gets wasted, so an
+    // "everyone is wasted" race can never end.
+    net.onClose = (_reason, from) => this.#left(from);
     if (isHost) {
       // Greet late arrivals: a guest that connects after our first roster
       // broadcast would otherwise sit looking at an empty room until somebody
       // else joined. Cheap, and it makes the join independent of timing.
       net.onPeer = () => this.#broadcastRoster();
     } else {
-      // The guest cannot pick the host out of its peers -- on a mesh it meets
-      // the other guests too, in tracker order -- so it greets the room and
-      // the host is whoever answers. Late arrivals are greeted as they appear,
-      // because the host may not be the first peer we meet.
+      // The host is member 0 by construction: `NetPeer.join()` seats whoever
+      // was advertising the room, or whoever answered the code query, and
+      // nobody else is in the room until the host says so. So the greeting is
+      // addressed rather than broadcast -- the old code shouted at every peer
+      // it met because it could not tell which one was the host.
       const hello = () => ({ t: 'hello', name: this._myName, car: this._myCar });
-      net.sendMessage(hello());
-      net.onPeer = (idx) => net.sendMessage(hello(), idx);
-      // Keep greeting until we are seated. The transport now queues a greeting
-      // that arrives before the host is listening, so this is a safety net
-      // rather than the mechanism -- but an unanswered hello is unrecoverable
-      // (the guest stays slot-less and its chat goes out as slot 0, wearing
-      // the host's name), and a retry costs one small message every 2s.
+      net.sendMessage(hello(), 0);
+      // Keep greeting until we are seated. The transport queues a greeting that
+      // arrives before the host is listening, so this is a safety net rather
+      // than the mechanism -- but an unanswered hello is unrecoverable (the
+      // guest stays slot-less and its chat goes out as slot 0, wearing the
+      // host's name), and a retry costs one small message every 2s.
       this._greeter = setInterval(() => {
         if (this.localIndex >= 0 || this.started) { clearInterval(this._greeter); return; }
-        net.sendMessage(hello());
+        net.sendMessage(hello(), 0);
       }, 2000);
     }
   }
@@ -130,7 +138,14 @@ export class Lobby {
   #broadcastRoster() {
     if (!this.isHost) return;
     this.#assignSlots();
-    const players = this.roster.map((p) => ({ slot: p.slot, name: p.name, car: p.car }));
+    // The peer id travels with each player because a guest cannot find the
+    // other guests for itself: on one shared swarm everybody looks alike, and
+    // membership of a room is something the host confers. Our own entry needs
+    // no id -- every guest reached us to get here, so it already has us.
+    const players = this.roster.map((p) => ({
+      slot: p.slot, name: p.name, car: p.car,
+      id: p.conn < 0 ? null : this.net.idOf(p.conn),
+    }));
     // Each guest is told which of those entries is ITSELF. The rest of the
     // message is identical, but localIndex differs, so this cannot be one
     // broadcast.
@@ -141,6 +156,25 @@ export class Lobby {
     }
     this.onRoster();
     if (this.autoStart && this.roster.length >= this.autoStart) this.start();
+  }
+
+  /** A peer dropped. Only meaningful before the race; after it, main.js owns this. */
+  #left(from) {
+    if (this.started) return;
+    if (this.isHost) {
+      const at = this.roster.findIndex((p) => p.conn === from);
+      if (at < 0) return;                      // not one of ours
+      this.roster.splice(at, 1);
+      this.#broadcastRoster();                 // reassigns slots for everyone below
+      return;
+    }
+    // The host is member 0 by construction (see NetPeer.join), so this is the
+    // one departure a guest cannot carry on through: nobody else can seat
+    // players or start the race.
+    if (from === 0) {
+      clearInterval(this._greeter);
+      this.onHostGone();
+    }
   }
 
   #recv(msg, from) {
@@ -172,6 +206,11 @@ export class Lobby {
       case 'roster': {
         if (this.isHost) return;                 // only the host writes it
         clearInterval(this._greeter);
+        // Adopt the room's membership before rendering it: these ids are the
+        // only way our state packets reach the other guests directly instead
+        // of through the host, and every roster carries the current set, so a
+        // player who joins later needs no separate path.
+        this.net.setMembers(msg.players.map((p) => p.id).filter(Boolean));
         this.roster = msg.players.map((p) => ({ ...p, conn: -1 }));
         this.localIndex = msg.localIndex;
         this.stage = msg.stage;
@@ -179,6 +218,13 @@ export class Lobby {
         this.onRoster();
         return;
       }
+      case 'bye':
+        // Leaving the lobby SCREEN no longer drops the connection: on one
+        // swarm the peer stays connected for the game list and for whatever
+        // room it goes to next, so `peerclose` never fires and a departure has
+        // to be stated. Handled identically to a disconnect.
+        this.#left(from);
+        return;
       case 'chat': {
         const who = this.roster.find((p) => p.slot === msg.slot)?.name
           || `Player ${msg.slot + 1}`;
@@ -194,15 +240,31 @@ export class Lobby {
         this.started = true;
         clearInterval(this._greeter);
         this.net.onPeer = null;
+        // Nobody else is coming: stop announcing on the swarm and keep only the
+        // people we are racing. See `Mesh.lock()`.
+        this.net.lock();
         this._go({
           seed: msg.seed, stage: msg.stage, players: msg.players,
           cars: msg.cars, humanSlots: msg.humanSlots, names: msg.names,
-          localIndex: msg.localIndex, room: this.net.code,
+          ids: msg.ids, localIndex: msg.localIndex, room: this.net.code,
         });
         return;
       }
       default:
     }
+  }
+
+  /**
+   * Leave the lobby, and say so.
+   *
+   * Not optional politeness: see the 'bye' case above. A host that leaves
+   * tells its guests the same way, and every guest treats member 0 going as
+   * the room ending.
+   */
+  leave() {
+    if (this.started) return;
+    clearInterval(this._greeter);
+    this.net.sendMessage({ t: 'bye' });
   }
 
   /** Say something in the lobby. Delivered to everyone including ourselves. */
@@ -263,15 +325,22 @@ export class Lobby {
     const players = Math.max(this.roster.length, Math.min(MAX_PLAYERS, this.players));
     const cars = drawGrid(this.seed, this.stage, this.roster[0].car);
     for (const p of this.roster) cars[p.slot] = p.car;
+    // Slot -> peer id, ours included. Every client needs the SAME map to turn
+    // a dropped connection into a slot number: room indices are per-client and
+    // say nothing about who was driving car 3.
+    const ids = this.roster.map((p) => (p.conn < 0 ? this.net.selfId() : this.net.idOf(p.conn)));
 
     for (const p of this.roster) {
       if (p.conn < 0) continue;
       this.net.sendMessage({
         t: 'start', seed: this.seed, stage: this.stage, players,
-        cars, humanSlots, names, localIndex: p.slot,
+        cars, humanSlots, names, ids, localIndex: p.slot,
       }, p.conn);
     }
+    // After the invitations, not before: `lock()` drops every peer outside the
+    // room, and a 'start' still queued for one of them would go nowhere.
+    this.net.lock();
     this._go({ seed: this.seed, stage: this.stage, players, cars, humanSlots,
-               names, localIndex: 0, room: this.net.code });
+               names, ids, localIndex: 0, room: this.net.code });
   }
 }

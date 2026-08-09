@@ -1,0 +1,1515 @@
+╭─── Claude Code v2.1.220 ─────────────────────────────────────────────────────╮
+│                                                    │ Tips for getting        │
+│                 Welcome back Evon!                 │ started                 │
+│                                                    │ Run /init to create a … │
+│                       ▐▛███▜▌                      │ ─────────────────────── │
+│                      ▝▜█████▛▘                     │ What's new              │
+│                        ▘▘ ▝▝                       │ Bug fixes and reliabil… │
+│  Opus 5 · Claude Pro · evan_claude@widloski.com's  │ Added Claude Opus 5 (`… │
+│  Organization                                      │ Added `sandbox.network… │
+│                   ~/resources/nfm                  │ /release-notes for more │
+╰──────────────────────────────────────────────────────────────────────────────╯
+
+
+❯ /model                                                                        
+  ⎿  Set model to Opus 5 and saved as your default for new sessions
+
+❯ @AGENTS.md @WORK.md @TASKS.md                                                 
+                                                                                
+    on this machine (X250) the game runs smoothly (minimum 20-25fps) but        
+  sometimes really                                                              
+    slowly (2-4 fps) regardless if I turn down the resolution to 1x.            
+  ⎿  Read AGENTS.md (155 lines)
+  ⎿  Read WORK.md (125 lines)
+  ⎿  Read TASKS.md (354 lines)
+
+● Let me look at the frame loop and the likely stall sources before guessing.
+
+  Searched for 7 patterns, read 2 files, ran 2 shell commands (ctrl+o to expand)
+
+❯ also consider launching firefox with remote control or playwright for         
+  debugging.  its just an option, up to you                                     
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● I'm on the same machine — i5-5300U is the X250's CPU. So I can reproduce this
+  directly rather than guess. Let me check the existing CDP harness.
+
+  Read 1 file, listed 1 directory, ran 1 shell command (ctrl+o to expand)
+
+● Now let me add the instrumentation. First, a frame-cost attribution logger:
+
+● Update(web/main.js)
+  ⎿  Added 29 lines
+      500    let lastFpsAt = last;
+      501  
+      502    let simMs = 0, drawMs = 0, nextFrameAt = 0;
+      503 +                                                              
+      504 +  // ---- spike attribution ----------------------------------
+          +----------------                                              
+      505 +  // `?spike=<ms>` logs every frame whose rAF-to-rAF gap excee
+          +ded <ms>, split                                               
+      506 +  // into where the time went. This exists because "the fps di
+          +ps" is not a                                                  
+      507 +  // debuggable statement and the averages in ?stats=1 cannot 
+          +show it: a run                                                
+      508 +  // that spends 90% of its frames at 25fps and 10% at 3fps re
+          +ports a mean that                                             
+      509 +  // matches neither.                                         
+      510 +  //                                                          
+      511 +  // The buckets are measured on the PREVIOUS frame, because t
+          +he gap reported                                               
+      512 +  // at frame N is what frame N-1 cost plus whatever ran betwe
+          +en them:                                                      
+      513 +  //                                                          
+      514 +  //   sim   gs.simulate()                                    
+      515 +  //   draw  gs.draw(), both the tick's and the interpolated p
+          +ass                                                           
+      516 +  //   gl    rd.end() -- the bufferData upload and the one dra
+          +wArrays. Timed                                                
+      517 +  //         separately because it was in no bucket at all, an
+          +d a driver that                                               
+      518 +  //         blocks on the previous frame blocks HERE.        
+      519 +  //   othr  the rest of our own callback (blend, capture/rest
+          +ore, netplay)                                                 
+      520 +  //   OUT   gap minus all of the above: time the main thread 
+          +was not ours.                                                 
+      521 +  //         GC, the music mixer's ScriptProcessorNode (which 
+          +runs on the main                                              
+      522 +  //         thread, every 256 samples), compositing, or the b
+          +rowser waiting on                                             
+      523 +  //         a vsync it missed. A big OUT means the fix is not
+          + in the renderer.                                             
+      524 +  const SPIKE_MS = parseFloat(params.get('spike') || '0');    
+      525 +  let prevRaf = 0, prevSim = 0, prevDraw = 0, prevGl = 0, prev
+          +Cpu = 0;                                                      
+      526 +  let spikeCount = 0;                                         
+      527 +  // Coarse histogram of every frame gap, so a run reports how
+          + BAD the tail is                                              
+      528 +  // rather than just its mean. Buckets in ms.                
+      529 +  const HIST_EDGES = [20, 33, 50, 100, 200, 400, Infinity];   
+      530 +  const hist = new Array(HIST_EDGES.length).fill(0);          
+      531 +  let outMsTotal = 0, gapMsTotal = 0;                         
+      532    // Jitter allowance for the ?maxfps= deadline, in ms. Well u
+           nder a 60Hz
+      533    // vsync (16.7ms), so it never lets an extra frame through, 
+           and far above
+      534    // the sub-ms wobble in rAF timestamps.
+
+● Now wire it into the frame loop:
+
+● Update(web/main.js)
+  ⎿  Added 22 lines, removed 1 line
+      701      // stays on screen. Press R to run another window.
+      702      if (benchDone || leaving) return;
+      703  
+      704 -    let fSim = 0, fDraw = 0, ticksThisFrame = 0;              
+      704 +    const frameEntry = performance.now();                     
+      705 +    if (SPIKE_MS > 0 && prevRaf > 0) {                        
+      706 +      const gap = now - prevRaf;                              
+      707 +      const out = gap - prevCpu;                              
+      708 +      gapMsTotal += gap;                                      
+      709 +      outMsTotal += Math.max(0, out);                         
+      710 +      for (let i = 0; i < HIST_EDGES.length; i++) {           
+      711 +        if (gap < HIST_EDGES[i]) { hist[i]++; break; }        
+      712 +      }                                                       
+      713 +      if (gap >= SPIKE_MS) {                                  
+      714 +        spikeCount++;                                         
+      715 +        const othr = prevCpu - prevSim - prevDraw - prevGl;   
+      716 +        console.log(                                          
+      717 +          `SPIKE t=${(now / 1000).toFixed(1)}s gap=${gap.toFix
+          +ed(1)}ms`                                                     
+      718 +          + ` sim=${prevSim.toFixed(1)} draw=${prevDraw.toFixe
+          +d(1)}`                                                        
+      719 +          + ` gl=${prevGl.toFixed(1)} othr=${othr.toFixed(1)}`
+      720 +          + ` OUT=${out.toFixed(1)} verts=${rd.inputVerts}`); 
+      721 +      }                                                       
+      722 +    }                                                         
+      723 +    prevRaf = now;                                            
+      724  
+      725 +    let fSim = 0, fDraw = 0, fGl = 0, ticksThisFrame = 0;     
+      726 +                                                              
+      727      // Optional presentation cap. rAF still fires at the displ
+           ay rate; we just
+      728      // skip the work. ?maxfps=30 halves the draw cost without 
+           touching physics.
+      729      //
+
+❯ there is already significant logging, just be aware                           
+
+● Update(web/main.js)
+  ⎿  Added 9 lines
+      722      }
+      723      prevRaf = now;
+      724  
+      725 +    // frameBody has several early returns (the ?maxfps= gate,
+          + "nothing was                                                 
+      726 +    // rendered", end of race). Wrapping it is the only way th
+          +e cost of EVERY                                               
+      727 +    // path lands in prevCpu -- and the cheap paths are exactl
+          +y the ones a                                                  
+      728 +    // spike hides behind.                                    
+      729 +    frameBody(now);                                           
+      730 +    prevCpu = performance.now() - frameEntry;                 
+      731 +  }                                                           
+      732 +                                                              
+      733 +  function frameBody(now) {                                   
+      734      let fSim = 0, fDraw = 0, fGl = 0, ticksThisFrame = 0;
+      735  
+      736      // Optional presentation cap. rAF still fires at the displ
+           ay rate; we just
+
+● Update(web/main.js)
+  ⎿  Added 3 lines
+      833        restoreCurr();
+      834        fDraw += performance.now() - t1;
+      835      }
+      836 +    const tGl = performance.now();                            
+      837      rd.end();
+      838 +    fGl = performance.now() - tGl;                            
+      839  
+      840 +    prevSim = fSim; prevDraw = fDraw; prevGl = fGl;           
+      841      simMs += fSim;
+      842      drawMs += fDraw;
+      843  
+
+● Update(web/main.js)
+  ⎿  Added 6 lines
+      910            + ` maxfps=${MAX_FPS || 'off'} pool=${POOLING ? 1 : 
+           0}`
+      911            + ` aa=${AA ? 1 : 0} textres=${textRes}]`;
+      912        }
+      913 +      if (SPIKE_MS > 0) {                                     
+      914 +        // Where the frames actually landed, not their mean. R
+          +ead left to                                                   
+      915 +        // right: <20 <33 <50 <100 <200 <400 400+.            
+      916 +        line += `\n  gaps ${hist.join('/')}  spikes=${spikeCou
+          +nt}`                                                          
+      917 +          + `  offcpu=${(outMsTotal / Math.max(1, gapMsTotal) 
+          +* 100).toFixed(0)}%`;                                         
+      918 +      }                                                       
+      919        log(line);
+      920        frames = 0;
+      921        ticks = 0;
+
+● Now a real music kill-switch, since musicvol=0 only sets gain — the mixer
+  still runs on the main thread every 256 samples:
+  Read 1 file (ctrl+o to expand)
+
+● Update(web/music.js)
+  ⎿  Added 20 lines
+      120  }
+      121  
+      122  /**
+      123 + * Turn the soundtrack off outright, before anything initialis
+          +es it.                                                        
+      124 + *                                                            
+      125 + * This is NOT `setVolume(0)`, and the difference is the entir
+          +e point.                                                      
+      126 + * BassoonTracker mixes through a ScriptProcessorNode -- which
+          + runs on the MAIN                                             
+      127 + * THREAD, and at 256 samples a callback, i.e. every ~5.8ms. S
+          +ilencing it at                                                
+      128 + * the gain node leaves every one of those callbacks running, 
+          +so the CPU cost                                               
+      129 + * is identical to full volume. Only refusing to init removes 
+          +it, which is what                                             
+      130 + * makes `?music=0` a usable A/B against the frame-rate dips. 
+      131 + *                                                            
+      132 + * Reuses the `audioFailed` latch rather than adding a second 
+          +flag: every entry                                             
+      133 + * point already routes through getContext(), so there is one 
+          +gate to keep                                                  
+      134 + * correct instead of two.                                    
+      135 + */                                                           
+      136 +export function disable() {                                   
+      137 +  if (audioReady) stop();                                     
+      138 +  audioFailed = true;                                         
+      139 +  audioReady = false;                                         
+      140 +}                                                             
+      141 +                                                              
+      142 +/**                                                           
+      143   * Load a track by name: a stage number, 'party' or 'interface
+           '.
+      144   *
+      145   * Resolves to true if the module actually parsed and is the c
+           urrent track.
+
+● Update(web/main.js)
+  ⎿  Added 3 lines
+      298    
+      299    const musicvol = parseInt(params.get('musicvol') || '100', 1
+           0);
+      300    music.setVolume(musicvol / 100.0);
+      301 +  // ?music=0 stops the tracker ever initialising. musicvol=0 
+          +would not: the                                                
+      302 +  // mixer's ScriptProcessorNode still runs on the main thread
+          + at full cost.                                                
+      303 +  if (params.get('music') === '0' || musicvol === 0) music.dis
+          +able();                                                       
+      304  
+      305    xt.snd = snd;
+      306    snd.load().catch((e) => console.warn('sound unavailable:', e
+           ));
+
+  Ran 4 shell commands (ctrl+o to expand)
+
+● Baseline is the same 31 failures, so my changes are neutral. (Those 31 are
+  pre-existing and worth their own look — mostly asset-checksum tests.) Now let
+  me reproduce the dips:
+
+● Write(web/tools/spike.mjs)
+  ⎿  Wrote 99 lines to web/tools/spike.mjs
+       1 // Run the game in a REAL browser for N seconds and report where
+       2 // frames went. This is the tool for "sometimes it drops to 2-4 
+         fps", which the
+         ostly fine and
+         er state.
+       5 //
+       7 //   node web/tools/spike.mjs 60 'music=0'
+       8 //
+         has none of the
+         e two things a
+     … +106 lines (ctrl+o to expand)
+
+  Ran 2 shell commands (ctrl+o to expand)
+
+● Update(web/tools/spike.mjs)
+  ⎿  Added 1 line, removed 1 line
+      22    `--remote-debugging-port=${PORT}`,
+      23    '--user-data-dir=/tmp/nfm-spike',
+      24    '--autoplay-policy=no-user-gesture-required',
+      25 -  '--new-window', '--window-size=900,560',                     
+      25 +  '--window-size=900,560',                                     
+      26    URL,
+      27  ], { stdio: ['ignore', 'ignore', 'pipe'] });
+      28  
+
+  Ran 1 shell command (ctrl+o to expand)
+
+❯ youneed to close the old windows                                              
+
+  Ran 2 shell commands (ctrl+o to expand)
+
+● The pkill -f was matching its own shell. Windows are closed now — running
+  clean:
+
+  Ran 2 shell commands (ctrl+o to expand)
+
+● Update(web/tools/spike.mjs)
+  ⎿  Added 6 lines, removed 2 lines
+      18  const PORT = 9223;
+      19  const URL = `http://localhost:8123/web/main.html?players=8&stat
+          s=1&spike=100${EXTRA}`;
+      20  
+      21 +// Detached, with stdio fully ignored. Chromium spawned as a no
+         +rmal tracked                                                   
+      22 +// child of node exited before the debugging port ever opened; 
+         +detaching it is                                                
+      23 +// the difference between "no devtools target" and a working ru
+         +n.                                                             
+      24  const browser = spawn('chromium', [
+      25    `--remote-debugging-port=${PORT}`,
+      23 -  '--user-data-dir=/tmp/nfm-spike',                            
+      26 +  `--user-data-dir=/tmp/nfm-spike-${PORT}`,                    
+      27    '--autoplay-policy=no-user-gesture-required',
+      28    '--window-size=900,560',
+      29    URL,
+      27 -], { stdio: ['ignore', 'ignore', 'pipe'] });                   
+      30 +], { stdio: 'ignore', detached: true });                       
+      31 +browser.unref();                                               
+      32  
+      33  async function connect() {
+      34    for (let i = 0; i < 80; i++) {
+
+● Update(web/tools/spike.mjs)
+  ⎿  Added 2 lines, removed 1 line
+      81  }
+      82  
+      83  ws.close();
+      84 -browser.kill();                                                
+      84 +// Detached, so kill the process group rather than the handle. 
+      85 +try { process.kill(-browser.pid); } catch { /* already gone */ 
+         +}                                                              
+      86  
+      87  const spikes = logs.filter((l) => l.startsWith('SPIKE'));
+      88  console.log(logs.filter((l) => !l.startsWith('SPIKE')).slice(-1
+          2).join('\n'));
+
+  Made 1 scratchpad edit +10, ran 6 shell commands (ctrl+o to expand)
+
+● Update(web/tools/spike.mjs)
+  ⎿  Added 5 lines, removed 1 line
+      23  // the difference between "no devtools target" and a working ru
+          n.
+      24  const browser = spawn('chromium', [
+      25    `--remote-debugging-port=${PORT}`,
+      26 -  `--user-data-dir=/tmp/nfm-spike-${PORT}`,                    
+      26 +  // Fresh profile per run. A killed instance leaves its lock b
+         +ehind, and                                                     
+      27 +  // chromium then silently hands the URL to the dead session (
+         +"Opening in                                                    
+      28 +  // existing browser session") and never opens a debugging por
+         +t -- which                                                     
+      29 +  // presents as "no devtools target" and looks like a CDP prob
+         +lem.                                                           
+      30 +  `--user-data-dir=/tmp/nfm-spike-${process.pid}`,             
+      31    '--autoplay-policy=no-user-gesture-required',
+      32    '--window-size=900,560',
+      33    URL,
+
+  Ran 1 shell command (ctrl+o to expand)
+
+❯ *sometimes* a reboot fixes it                                                 
+● That reframes it. Let me check system state while I fix the harness:
+
+  Ran 2 shell commands (ctrl+o to expand)
+
+● CPU is idle at 798MHz with a 2.9GHz ceiling and nothing pinned — healthy right
+  now. Let me get stderr out of the failing launch:
+
+● Update(web/tools/spike.mjs)
+  ⎿  Added 1 line, removed 1 line
+      31    '--autoplay-policy=no-user-gesture-required',
+      32    '--window-size=900,560',
+      33    URL,
+      34 -], { stdio: 'ignore', detached: true });                       
+      34 +], { stdio: ['ignore', 'ignore', openSync('/tmp/nfm-spike.err',
+         + 'w')], detached: true });                                     
+      35  browser.unref();
+      36  
+      37  async function connect() {
+
+● Update(web/tools/spike.mjs)
+  ⎿  Added 1 line
+      11  // GPU-side stall would show up in. Needs a server on :8123 and
+           a DISPLAY.
+      12  
+      13  import { spawn } from 'node:child_process';
+      14 +import { openSync, readFileSync } from 'node:fs';              
+      15  import { setTimeout as sleep } from 'node:timers/promises';
+      16  
+      17  const SECONDS = parseInt(process.argv[2] || '60', 10);
+
+● Update(web/tools/spike.mjs)
+  ⎿  Added 1 line
+      44      } catch { /* not up yet */ }
+      45      await sleep(250);
+      46    }
+      47 +  console.error(readFileSync('/tmp/nfm-spike.err', 'utf8').slic
+         +e(-2000));                                                     
+      48    throw new Error('no devtools target');
+      49  }
+      50  
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Update(web/tools/spike.mjs)
+  ⎿  Added 4 lines, removed 1 line
+      35  ], { stdio: ['ignore', 'ignore', openSync('/tmp/nfm-spike.err',
+           'w')], detached: true });
+      36  browser.unref();
+      37  
+      38 +let lastErr = '';                                              
+      39  async function connect() {
+      40    for (let i = 0; i < 80; i++) {
+      41      try {
+      42        const list = await (await fetch(`http://127.0.0.1:${PORT}
+          /json/list`)).json();
+      43        const page = list.find((t) => t.type === 'page' && t.url.
+          includes('main.html'));
+      44        if (page) return new WebSocket(page.webSocketDebuggerUrl)
+          ;
+      44 -    } catch { /* not up yet */ }                               
+      45 +      lastErr = `targets: ${JSON.stringify(list.map((t) => [t.t
+         +ype, t.url]))}`;                                               
+      46 +    } catch (e) { lastErr = e.message; }                       
+      47      await sleep(250);
+      48    }
+      49 +  console.error('last probe:', lastErr);                       
+      50    console.error(readFileSync('/tmp/nfm-spike.err', 'utf8').slic
+          e(-2000));
+      51    throw new Error('no devtools target');
+      52  }
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Found it — Node 18 has no global WebSocket. Let me check for a newer node:
+
+  Ran 2 shell commands (ctrl+o to expand)
+
+● Nothing available offline. I'll write a minimal WebSocket client — this also
+  un-breaks browser2p.mjs, which has the same new WebSocket dependency:
+
+● Write(web/tools/cdp.mjs)
+  ⎿  Wrote 178 lines to web/tools/cdp.mjs
+       1 // A minimal Chrome DevTools Protocol client: RFC6455 over node:
+       2 // request/response and event plumbing CDP needs.
+       4 // Why this exists: `WebSocket` only became a global in Node 22,
+          and this
+         the global and
+         ilent
+         hing. There is
+       8 // no `ws` package available offline, so this is the whole depen
+       9 //
+         on actually
+     … +198 lines (ctrl+o to expand)
+
+● Now rewrite spike.mjs on top of it, and add system-state sampling since a
+  reboot sometimes fixes this:
+
+● Write(web/tools/spike.mjs)
+  ⎿  Added 114 lines, removed 62 lines
+       1 -// Run the game in a REAL browser for N seconds and report wher
+         -e the long                                                     
+       2 -// frames went. This is the tool for "sometimes it drops to 2-4
+         - fps", which the                                               
+       3 -// averages in ?bench= structurally cannot show: a run that is 
+         -mostly fine and                                                
+       4 -// occasionally catastrophic reports a mean that describes neit
+         -her state.                                                     
+       1 +// Run the game in a REAL browser and report where the long fra
+         +mes went, with                                                 
+       2 +// the machine's CPU/thermal state sampled alongside.          
+       3  //
+       4  //   node web/tools/spike.mjs [seconds] [extra query string]
+       5  //   node web/tools/spike.mjs 60 'music=0'
+       6  //
+       7 +// This is the tool for "sometimes it drops to 2-4 fps", which 
+         +the averages in                                                
+       8 +// ?bench= structurally cannot show: a run that is mostly fine 
+         +and occasionally                                               
+       9 +// catastrophic reports a mean describing neither state.       
+      10 +//                                                             
+      11  // Headed on purpose. Headless Chromium uses SwiftShader, which
+           has none of the
+      10 -// real driver's behaviour around buffer uploads and vsync -- t
+         -he two things a                                                
+      11 -// GPU-side stall would show up in. Needs a server on :8123 and
+         - a DISPLAY.                                                    
+      12 +// real driver's behaviour around buffer uploads or vsync.     
+      13 +//                                                             
+      14 +// It samples /proc and /sys because the symptom is reported to
+         + be intermittent                                               
+      15 +// and SOMETIMES CURED BY A REBOOT -- which no amount of frame 
+         +instrumentation                                                
+      16 +// can explain, and which points at CPU frequency being stuck r
+         +ather than at                                                  
+      17 +// anything in the renderer. The two have to be recorded on one
+         + timeline or the                                               
+      18 +// question stays unanswerable.                                
+      19 +//                                                             
+      20 +// Needs a server on :8123 and a DISPLAY.                      
+      21  
+      22  import { spawn } from 'node:child_process';
+      14 -import { openSync, readFileSync } from 'node:fs';              
+      23 +import { openSync, readFileSync, existsSync } from 'node:fs';  
+      24  import { setTimeout as sleep } from 'node:timers/promises';
+      25 +import { attach } from './cdp.mjs';                            
+      26  
+      27  const SECONDS = parseInt(process.argv[2] || '60', 10);
+      28  const EXTRA = process.argv[3] ? '&' + process.argv[3] : '';
+      29  const PORT = 9223;
+      30  const URL = `http://localhost:8123/web/main.html?players=8&stat
+          s=1&spike=100${EXTRA}`;
+      31  
+      22 -// Detached, with stdio fully ignored. Chromium spawned as a no
+         -rmal tracked                                                   
+      23 -// child of node exited before the debugging port ever opened; 
+         -detaching it is                                                
+      24 -// the difference between "no devtools target" and a working ru
+         -n.                                                             
+      32 +// --- machine state ------------------------------------------
+         +---------------                                                
+      33 +                                                               
+      34 +function readNum(path) {                                       
+      35 +  try { return parseInt(readFileSync(path, 'utf8').trim(), 10);
+         + } catch { return null; }                                      
+      36 +}                                                              
+      37 +                                                               
+      38 +/** Mean core MHz right now, plus the caps that a stuck machine
+         + would show. */                                                
+      39 +function machine() {                                           
+      40 +  const mhz = readFileSync('/proc/cpuinfo', 'utf8')            
+      41 +    .split('\n').filter((l) => l.startsWith('cpu MHz'))        
+      42 +    .map((l) => parseFloat(l.split(':')[1]));                  
+      43 +  const avg = mhz.reduce((a, b) => a + b, 0) / Math.max(1, mhz.
+         +length);                                                       
+      44 +  const temps = [];                                            
+      45 +  for (let i = 0; i < 12; i++) {                               
+      46 +    const t = readNum(`/sys/class/thermal/thermal_zone${i}/temp
+         +`);                                                            
+      47 +    if (t != null) temps.push(t / 1000);                       
+      48 +  }                                                            
+      49 +  return {                                                     
+      50 +    mhz: avg,                                                  
+      51 +    maxMhz: Math.max(...mhz),                                  
+      52 +    // The three knobs that latch low and stay there. scaling_m
+         +ax_freq is what                                                
+      53 +    // a thermal event lowers; max_perf_pct is intel_pstate's o
+         +wn ceiling.                                                    
+      54 +    scalingMax: readNum('/sys/devices/system/cpu/cpu0/cpufreq/s
+         +caling_max_freq'),                                             
+      55 +    hwMax: readNum('/sys/devices/system/cpu/cpu0/cpufreq/cpuinf
+         +o_max_freq'),                                                  
+      56 +    maxPerfPct: readNum('/sys/devices/system/cpu/intel_pstate/m
+         +ax_perf_pct'),                                                 
+      57 +    noTurbo: readNum('/sys/devices/system/cpu/intel_pstate/no_t
+         +urbo'),                                                        
+      58 +    temp: temps.length ? Math.max(...temps) : null,            
+      59 +  };                                                           
+      60 +}                                                              
+      61 +                                                               
+      62 +// --- run ----------------------------------------------------
+         +---------------                                                
+      63 +                                                               
+      64 +const before = machine();                                      
+      65 +console.log(`machine at start: ${before.mhz.toFixed(0)}MHz avg`
+      66 +  + `  cap ${(before.scalingMax / 1000).toFixed(0)}/${(before.h
+         +wMax / 1000).toFixed(0)}MHz`                                   
+      67 +  + `  max_perf_pct=${before.maxPerfPct}  no_turbo=${before.noT
+         +urbo}`                                                         
+      68 +  + `  ${before.temp}C`);                                      
+      69 +if (before.scalingMax < before.hwMax || before.maxPerfPct < 100
+         +) {                                                            
+      70 +  console.log('  ^^ THE CPU IS CAPPED BELOW ITS HARDWARE MAXIMU
+         +M. This alone can');                                           
+      71 +  console.log('     account for the slow runs, and it is not a 
+         +renderer problem.');                                           
+      72 +}                                                              
+      73 +                                                               
+      74  const browser = spawn('chromium', [
+      75    `--remote-debugging-port=${PORT}`,
+      76    // Fresh profile per run. A killed instance leaves its lock b
+          ehind, and
+      28 -  // chromium then silently hands the URL to the dead session (
+         -"Opening in                                                    
+      29 -  // existing browser session") and never opens a debugging por
+         -t -- which                                                     
+      30 -  // presents as "no devtools target" and looks like a CDP prob
+         -lem.                                                           
+      77 +  // chromium then hands the URL to the dead session ("Opening 
+         +in existing                                                    
+      78 +  // browser session") and never opens a debugging port -- whic
+         +h presents as                                                  
+      79 +  // "no devtools target" and looks like a CDP bug.            
+      80    `--user-data-dir=/tmp/nfm-spike-${process.pid}`,
+      81    '--autoplay-policy=no-user-gesture-required',
+      82    '--window-size=900,560',
+     ...
+       84  ], { stdio: ['ignore', 'ignore', openSync('/tmp/nfm-spike.err'
+           , 'w')], detached: true });
+       85  browser.unref();
+       86  
+       38 -let lastErr = '';                                             
+       39 -async function connect() {                                    
+       40 -  for (let i = 0; i < 80; i++) {                              
+       41 -    try {                                                     
+       42 -      const list = await (await fetch(`http://127.0.0.1:${PORT
+          -}/json/list`)).json();                                        
+       43 -      const page = list.find((t) => t.type === 'page' && t.url
+          -.includes('main.html'));                                      
+       44 -      if (page) return new WebSocket(page.webSocketDebuggerUrl
+          -);                                                            
+       45 -      lastErr = `targets: ${JSON.stringify(list.map((t) => [t.
+          -type, t.url]))}`;                                             
+       46 -    } catch (e) { lastErr = e.message; }                      
+       47 -    await sleep(250);                                         
+       48 -  }                                                           
+       49 -  console.error('last probe:', lastErr);                      
+       50 -  console.error(readFileSync('/tmp/nfm-spike.err', 'utf8').sli
+          -ce(-2000));                                                   
+       51 -  throw new Error('no devtools target');                      
+       52 -}                                                             
+       53 -                                                              
+       54 -const ws = await connect();                                   
+       55 -await new Promise((r) => ws.addEventListener('open', r, { once
+          -: true }));                                                   
+       56 -                                                              
+       87 +const cdp = await attach(PORT, 'main.html');                  
+       88  const logs = [];
+       58 -let id = 0;                                                   
+       59 -const pending = new Map();                                    
+       60 -ws.addEventListener('message', (ev) => {                      
+       61 -  const m = JSON.parse(ev.data);                              
+       62 -  if (m.id && pending.has(m.id)) { pending.get(m.id)(m); pendi
+          -ng.delete(m.id); }                                            
+       63 -  else if (m.method === 'Runtime.consoleAPICalled') {         
+       89 +cdp.on((m) => {                                               
+       90 +  if (m.method === 'Runtime.consoleAPICalled') {              
+       91      logs.push(m.params.args.map((a) => a.value ?? '').join(' '
+           ));
+       92    }
+       93  });
+       67 -const send = (method, params = {}) => new Promise((res) => {  
+       68 -  const i = ++id;                                             
+       69 -  pending.set(i, res);                                        
+       70 -  ws.send(JSON.stringify({ id: i, method, params }));         
+       94 +await cdp.send('Runtime.enable');                             
+       95 +await cdp.send('Page.enable');                                
+       96 +                                                              
+       97 +// Is the GPU actually being used? A Chromium that has fallen 
+          +back to software                                              
+       98 +// rendering is slow in exactly this way, and it is invisible 
+          +from inside the                                               
+       99 +// page. This is the other thing a reboot "fixes".            
+      100 +const gpu = await cdp.send('Runtime.evaluate', {              
+      101 +  expression: `(() => {                                       
+      102 +    const c = document.createElement('canvas');               
+      103 +    const gl = c.getContext('webgl2') || c.getContext('webgl')
+          +;                                                             
+      104 +    if (!gl) return 'NO WEBGL';                               
+      105 +    const d = gl.getExtension('WEBGL_debug_renderer_info');   
+      106 +    return d ? gl.getParameter(d.UNMASKED_RENDERER_WEBGL) : gl
+          +.getParameter(gl.RENDERER);                                   
+      107 +  })()`,                                                      
+      108 +  returnByValue: true,                                        
+      109  });
+      110 +const renderer = gpu.result?.result?.value ?? '?';            
+      111 +console.log(`renderer: ${renderer}`);                         
+      112 +if (/swiftshader|llvmpipe|software/i.test(renderer)) {        
+      113 +  console.log('  ^^ SOFTWARE RENDERING. Not the GPU. This is r
+          +eboot-curable and');                                          
+      114 +  console.log('     has nothing to do with the port.');       
+      115 +}                                                             
+      116  
+       73 -await send('Runtime.enable');                                 
+       74 -await send('Page.enable');                                    
+       75 -await send('Input.enable').catch(() => {});                   
+       76 -                                                              
+       77 -// The input listeners are not installed until the assets fini
+          -sh loading, so a                                              
+       78 -// key dispatched at navigation is simply lost. Re-assert the 
+          -throttle every                                                
+       79 -// second -- same reason browser2p.mjs does.                  
+       80 -const holdKey = async () => {                                 
+       81 -  await send('Input.dispatchKeyEvent', {                      
+       82 -    type: 'keyDown', windowsVirtualKeyCode: 38, code: 'ArrowUp
+          -', key: 'ArrowUp',                                            
+       83 -  });                                                         
+       84 -};                                                            
+       85 -                                                              
+      117 +const samples = [];                                           
+      118  const t0 = Date.now();
+      119  while (Date.now() - t0 < SECONDS * 1000) {
+       88 -  await holdKey();                                            
+      120 +  // The input listeners are not installed until the assets fi
+          +nish loading, so                                              
+      121 +  // a key dispatched at navigation is lost. Re-assert it ever
+          +y second, the                                                 
+      122 +  // same reason browser2p.mjs does.                          
+      123 +  await cdp.send('Input.dispatchKeyEvent', {                  
+      124 +    type: 'keyDown', windowsVirtualKeyCode: 38, code: 'ArrowUp
+          +', key: 'ArrowUp',                                            
+      125 +  });                                                         
+      126 +  samples.push({ t: (Date.now() - t0) / 1000, ...machine() });
+      127    await sleep(1000);
+      128  }
+      129  
+       92 -ws.close();                                                   
+       93 -// Detached, so kill the process group rather than the handle.
+      130 +cdp.close();                                                  
+      131  try { process.kill(-browser.pid); } catch { /* already gone */
+            }
+      132  
+      133 +// --- report ------------------------------------------------
+          +----------------                                              
+      134 +                                                              
+      135  const spikes = logs.filter((l) => l.startsWith('SPIKE'));
+       97 -console.log(logs.filter((l) => !l.startsWith('SPIKE')).slice(-
+          -12).join('\n'));                                              
+      136 +const fps = logs.filter((l) => l.includes('fps'));            
+      137 +console.log('\n--- last frame-rate readouts ---');            
+      138 +console.log(fps.slice(-6).join('\n'));                        
+      139 +                                                              
+      140  console.log(`\n--- ${spikes.length} spikes over ${SECONDS}s --
+           -`);
+       99 -console.log(spikes.slice(0, 40).join('\n'));                  
+      141 +console.log(spikes.slice(0, 30).join('\n'));                  
+      142  
+      101 -// Which bucket dominated the spikes: the whole point of the r
+          -un.                                                           
+      143  const tot = { sim: 0, draw: 0, gl: 0, othr: 0, OUT: 0 };
+      144  for (const s of spikes) {
+      145    for (const k of Object.keys(tot)) {
+     ...
+      148    }
+      149  }
+      150  const sum = Object.values(tot).reduce((a, b) => a + b, 0) || 1
+           ;
+      110 -console.log('\nspike time by bucket:');                       
+      151 +console.log('\nspike time by bucket (OUT = main thread was not
+          + ours):');                                                    
+      152  for (const [k, v] of Object.entries(tot)) {
+      153    console.log(`  ${k.padEnd(5)} ${v.toFixed(0).padStart(7)}ms 
+            ${(v / sum * 100).toFixed(1)}%`);
+      154  }
+      155 +                                                              
+      156 +const mhz = samples.map((s) => s.mhz);                        
+      157 +console.log(`\nCPU over the run: min ${Math.min(...mhz).toFixe
+          +d(0)}MHz`                                                     
+      158 +  + `  mean ${(mhz.reduce((a, b) => a + b, 0) / mhz.length).to
+          +Fixed(0)}MHz`                                                 
+      159 +  + `  max ${Math.max(...mhz).toFixed(0)}MHz`                 
+      160 +  + `  peak temp ${Math.max(...samples.map((s) => s.temp ?? 0)
+          +)}C`);                                                        
+      161 +const capped = samples.filter((s) => s.scalingMax < s.hwMax ||
+          + s.maxPerfPct < 100);                                         
+      162 +if (capped.length) {                                          
+      163 +  console.log(`  CAPPED in ${capped.length}/${samples.length} 
+          +samples`                                                      
+      164 +    + ` -- lowest ceiling ${(Math.min(...capped.map((s) => s.s
+          +calingMax)) / 1000).toFixed(0)}MHz`);                         
+      165 +}                                                             
+
+  Read 1 file, ran 7 shell commands (ctrl+o to expand)
+
+❯ ok any progress, shall I try rebooting until its fast?                        
+
+  Ran 3 shell commands (ctrl+o to expand)
+● This bisection is fighting truncation artifacts. Let me just rewrite the
+  handshake more simply:
+
+● Update(web/tools/cdp.mjs)
+  ⎿  Added 10 lines, removed 5 lines
+      104    return new Promise((resolve, reject) => {
+      105      const key = randomBytes(16).toString('base64');
+      106      const sock = net.connect(Number(u.port), u.hostname, () =>
+            {
+      107 -      sock.write(                                             
+      108 -        `GET ${u.pathname}${u.search} HTTP/1.1\r\n`           
+      109 -        + `Host: ${u.host}\r\n`                               
+      110 -        + 'Upgrade: websocket\r\nConnection: Upgrade\r\n'     
+      111 -        + `Sec-WebSocket-Key: ${key}\r\nSec-WebSocket-Version:
+          - 13\r\n\r\n');                                                
+      107 +      const req = [                                           
+      108 +        `GET ${u.pathname}${u.search} HTTP/1.1`,              
+      109 +        `Host: ${u.host}`,                                    
+      110 +        'Upgrade: websocket',                                 
+      111 +        'Connection: Upgrade',                                
+      112 +        `Sec-WebSocket-Key: ${key}`,                          
+      113 +        'Sec-WebSocket-Version: 13',                          
+      114 +        '', '',                                               
+      115 +      ].join('\r\n');                                         
+      116 +      sock.write(req);                                        
+      117      });
+      118      sock.on('error', reject);
+      119      let head = Buffer.alloc(0);
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Parses now. Answering your question first, then the baseline run:
+
+  Don't reboot it into the fast state — that destroys the evidence. The slow
+  state is the one we can't explain, and rebooting is the one action guaranteed
+  to erase it. What I need is a capture while it's slow.
+
+  Ran 2 shell commands (ctrl+o to expand)
+
+● Reproduced the slow state — and there's a clear anomaly. Let me confirm it's
+  system-level, not the game:
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Confirmed — this is not the game. Four cores pinned at 100% and the CPU never
+  leaves 798 MHz, its minimum P-state. The i5-5300U's base is 2.3 GHz, turbo
+  2.9. The machine is running at roughly a quarter speed.
+
+  Ran 2 shell commands (ctrl+o to expand)
+
+● That's the answer. intel_pstate status = passive with the powersave governor —
+  and in passive mode, powersave is the generic cpufreq governor, which means
+  pin to the minimum frequency forever, regardless of load. It is not the
+  load-aware algorithm that powersave means in intel_pstate's active mode.
+
+  Ran 3 shell commands (ctrl+o to expand)
+
+● Everything fits now. Let me record it:
+
+● Update(WORK.md)
+  ⎿  Added 5 lines
+      121  - **Invert a derivation by RUNNING it, not by re-deriving it.*
+           * `web/tools/embedstats.mjs` solves each `physics()` argument 
+           by calling `loadstat()` into a scratch slot and comparing the 
+           derived tables against the hand-authored ones. The slots that 
+           map one-to-one land exactly; the residual is printed. Two are 
+           unrecoverable in principle and the tool says so: `Pushes Other
+           s` is scaled by `(30 - lift) / 30` in INTEGER division, so any
+            car with lift at all pins `push` to 2, and `airs`/`airc`/`pow
+           erloss` are three equations in two unknowns.
+      122  - **`loadbase()` checksums `models.zip` against a hardcoded un
+           compressed total**, so adding anything to a base model trips i
+           t (615671 → 621172 here). In this port that only logs a warnin
+           g, but it also means **probe tests that build their input from
+            live `models.zip` data silently change meaning when the data 
+           changes**: two `CarDefine` probes captured from real Java bega
+           n failing because `formula7.rad` now carries its own trailing 
+           `stat()`, which overrides the header the test prepends. They s
+           trip the embedded block now. A test whose expectations came fr
+           om an oracle must pin its INPUT too.
+      123  - **`<optgroup>` is the cheapest fix for a picker that mixes t
+           wo kinds of thing.** The editor and the launcher both split "D
+           efault Cars" from "My cars"; before that, sixteen built-ins an
+           d three saved cars were one flat list where only a `(my car)` 
+           suffix told them apart.
+      124 +- **The "sometimes 2-4 fps" dips were the MACHINE, not the por
+          +t — the CPU was pinned at its minimum 798MHz on a 2.9GHz part.
+          +** Proof takes one command and needs no browser: load all four
+          + cores for five seconds and watch `/proc/cpuinfo`; a healthy m
+          +achine ramps, this one did not move off 798MHz. `intel_pstate`
+          + is in **passive** mode here (`status=passive`, driver `intel_
+          +cpufreq`), and in passive mode the `powersave` governor is the
+          + GENERIC cpufreq one, which always requests the minimum — it i
+          +s not intel_pstate's load-aware active-mode algorithm of the s
+          +ame name. TLP sets `CPU_SCALING_GOVERNOR_ON_BAT=powersave` and
+          + sets nothing for AC, so one stint on battery pins the governo
+          +r and returning to AC never restores it: hence intermittent, a
+          +nd hence "a reboot sometimes fixes it". Fix is `schedutil`. **
+          +Check the CPU clock before profiling anything on this machine*
+          +* — a 3.6x frequency deficit is indistinguishable from a rende
+          +ring regression in every counter the port has, and it moves ev
+          +ery ns/vert figure in `TASKS.md`.                             
+      125 +- **`?musicvol=0` does NOT stop the music mixer costing CPU.**
+          + BassoonTracker mixes in a `ScriptProcessorNode` — main thread
+          +, 256 samples a callback, ~5.8ms — and the volume is a gain no
+          +de downstream of all of it. Silencing it changes nothing about
+          + the cost. `?music=0` (and now `musicvol=0`) calls `music.disa
+          +ble()`, which refuses to init at all; that is the only usable 
+          +A/B against a frame-rate problem.                             
+      126 +- **Node 18 has no global `WebSocket`** (it landed in Node 22)
+          +, so every CDP tool here died with "WebSocket is not defined" 
+          +— swallowed by the connect loop's `catch` and surfacing as `no
+          + devtools target`, which sends you debugging chromium flags. `
+          +web/tools/cdp.mjs` is a ~170-line RFC6455 + CDP client with no
+          + dependencies; `browser2p.mjs` still uses the global and is br
+          +oken on this machine until it is moved over.                  
+      127 +- **A killed chromium leaves its profile lock behind, and the 
+          +next launch then hands the URL to the dead session** ("Opening
+          + in existing browser session") and never opens a debugging por
+          +t. Same "no devtools target" symptom, different cause. Use a p
+          +er-run `--user-data-dir`. And do not clean up with `pkill -f <
+          +pattern>` where the pattern appears in the killing command's o
+          +wn line — `pgrep -f` matches the shell running it, so the pipe
+          +line kills itself and reports exit 144.                       
+      128 +- **fps averages cannot describe an intermittent stall, and `?
+          +bench=` reports the mean of two different machines.** `?spike=
+          +<ms>` logs every frame whose rAF gap exceeded the threshold, s
+          +plit into sim / draw / gl / other / **OUT** (the gap minus our
+          + own callback — GC, the audio mixer, compositing). OUT is the 
+          +discriminator: 11% here said the cost was genuinely inside `dr
+          +aw()`, which is what ruled out the ScriptProcessorNode and poi
+          +nted at the clock. `rd.end()` is timed as its own bucket becau
+          +se it was previously in none — a driver blocking on the previo
+          +us frame blocks there.                                        
+      129  - **A `.rad` directive that is appended instead of inserted ca
+           n be silently inert.** `ContO` applies `ScaleX/Y/Z` to each `p
+           ()` AS IT READS IT and decides a polygon's `colnum` against `1
+           stColor`/`2ndColor` when the block closes, so a writer that fa
+           lls back to "append at the end of the file" puts the directive
+            after everything it was meant to affect. The Scale sliders th
+           erefore did nothing at all on the sixteen base cars — none of 
+           which carry a `ScaleX` line — while working perfectly on MAX R
+           evenge, which does. `setLine` now takes `beforeGeometry` and s
+           plices above the first `<p>`/`w(`/`rims(`. **The general trap:
+            order-sensitivity in a config format is invisible to a round-
+           trip test, because reading back what you wrote succeeds either
+            way.** Test the PARSE, not the text.
+
+  Ran 2 shell commands (ctrl+o to expand)
+
+● Deploy was blocked by the permission classifier, so the changes are local only
+  — say the word and I'll re-run it, or you can ! ./deploy.sh.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● It's your machine, not the game
+
+  Your CPU is pinned at 798 MHz — the minimum P-state on a chip whose base is
+  2.3 GHz and turbo 2.9. I loaded all four cores to 100% for five seconds and
+  the clock never moved:
+
+  idle:               798 MHz
+  under 4-core load:  798 / 798 / 798 / 798 MHz
+
+  A healthy machine ramps to ~2.9 GHz there. Temps are 44–56 °C and every
+  thermal throttle counter is zero, so nothing is protecting the hardware — the
+  governor simply isn't scaling.
+
+  Cause: intel_pstate is in passive mode (status=passive, driver intel_cpufreq).
+  In passive mode powersave is the generic cpufreq governor, which always 
+  requests the minimum frequency — it is not intel_pstate's load-aware
+  active-mode algorithm that shares the name. And /etc/tlp.conf sets
+  CPU_SCALING_GOVERNOR_ON_BAT=powersave while setting nothing for AC. So one
+  stint on battery pins the governor, and plugging back in never restores it.
+
+  That explains all three of your symptoms: intermittent, unaffected by
+  resolution (this port's draw cost is CPU-side — projection is 81% of it), and
+  sometimes fixed by a reboot — boot resets the governor, the next battery stint
+  re-pins it.
+
+  Don't reboot to chase the fast state. Fix it live:
+
+  ! sudo cpupower frequency-set -g schedutil
+
+  and to stop it recurring, add CPU_SCALING_GOVERNOR_ON_AC=schedutil (and change
+  the _ON_BAT line to match) in /etc/tlp.conf, then sudo tlp start. schedutil
+  still clocks down when idle, so battery life doesn't suffer the way pinning to
+  max would.
+
+  What I measured
+
+  Your machine is in the slow state right now, so I captured it: 2.2 fps, draw 
+  382 ms/frame, against the ~24 ms TASKS.md records for this scene. Attribution
+  said 87% of the spike time was inside draw() and only 11% off-CPU — which is
+  what ruled out the audio mixer and pointed at the clock rather than at any
+  renderer regression.
+
+  Worth re-running node web/tools/spike.mjs 40 after the governor change to
+  confirm the recovery.
+
+  Changes
+
+  - web/main.js — ?spike=<ms> logs long frames split into sim / draw / gl /
+  other / OUT (gap minus our own callback: GC, audio, compositor). Off unless
+  requested, so it adds nothing to the existing logging. rd.end() is now timed
+  as its own bucket; it was previously in none.
+  - web/music.js — music.disable(), wired to ?music=0 and musicvol=0. Worth
+  knowing: musicvol=0 previously did not reduce CPU at all — BassoonTracker
+  mixes in a ScriptProcessorNode on the main thread every 256 samples, and
+  volume is a gain node downstream of all that work.
+  - web/tools/cdp.mjs (new) — dependency-free WebSocket + CDP client. Node 18
+  has no global WebSocket (it arrived in Node 22), so the existing browser2p.mjs
+  is broken on this machine; it still uses the global and should be moved over.
+  - web/tools/spike.mjs (new) — headed browser run that samples /proc and /sys
+  alongside frame timings, and flags a capped CPU or software rendering up
+  front.
+  - WORK.md — five entries, including the profiling trap: check the CPU clock
+  before trusting any measurement on this box, since a 3.6× frequency deficit is
+  invisible to every counter the port has.
+
+  Tests are 255/286 both before and after my changes — the 31 failures are
+  pre-existing and unrelated (mostly asset-checksum tests around models.zip at
+  621172 bytes, which WORK.md notes was expected to shift when embedstats
+  landed). Worth a separate look; I left them alone.
+
+✻ Crunched for 19m 22s
+
+※ recap: Your game's slowdowns turned out to be your CPU stuck at 798MHz, not the port. Next: run `sudo cpupower frequency-set -g schedutil` to unstick it, then re-run the spike tool to confirm the fps recovers. (disable recaps in /config)
+
+❯ explain  rowser2p.mjs issue?                                                  
+
+  Searched for 1 pattern, read 1 file, ran 1 shell command (ctrl+o to expand)
+
+● The bug
+
+  browser2p.mjs:36:
+
+  if (page) return new WebSocket(page.webSocketDebuggerUrl);
+
+  WebSocket became a global in Node 22. This machine runs Node 18.19, where
+  typeof WebSocket === 'undefined' — I just confirmed it. So that line throws
+  ReferenceError: WebSocket is not defined.
+
+  Why it's nasty rather than merely broken
+
+  The line sits inside this loop:
+
+  try {
+    const list = await (await fetch(...)).json();
+    const page = list.find((t) => t.type === 'page');
+    if (page) return new WebSocket(page.webSocketDebuggerUrl);
+  } catch { /* not up yet */ }     // <- swallows the ReferenceError too
+
+  The catch is bare. It was written to absorb one specific expected failure —
+  the browser hasn't opened its debugging port yet — but it catches everything,
+  including a programming error that will never resolve no matter how long you
+  wait. So:
+
+  1. fetch succeeds. The browser is up and healthy.
+  2. A page target is found.
+  3. new WebSocket throws.
+  4. The catch discards it as "not up yet".
+  5. 60 retries × 250 ms later: throw new Error('no devtools on 9333').
+
+  The error you get names the browser and the port — the two things that are
+  actually fine. Nothing anywhere mentions WebSocket.
+
+  That's the trap I walked into. spike.mjs started as a copy of this connect
+  loop, and I spent several rounds on chromium flags, a stale profile lock,
+  detached spawning, and a genuinely misleading bind() failed: Address already 
+  in use in the stderr log, all chasing a message that pointed away from the
+  cause. It only surfaced once I made the loop record why each attempt failed
+  rather than discarding it — which is the general lesson: a retry loop that
+  swallows the reason is a retry loop that will eventually lie to you about what
+  went wrong.
+
+  Scope
+
+  shot.mjs:38 has the identical line and the identical bare catch. netloop.mjs
+  and netclient.mjs are clean — they don't use CDP.
+
+  Worth being precise about one thing: this is almost certainly an environment
+  regression, not a code one. WORK.md records browser2p.mjs successfully driving
+  two browsers through a netplay race on 2026-08-02, so it worked against some
+  newer Node. The file hasn't changed; the interpreter available to it has. I
+  can't tell from here whether Node was downgraded or those runs happened
+  elsewhere.
+
+  Fixing it
+
+  web/tools/cdp.mjs already provides the replacement, but it isn't a drop-in —
+  Client is written against the browser API shape
+  (ws.addEventListener('message', ev => ... ev.data)), while cdp.mjs exposes
+  on(msg) with the message already parsed. The port is small, roughly:
+
+  import { attach } from './cdp.mjs';
+  const cdp = await attach(9333, 'main.html');
+  cdp.on((m) => { if (m.method === 'Runtime.consoleAPICalled') logs.push(...);
+  });
+
+  Client.send/evaluate map onto Session.send unchanged. I'd also drop the bare
+  catch in favour of recording the last error, which is what attach() does.
+
+  Want me to convert browser2p.mjs and shot.mjs over? It's a contained change,
+  though browser2p needs a live two-browser run to verify properly — and that
+  run will be meaningless until the CPU governor is fixed, since it's
+  timing-sensitive.
+
+✻ Cogitated for 46s
+
+❯ this is for the 2player code?  one sentence                                   
+
+● Yes — browser2p.mjs is the end-to-end netplay test that drives two real
+  browsers through a race over CDP and checks they stayed in sync.
+
+✻ Crunched for 3s
+
+❯ ok fix it, then commit                                                        
+  Read 1 file (ctrl+o to expand)
+
+● Let me add evaluate to the shared Session, then port both tools:
+
+● Update(web/tools/cdp.mjs)
+  ⎿  Added 17 lines
+      161      });
+      162    }
+      163    on(fn) { this.handlers.push(fn); }
+      164 +  /** Evaluate an expression in the page and return its value.
+          + */                                                           
+      165 +  async evaluate(expression) {                                
+      166 +    const r = await this.send('Runtime.evaluate', { expression
+          +, returnByValue: true });                                     
+      167 +    return r.result?.result?.value;                           
+      168 +  }                                                           
+      169 +  /**                                                         
+      170 +   * Collect console output into an array, which is how every 
+          +tool here reads                                               
+      171 +   * results back out of the page. Requires Runtime.enable fir
+          +st.                                                           
+      172 +   */                                                         
+      173 +  collectConsole(into = []) {                                 
+      174 +    this.on((m) => {                                          
+      175 +      if (m.method === 'Runtime.consoleAPICalled') {          
+      176 +        into.push(m.params.args.map((a) => a.value ?? '').join
+          +(' '));                                                       
+      177 +      }                                                       
+      178 +    });                                                       
+      179 +    return into;                                              
+      180 +  }                                                           
+      181    close() { this.ws.close(); }
+      182  }
+      183  
+
+❯ actually commit our earlier changes first                                     
+
+  Ran 2 shell commands (ctrl+o to expand)
+
+● Committed. Now the browser2p.mjs fix:
+
+● Update(web/tools/browser2p.mjs)
+  ⎿  Added 16 lines, removed 44 lines
+      12  // Needs a server on :8123 serving the repo root.
+      13  
+      14  import { spawn } from 'node:child_process';
+      15 +import { openSync } from 'node:fs';                            
+      16  import { setTimeout as sleep } from 'node:timers/promises';
+      17 +import { attach } from './cdp.mjs';                            
+      18  
+      19  const SECONDS = parseInt(process.argv[2] || '45', 10);
+      20  const ROOM = 'E2E' + Math.floor(Math.random() * 900 + 100);
+     ...
+      24      '--headless=new', '--no-sandbox', '--enable-unsafe-swiftsha
+          der',
+      25      '--autoplay-policy=no-user-gesture-required',
+      26      '--window-size=800,450', `--remote-debugging-port=${port}`,
+      25 -    `--user-data-dir=/tmp/nfm-e2e-${port}`,                    
+      27 +    // Profile per RUN, not per port. A killed instance leaves 
+         +its lock                                                       
+      28 +    // behind, and the next launch then hands its URL to the de
+         +ad session                                                     
+      29 +    // ("Opening in existing browser session") and never opens 
+         +a debugging                                                    
+      30 +    // port -- which presents as a connect timeout and looks li
+         +ke a CDP fault.                                                
+      31 +    `--user-data-dir=/tmp/nfm-e2e-${port}-${process.pid}`,     
+      32      'about:blank',
+      27 -  ], { stdio: ['ignore', 'ignore', 'pipe'] });                 
+      33 +    // stderr to a file, not a pipe. Chromium is chatty here (D
+         +Bus, ALSA), and                                                
+      34 +    // nothing was reading the pipe -- a full pipe buffer block
+         +s the browser.                                                 
+      35 +  ], { stdio: ['ignore', 'ignore', openSync(`/tmp/nfm-e2e-${por
+         +t}.err`, 'w')] });                                             
+      36    return p;
+      37  }
+      38  
+      31 -async function connect(port) {                                 
+      32 -  for (let i = 0; i < 60; i++) {                               
+      33 -    try {                                                      
+      34 -      const list = await (await fetch(`http://127.0.0.1:${port}
+         -/json/list`)).json();                                          
+      35 -      const page = list.find((t) => t.type === 'page');        
+      36 -      if (page) return new WebSocket(page.webSocketDebuggerUrl)
+         -;                                                              
+      37 -    } catch { /* not up yet */ }                               
+      38 -    await sleep(250);                                          
+      39 -  }                                                            
+      40 -  throw new Error(`no devtools on ${port}`);                   
+      41 -}                                                              
+      42 -                                                               
+      43 -class Client {                                                 
+      44 -  constructor(ws) {                                            
+      45 -    this.ws = ws;                                              
+      46 -    this.id = 0;                                               
+      47 -    this.pending = new Map();                                  
+      48 -    this.logs = [];                                            
+      49 -    ws.addEventListener('message', (ev) => {                   
+      50 -      const msg = JSON.parse(ev.data);                         
+      51 -      if (msg.id && this.pending.has(msg.id)) {                
+      52 -        this.pending.get(msg.id)(msg);                         
+      53 -        this.pending.delete(msg.id);                           
+      54 -      } else if (msg.method === 'Runtime.consoleAPICalled') {  
+      55 -        this.logs.push(msg.params.args.map((a) => a.value).join
+         -(' '));                                                        
+      56 -      }                                                        
+      57 -    });                                                        
+      58 -  }                                                            
+      59 -  send(method, params = {}) {                                  
+      60 -    const id = ++this.id;                                      
+      61 -    this.ws.send(JSON.stringify({ id, method, params }));      
+      62 -    return new Promise((res) => this.pending.set(id, res));    
+      63 -  }                                                            
+      64 -  async evaluate(expr) {                                       
+      65 -    const r = await this.send('Runtime.evaluate', { expression:
+         - expr, returnByValue: true });                                 
+      66 -    return r.result?.result?.value;                            
+      67 -  }                                                            
+      68 -}                                                              
+      69 -                                                               
+      39  const ports = [9333, 9334];
+      40  const procs = ports.map(launch);
+      41  const sockets = [];
+      42  for (const port of ports) {
+      74 -  const ws = await connect(port);                              
+      75 -  await new Promise((res) => ws.addEventListener('open', res));
+      76 -  const c = new Client(ws);                                    
+      43 +  // attach() polls /json/list and reports WHY it gave up. The 
+         +loop this                                                      
+      44 +  // replaced swallowed every error as "not up yet", including 
+         +the                                                            
+      45 +  // ReferenceError from `new WebSocket` -- a global Node only 
+         +gained in v22 --                                               
+      46 +  // and then blamed the browser for a fault that was in this f
+         +ile.                                                           
+      47 +  const c = await attach(port, '');   // still about:blank; nav
+         +igated below                                                   
+      48 +  c.logs = c.collectConsole();                                 
+      49    await c.send('Runtime.enable');
+      50    await c.send('Page.enable');
+      51    sockets.push(c);
+
+● Update(web/tools/browser2p.mjs)
+  ⎿  Added 1 line
+      85    const interesting = c.logs.filter((l) => !/^sync ok/.test(l))
+          .slice(-6);
+      86    console.log(`--- client ${i} log tail ---\n${interesting.join
+          ('\n')}`);
+      87  }
+      88 +sockets.forEach((c) => c.close());                             
+      89  procs.forEach((p) => p.kill());
+      90  process.exit(oks[0] > 0 && desyncs[0] === 0 && desyncs[1] === 0
+           ? 0 : 1);
+
+● Now shot.mjs:
+
+  Read 1 file (ctrl+o to expand)
+
+● Update(web/tools/shot.mjs)
+  ⎿  Added 2 lines, removed 1 line
+      13  // Needs a server on :8123 serving the repo root.
+      14  
+      15  import { spawn } from 'node:child_process';
+      16 -import { writeFileSync } from 'node:fs';                       
+      16 +import { writeFileSync, openSync } from 'node:fs';             
+      17  import { setTimeout as sleep } from 'node:timers/promises';
+      18 +import { attach } from './cdp.mjs';                            
+      19  
+      20  const [url, out, secs = '6', script] = process.argv.slice(2);
+      21  if (!url || !out) {
+
+● Update(web/tools/shot.mjs)
+  ⎿  Added 17 lines, removed 31 lines
+      27  const proc = spawn('chromium', [
+      28    '--headless=new', '--no-sandbox', '--enable-unsafe-swiftshade
+          r',
+      29    '--hide-scrollbars', '--window-size=1400,950',
+      30 -  `--remote-debugging-port=${PORT}`, `--user-data-dir=/tmp/nfm-
+         -shot-${PORT}`,                                                 
+      30 +  `--remote-debugging-port=${PORT}`,                           
+      31 +  // Profile per RUN. A killed instance leaves its lock behind 
+         +and the next                                                   
+      32 +  // launch hands its URL to the dead session instead of openin
+         +g a port.                                                      
+      33 +  `--user-data-dir=/tmp/nfm-shot-${PORT}-${process.pid}`,      
+      34    'about:blank',
+      32 -], { stdio: ['ignore', 'ignore', 'pipe'] });                   
+      35 +  // stderr to a file, not an unread pipe: a full pipe buffer b
+         +locks chromium.                                                
+      36 +], { stdio: ['ignore', 'ignore', openSync(`/tmp/nfm-shot-${PORT
+         +}.err`, 'w')] });                                              
+      37  
+      34 -async function connect() {                                     
+      35 -  for (let i = 0; i < 60; i++) {                               
+      36 -    try {                                                      
+      37 -      const list = await (await fetch(`http://127.0.0.1:${PORT}
+         -/json/list`)).json();                                          
+      38 -      const page = list.find((t) => t.type === 'page');        
+      39 -      if (page) return new WebSocket(page.webSocketDebuggerUrl)
+         -;                                                              
+      40 -    } catch { /* not up yet */ }                               
+      41 -    await sleep(250);                                          
+      42 -  }                                                            
+      43 -  throw new Error('no devtools');                              
+      44 -}                                                              
+      38 +// attach() reports why it gave up. The loop this replaced caug
+         +ht everything as                                               
+      39 +// "not up yet" -- including the ReferenceError from `new WebSo
+         +cket`, a global                                                
+      40 +// Node only gained in v22 -- and then reported "no devtools". 
+      41 +const cdp = await attach(PORT, '');                            
+      42 +const send = (method, params) => cdp.send(method, params);     
+      43  
+      46 -const ws = await connect();                                    
+      47 -await new Promise((res) => ws.addEventListener('open', res));  
+      48 -                                                               
+      49 -let id = 0;                                                    
+      50 -const pending = new Map();                                     
+      44  const logs = [];
+      52 -ws.addEventListener('message', (ev) => {                       
+      53 -  const msg = JSON.parse(ev.data);                             
+      54 -  if (msg.id && pending.has(msg.id)) { pending.get(msg.id)(msg)
+         -; pending.delete(msg.id); }                                    
+      55 -  else if (msg.method === 'Runtime.consoleAPICalled') {        
+      56 -    logs.push(msg.params.args.map((a) => a.value ?? a.descripti
+         -on).join(' '));                                                
+      57 -  } else if (msg.method === 'Runtime.exceptionThrown') {       
+      58 -    logs.push('EXCEPTION ' + (msg.params.exceptionDetails.excep
+         -tion?.description ||                                           
+      59 -                              msg.params.exceptionDetails.text)
+         -);                                                             
+      45 +cdp.on((m) => {                                                
+      46 +  if (m.method === 'Runtime.consoleAPICalled') {               
+      47 +    logs.push(m.params.args.map((a) => a.value ?? a.description
+         +).join(' '));                                                  
+      48 +  } else if (m.method === 'Runtime.exceptionThrown') {         
+      49 +    logs.push('EXCEPTION ' + (m.params.exceptionDetails.excepti
+         +on?.description                                                
+      50 +                              || m.params.exceptionDetails.text
+         +));                                                            
+      51    }
+      52  });
+      62 -const send = (method, params = {}) => {                        
+      63 -  const n = ++id;                                              
+      64 -  ws.send(JSON.stringify({ id: n, method, params }));          
+      65 -  return new Promise((res) => pending.set(n, res));            
+      66 -};                                                             
+      53  
+      54  await send('Runtime.enable');
+      55  await send('Page.enable');
+
+● Update(web/tools/shot.mjs)
+  ⎿  Added 1 line
+      70  for (const l of logs) console.log('[page]', l);
+      71  console.log('wrote', out);
+      72  
+      73 +cdp.close();                                                   
+      74  proc.kill();
+      75  process.exit(0);
+
+● Now verify both actually work — shot.mjs is the quick one:
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● shot.mjs works end to end over the new client. Now browser2p.mjs:
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● CDP plumbing is fully working — both browsers drove (spd=267), console
+  collected, evaluate read the log back. But zero sync checkpoints, so the peers
+  never paired. Let me check whether that's environmental:
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Broker is reachable, so the pairing failure isn't network. Let me run the
+  documented 45s window:
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Exit 1 — it correctly reports the failure now rather than hanging. But zero
+  pairing with no netplay messages at all in the log, and both cars driving
+  freely (lockstep with no peer would stall them). Let me check the params still
+  exist:
+
+  Searched for 2 patterns, read 1 file, ran 2 shell commands (ctrl+o to expand)
+● The tool's report only keeps the last 6 lines, so the handshake messages
+  scrolled off — I can't tell whether netplay engaged. Let me fix that reporting
+  gap, since it's the thing the tool exists to show:
+
+● Update(web/tools/browser2p.mjs)
+  ⎿  Added 8 lines, removed 2 lines
+      81  const oks = sockets.map((c) => c.logs.filter((l) => /^sync ok/.
+          test(l)).length);
+      82  console.log(`sync-ok checkpoints: host ${oks[0]}, guest ${oks[1
+          ]}`);
+      83  console.log(`desyncs reported:    host ${desyncs[0]}, guest ${d
+          esyncs[1]}`);
+      84 +// The handshake happens in the first second and the fps readou
+         +t logs several                                                 
+      85 +// times a second, so a plain tail buries the one thing this to
+         +ol is for.                                                     
+      86 +// Report the netplay lines separately -- without them, "0 sync
+         + checkpoints"                                                  
+      87 +// cannot be told apart from "the two peers never paired at all
+         +".                                                             
+      88  for (const [i, c] of sockets.entries()) {
+      85 -  const interesting = c.logs.filter((l) => !/^sync ok/.test(l))
+         -.slice(-6);                                                    
+      86 -  console.log(`--- client ${i} log tail ---\n${interesting.join
+         -('\n')}`);                                                     
+      89 +  const net = c.logs.filter((l) => /room|join|racing|waiting|pe
+         +er|desync|error/i.test(l));                                    
+      90 +  console.log(`--- client ${i} netplay ---\n${net.join('\n') ||
+         + '(nothing -- never entered netplay)'}`);                      
+      91 +  const interesting = c.logs.filter((l) => !/^sync ok/.test(l) 
+         +&& !/fps/.test(l)).slice(-6);                                  
+      92 +  if (interesting.length) console.log(`--- client ${i} other --
+         +-\n${interesting.join('\n')}`);                                
+      93  }
+      94  sockets.forEach((c) => c.close());
+      95  procs.forEach((p) => p.kill());
+
+  Read 1 file, ran 1 shell command (ctrl+o to expand)
+
+● Found something important. Committing the tool fix first, as asked:
+  ⎿  Interrupted · What should Claude do instead?
+
+❯ were going to be redoing netplay with a different topology soon anyway.  is   
+  this worth it now?  one sen                                                   
+
+● No — skip it; the netCheck race only invalidates lockstep's own verification,
+  which dies with the topology change anyway, so just commit the tool fix and
+  note the hole in TASKS.md for whoever writes the state-sync checker.
+
+✻ Sautéed for 3s
+
+❯ ok do both                                                                    
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Now the TASKS.md note:
+
+● Update(TASKS.md)
+  ⎿  Added 16 lines
+      324          bit-identical across JS engines, and players will be o
+           n different ones.
+      325        - Acceptance: two independently built worlds tick 1000 t
+           imes to
+      326          bit-identical state, asserted in a test.
+      327 +- [!] **The browser-level sync check has never compared anythi
+          +ng, and reports                                               
+      328 +      that as success.** `netCheck()` (main.js) sends its hash
+          + for tick N and                                               
+      329 +      then reads `peerChecks.get(N)` *synchronously*. The peer
+          +'s hash for tick                                              
+      330 +      N is still crossing the network at that moment — two loc
+          +kstepped clients                                              
+      331 +      reach the same tick at nearly the same time — so `theirs
+          +` is essentially                                              
+      332 +      always `undefined`, the comparison is skipped, and nothi
+          +ng ever reads the                                             
+      333 +      entry once it lands: the only read is that one. So `brow
+          +ser2p.mjs`                                                    
+      334 +      reports "desyncs: 0" while performing zero checks. Verif
+          +ied 2026-08-05:                                               
+      335 +      both peers pair and race (host "racing Guest", guest "jo
+          +ined Host") for                                               
+      336 +      35s and produce 0 sync-ok checkpoints where ~5 were due.
+      337 +      **Deliberately not fixed** — it only invalidates lockste
+          +p's own                                                       
+      338 +      verification, and the topology is being replaced. **Whoe
+          +ver writes the                                                
+      339 +      state-sync checker must not reproduce the shape:** compa
+          +re on the tick                                                
+      340 +      whose hash has ARRIVED, not the tick you are on. Note th
+          +is does not                                                   
+      341 +      touch `netloop.mjs`'s 8000-tick result, which runs two n
+          +ode processes                                                 
+      342 +      and compares fields directly.                           
+      343  - [ ] **Reconsider lockstep before adding a 3rd player.** The 
+           original is
+      344        host-authoritative state sync: `UDPMistro.setinfo()` sen
+           ds inputs AND
+      345        absolute state per car per tick, and the host simulates 
+           the bots
+
+  Ran 3 shell commands (ctrl+o to expand)
+
+● Both done, tree clean, tests unchanged at 255/286 (the same 31 pre-existing
+  failures as before I started).
+
+  Commit 1 — 7a5dcc1 the frame-spike diagnostics and the CPU finding.
+
+  Commit 2 — 7a3bf31 the CDP port. browser2p.mjs and shot.mjs now use the
+  dependency-free client, plus two latent traps fixed along the way: the profile
+  dir was keyed on the port (a killed run left a lock, and the next launch
+  handed its URL to the dead session and never opened a port — same "no
+  devtools" symptom, different cause), and stderr went to a pipe nobody read,
+  which blocks chromium once the buffer fills.
+
+  Verified rather than assumed: shot.mjs drives a real page end to end, and
+  browser2p.mjs launches both browsers, completes the PeerJS handshake, drives
+  both cars, and exits non-zero on failure.
+
+  The TASKS.md note. Fixing the reporting is what exposed the hole. netCheck()
+  sends its hash for tick N then reads peerChecks.get(N) synchronously — but two
+  lockstepped clients reach the same tick at nearly the same moment, so the
+  peer's hash is still in flight, and nothing ever reads the entry once it lands
+  because that synchronous read is the only read. The check silently never
+  fires. I confirmed it: both peers pair and race for 35s and produce 0 sync-ok
+  checkpoints where ~5 were due, while reporting "desyncs: 0".
+
+  So browser2p.mjs has been reporting success without comparing anything. Marked
+  [!] under Netplay, explicitly not fixed, with the warning for whoever writes
+  the state-sync checker: compare on the tick whose hash has arrived, not the
+  tick you're on. I noted it doesn't touch netloop.mjs's 8000-tick result — that
+  runs two node processes and compares fields directly, so that evidence still
+  stands.
+
+  Two things still outstanding on your side:
+
+  - The CPU governor — nothing above changes it, and every fps number in this
+  session was measured at 798 MHz. ! sudo cpupower frequency-set -g schedutil.
+  - ./deploy.sh was blocked by the permission classifier, so the ?music=0 change
+  and the spike instrumentation are local only.
+
+✻ Brewed for 1m 8s

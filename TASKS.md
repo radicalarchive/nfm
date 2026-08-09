@@ -191,12 +191,25 @@ fixed and verified, one is diagnosed and mitigated, one is measured and open.
       which the launcher shows to the player — and since connection status is
       now sticky, a raw library error sat on screen at the moment of pressing
       Host. Warnings go to `console.warn` now.
-- [~] **The game list is unreliable.** Partly the public trackers, but mostly
-      ours: `Directory` never called `requestMorePeers()`, so it learned about
-      new hosts only when a tracker re-announced on its own schedule, which is
-      often a minute or more. It now asks every 5s alongside the re-announce.
-      **Not yet confirmed in real use** — worth watching, and if it is still
-      flaky the next suspect is tracker reachability rather than the protocol.
+- [x] **The game list is unreliable, and joining took ~30s.** Root cause found
+      and it was one bug wearing two faces. p2pt's `setIdentifier()` is async
+      and unawaited, so the SECOND swarm in a page announces with no
+      `info_hash`; the tracker rejects that with a message carrying no `action`
+      field, and bittorrent-tracker treats an unrecognised action as a socket
+      error — `destroy()` plus a 10s + up-to-300s backoff. Sockets are pooled
+      per tracker URL across every p2pt in the page, so opening a room took the
+      DIRECTORY down with it. That is what the "invalid action in WS response:
+      undefined" warning was; it was written off as tracker noise.
+      Fixed structurally rather than patched: **one swarm** (`nfm-v1`), a room
+      is a label in the frame (`[tag][len][room]`), and joining a listed game
+      is a message to a peer already connected. The second p2pt instance, the
+      pooled-socket collision, `requestMorePeers()` polling and
+      `JOIN_TIMEOUT_MS` on the listed path are all gone.
+      **Measured** (`browserlobby.mjs`): join **31.5s -> 0.6s**, hosting local,
+      and `browsern.mjs 25 3` still pairs three browsers by code, races and
+      chats guest-to-guest. `Mesh.lock()` bounds the mesh at race start by
+      dropping every peer outside the room. **Measured with 2-3 peers only** —
+      the mesh cost at 20 is unknown.
 - [ ] **First load takes ~10s of CPU, and this machine makes it ~13s.**
       Measured per phase in a browser (`ready` is before the previews draw):
       import modules 0.9s · `initPreview` (loadbase parsing models.zip) 2.8s ·
@@ -209,6 +222,82 @@ fixed and verified, one is diagnosed and mitigated, one is measured and open.
       again** (`intel_pstate` passive + `powersave`, the trap in WORK.md), so
       every figure here is up to 3.6x pessimistic. Check the clock before
       optimising any of it.
+
+## Multiplayer race lifecycle (2026-08-06)
+
+Walked the whole lifecycle after two bugs were reported, rather than fixing the
+two. The seam work below is done. **The rules INSIDE the race are not, and are
+not to be hand-patched further** — see the porting job at the end of this
+section, which is the next piece of netplay work.
+
+Done, all of it on our side of the seam and none of it superseded by the port:
+
+- [x] **A netplay race ran at `fase = 0`** — the game believed it was single
+      player, so every `fase === 7001` branch of `stat()` was dead code. That
+      was both reported bugs at once (the wasted announcer read out CAR names;
+      a wasted player was dropped back to the launcher instead of spectating).
+      `main.js` now sets `fase`/`lan`, which is the wiring the ported branches
+      need in order to run at all.
+- [x] **Nothing handled a disconnect anywhere** — `NetPeer.onClose` was
+      assigned by no one. A guest that closed its tab stayed on the roster and
+      was seated into the race; mid-race its car dead-reckoned forever, never
+      became `dest`, and an "everyone else is wasted" race could never end.
+      Handled in the lobby (roster, host-gone) and in the race (`playerGone`
+      wastes the car and sets the original's `dested = 3`).
+- [x] **A departing player takes the cars they OWNED with them.** The host owns
+      the bots, so a host leaving stranded one car per bot — nobody transmits
+      them, so they never get wasted and the survivors' race cannot end. There
+      is no host migration to hand them to, so they are wasted too.
+- [x] **Leaving is no longer a disconnect**, because one swarm means the peer
+      connection outlives both the lobby and the race — so quitting SAYS so
+      (`{t:'bye'}`) in both, and `NetPeer.flush()` gets the goodbye out before
+      the page reloads.
+- [x] **The race start was not gated on both worlds existing.** Each client
+      loads its own assets after the lobby says go, so the faster machine ran
+      the countdown alone and raced into a car still parsing zips.
+      `waitForEveryone()` barriers on a `ready` broadcast, with a timeout so
+      one broken load cannot strand everyone.
+- [x] **A race returns to the ROOM, not the main menu.** The reload stays (see
+      WORK.md), and the room survives it in `sessionStorage`; the host reopens
+      the same code and guests re-`find` it, which is affordable only because a
+      join is now a message.
+- [x] `pos` was transmitted and dropped on receipt; the received `holdit` is
+      now recorded, and separates "quiet because they finished" from "quiet
+      because the network broke".
+- [~] **Escape leaves a race** (`main.js`, marked INTERIM at the call site).
+      At fase 7001 the quit path defers to `exitm`'s confirm menu, which is in
+      the unported `multistat()`, so without this there is no way out of a
+      networked race at all. **Delete it when `multistat()` lands.**
+
+### [ ] Port the multiplayer race lifecycle — the next netplay job
+
+Every bug found by playing this session was a branch of the original that is
+not ported, and each was hand-patched one report at a time. Three deviations
+inside the transcription were written and then **reverted deliberately**, so
+that this port starts from an unmodified `XtGraphics`/`Mad`:
+
+- `XtGraphics:936`'s `im != 0` term, which ejects a wasted GUEST after 1200
+  ticks while the host spectates indefinitely. Reverted to the Java.
+- A `colme` per-car timer added to attribute kills: `Mad.lastcolido` is set by
+  a collision with ANY human, so `dested == 2` means "a person hit them
+  recently" and every client claimed every human's kill ("You wasted Player 2"
+  when the AI did it). The original carries attribution over the wire instead
+  (`multion >= 2` prints `plnames[im] wasted plnames[n9]`); that is what to
+  port. Reverted.
+- Escape-to-leave, kept for now as above because reverting it makes netplay
+  unexitable.
+
+**Scope: the race only.** Port `multistat()` and the 11 `multion`/`lan`
+branches of `stat()` marked `// TODO not ported:`, plus the multiplayer arms of
+`GameSparker`'s race loop. **Not** `UDPMistro`/`udpServe`/`udpOnline` — that is
+DatagramSocket plumbing with no browser analogue, and the part of it that is
+game logic (`setinfo`/`readinfo`) is already transcribed in `netcodec.js`.
+**Not** the lobby or menu screens either: the launcher replaces them
+deliberately, and the Java's are mouse-driven applet UI.
+
+Follow `decompilation/PORT_SPEC.md`'s "Calibrate before batching". The wiring
+these branches need already exists — `fase`/`lan`, `plnames`, `humans`,
+`isbot`, `dested = 3` on disconnect — so this is transcription, not design.
 
 ## Rendering / correctness
 
@@ -355,10 +444,11 @@ Decided 2026-08-02, nothing built yet. Static hosting only (GitHub Pages), so
 there is no backend of ours anywhere in this design.
 
 - **Transport:** p2pt over public WebTorrent WebSocket trackers (swapped from
-  PeerJS 2026-08-06), one reliable/ordered DataChannel per peer. A room is a
-  tracker IDENTIFIER, so peers discover each other instead of resolving an id
-  someone already knows — which is what makes a game browser possible at all.
-  Full mesh: every peer talks to every other, and there is no relay.
+  PeerJS 2026-08-06), one reliable/ordered DataChannel per peer. **One swarm**
+  (`nfm-v1`) that every client announces on; a room is a LABEL carried in the
+  frame, not an identifier of its own, so joining a game you can see costs no
+  network at all. Full mesh: every peer talks to every other, and there is no
+  relay.
 - **Sync:** lockstep with a fixed input delay. Rollback is wanted later, so
   keep the world's snapshot/restore path (`main.js`'s `capture`/`restore`)
   general rather than assuming inputs never need re-simulating.

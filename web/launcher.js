@@ -336,7 +336,7 @@ async function startRace(session) {
   if (racing) return;
   racing = true;
   stopSpin();
-  stopBrowsing();
+  stopBrowsing({ force: true });
   document.body.dataset.page = 'race';
   fitStage();
   $('log').textContent = 'loading…';
@@ -379,11 +379,12 @@ async function startBrowsing() {
   paintGames(directory.list());
 }
 
-function stopBrowsing() {
+function stopBrowsing({ force = false } = {}) {
   // The directory is kept alive while hosting: the whole point of the listing
   // is that other people can still see the room after we stop looking at the
-  // list ourselves.
-  if (!directory || lobby?.isHost) return;
+  // list ourselves. A race is the exception -- the room is not open any more,
+  // and `lock()` has already dropped everyone we could have told.
+  if (!directory || (lobby?.isHost && !force)) return;
   directory.stop();
   directory = null;
 }
@@ -435,6 +436,13 @@ function enterLobby(isHost, code) {
   $('lobby-name').textContent = isHost ? `${S.name || 'your'}'s game` : `room ${code}`;
   lobby.onRoster = () => { syncFromLobby(); paintLobby(); announceRoom(); };
   lobby.onChat = () => paintLobby();
+  // The host closing its tab is the one departure a guest cannot sit through:
+  // nobody else can seat players or start the race, so say so and go back to
+  // the list rather than leave them looking at a lobby that will never move.
+  lobby.onHostGone = () => {
+    leaveLobby();
+    say('the host left the game');
+  };
   lobby.ready.then((cfg) => startRace({ net, cfg }));
   syncFromLobby();
   goPage('lobby');
@@ -487,12 +495,15 @@ function paintLobby() {
   log.scrollTop = log.scrollHeight;
 }
 
-async function hostGame() {
+async function hostGame(reuseCode = null) {
   if (!S.name) { say('give yourself a name first'); return; }
-  const code = makeRoomCode();
-  say(`opening room ${code} — this can take a few seconds…`, true);
+  // A rematch reopens the SAME code, so guests coming back from the race find
+  // the room they left rather than a new one.
+  const code = reuseCode || makeRoomCode();
   net = new NetPeer({ onStatus: (m) => say(m, true) });
   try {
+    // Local: opening a room is registering a label, not a rendezvous. The only
+    // wait is joining the swarm, which the multiplayer screen already did.
     await net.openRoom(code);
   } catch (e) {
     net = null;
@@ -511,10 +522,14 @@ async function hostGame() {
 
 async function joinGame(code) {
   if (!S.name) { say('give yourself a name first'); return; }
-  say(`looking for room ${code} — this can take a few seconds…`, true);
+  // A game we can see in the list is a peer we are already connected to, so
+  // joining it is a message and completes immediately. A typed code has to be
+  // asked about, which is the only part of joining that waits for anything.
+  const host = directory?.games.get(code)?.from || null;
+  if (!host) say(`looking for room ${code}…`, true);
   net = new NetPeer({ onStatus: (m) => say(m, true) });
   try {
-    await net.join(code);
+    await net.join(code, host);
   } catch (e) {
     net = null;
     say(e.message);
@@ -527,6 +542,7 @@ async function joinGame(code) {
 
 function leaveLobby() {
   directory?.withdraw();
+  lobby?.leave();
   lobby = null;
   try { net?.close(); } catch { /* already gone */ }
   net = null;
@@ -630,6 +646,34 @@ document.addEventListener('click', (e) => {
   else fire();
 });
 
+/**
+ * Come back to the room after a race.
+ *
+ * The race ends by reloading this page — `boot()` installs input listeners, an
+ * rAF loop, an audio graph and a music mixer, and unwinding all of that by
+ * hand would be teardown nobody ever exercises — so the room survives as a
+ * note in sessionStorage and is re-entered here. The host reopens the same
+ * code and the guests ask for it again; on one swarm that is a message and a
+ * `find`, not a rendezvous, which is what makes this cheap enough to do.
+ *
+ * Read once and cleared immediately: a reload that fails to rejoin must land
+ * you on the menu, not in a loop trying to re-enter a room nobody is hosting.
+ */
+async function resumeRoom() {
+  let back = null;
+  try {
+    back = JSON.parse(sessionStorage.getItem('nfm.rejoin') || 'null');
+    sessionStorage.removeItem('nfm.rejoin');
+  } catch { return; }
+  if (!back?.code) return;
+  if (back.stage) S.stage = back.stage;
+  if (back.players) S.players = back.players;
+  goPage('mp');
+  await startBrowsing();
+  if (back.isHost) await hostGame(back.code);
+  else await joinGame(back.code);
+}
+
 /* ---- boot ---------------------------------------------------------------- */
 (async () => {
   $('brandsub').textContent = 'loading…';
@@ -654,6 +698,7 @@ document.addEventListener('click', (e) => {
     onCarChanged();
     await onStageChanged();
     draw();
+    await resumeRoom();
   } catch (e) {
     $('brandsub').textContent = 'failed to load game data';
     say(e.message);

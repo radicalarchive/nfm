@@ -97,8 +97,13 @@ export function captureCar(slot, { mad, contO, control, holdit = false, pos = 0,
  * above this layer; doing it here would mean the simulation and the wire
  * disagree about where a car is, which is the bug state sync exists to avoid.
  */
-export function applyCar(rec, { mad, contO, control }) {
-  const dst = { mad, contO, control, holdit: {} };
+export function applyCar(rec, { mad, contO, control, holdit = {} }) {
+  // `holdit` is the sender's own pause/end-screen flag, not this car's
+  // simulation state, so it goes to a sink the caller supplies rather than
+  // onto `mad`. Pass one to learn that a player has reached their end screen;
+  // omit it and it is discarded, which is what every caller did before the
+  // race-end handling needed to know who was still driving.
+  const dst = { mad, contO, control, holdit };
   for (let i = 0; i < FLAGS.length; i++) {
     const [on, f] = FLAGS[i];
     if (dst[on]) dst[on][f] = (rec.flags & (1 << i)) !== 0;
