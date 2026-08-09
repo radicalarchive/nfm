@@ -274,9 +274,26 @@ function onCarChanged() {
   if (lobby) lobby.setCar(car.slot);
 }
 
-let stageToken = 0;
-async function onStageChanged() {
+/**
+ * A stage changed: the name and the lobby update now, the picture shortly.
+ *
+ * A preview costs a real `loadstage` plus a renderer pass, and preview.js runs
+ * them one at a time, so holding a key down queued one build per stage passed
+ * and the picture arrived several stages behind the player. Only the stage
+ * they come to rest on is worth building; the wait is short enough that a
+ * single keypress still feels immediate.
+ */
+let stageTimer = 0;
+function onStageChanged() {
   paintValues();
+  if (lobby) onLobbyEdit();
+  clearTimeout(stageTimer);
+  stageTimer = setTimeout(drawStagePreview, 130);
+  $('page-sp').querySelector('.thumb-map').classList.add('busy');
+}
+
+let stageToken = 0;
+async function drawStagePreview() {
   const n = S.stage;
   const mine = ++stageToken;
   const meta = $('page-sp').querySelector('[data-meta="stage"]');
@@ -295,7 +312,9 @@ async function onStageChanged() {
   } catch {
     if (meta) meta.textContent = 'could not load this stage';
   }
-  if (lobby) onLobbyEdit();
+  if (mine === stageToken) {
+    $('page-sp').querySelector('.thumb-map').classList.remove('busy');
+  }
 }
 
 /* ---- the race ------------------------------------------------------------
@@ -556,7 +575,6 @@ function fire() {
   if (!el || el.classList.contains('off')) return;
   const act = el.dataset.act;
   if (!act) return;                  // value rows: left/right is the whole thing
-  el.classList.remove('fired'); void el.offsetWidth; el.classList.add('fired');
   const [cmd, arg] = act.split(':');
   switch (cmd) {
     case 'menu':
@@ -696,7 +714,7 @@ async function resumeRoom() {
     $('brandsub').textContent = 'press enter to race';
     paintValues();
     onCarChanged();
-    await onStageChanged();
+    await drawStagePreview();
     draw();
     await resumeRoom();
   } catch (e) {

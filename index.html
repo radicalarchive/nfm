@@ -100,8 +100,6 @@ body[data-page="set"]   #page-set   { display: flex; }
 }
 @keyframes slabStrobe { 0% { border-color: var(--hi); } 100% { border-color: #ff3b00; } }
 @keyframes hazard { from { transform: translateY(0); } to { transform: translateY(-22.627px); } }
-.item.fired { animation: fired .18s steps(2) 2 !important; }
-@keyframes fired { 50% { filter: invert(1); } }
 .item.off { opacity: .45; cursor: default; }
 
 /* ---- shared page furniture ------------------------------------------ */
@@ -138,6 +136,14 @@ body[data-page="set"]   #page-set   { display: flex; }
 .thumb { flex: none; width: 12rem; aspect-ratio: 16 / 9; align-self: center;
          position: relative; overflow: hidden; border: 3px solid var(--ink); background: #0b0d13; }
 .thumb canvas { position: absolute; display: block; }
+/* `display: block` above outranks the UA rule behind the `hidden` attribute --
+   a class plus a type beats an attribute -- so the flat fallback map stayed
+   visible on top of the 3D one for every stage after the one that drew it. */
+.thumb canvas[hidden] { display: none; }
+/* A build takes long enough to see, and the frame still holds the LAST stage
+   while it runs. Dimming says so, rather than letting the old map read as the
+   new one's answer. */
+.thumb.busy canvas { opacity: .3; }
 /* The car lands at (402, 264) in the game's 800x450 projection space, and that
    space is ABSOLUTE -- the projection centre and focus point are screen
    coordinates, so moving the camera would stop showing what the game's own
@@ -242,7 +248,7 @@ body[data-page="race"] #log { display: block; }
 
 @media (prefers-reduced-motion: reduce) {
   /* every selection stays READABLE; it just stops flashing */
-  .item.is-sel, .item.is-sel::before, .is-sel .ar, .item.fired, #bg::before {
+  .item.is-sel, .item.is-sel::before, .is-sel .ar, #bg::before {
     animation: none !important;
   }
 }
@@ -280,11 +286,17 @@ body[data-page="race"] #log { display: block; }
         <b class="ar r solo">▸</b>
       </li>
       <li class="item pane" data-row="stage">
+        <!-- The thumbnail is 12rem wide -- 192 CSS px -- so a 384x216 backing
+             store covers a HiDPI display. This view is fill-bound: the camera
+             looks straight down at a stage that fills the frame and there is
+             no depth buffer, so every triangle is rasterised whether or not
+             something later covers it, and the 1600x900 this replaced was
+             shading nine times the pixels the frame can show. -->
         <span class="thumb thumb-map">
-          <canvas id="mapview" width="1600" height="900"></canvas>
+          <canvas id="mapview" width="384" height="216"></canvas>
           <!-- A canvas keeps one context type for life, so the flat fallback
                map needs its own element rather than a 2D context on the GL one. -->
-          <canvas id="mapflat" width="800" height="450" hidden></canvas>
+          <canvas id="mapflat" width="384" height="216" hidden></canvas>
         </span>
         <span class="pbody">
           <span class="ptitle">Stage</span>

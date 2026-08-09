@@ -170,6 +170,12 @@ export class Graphics2D {
     gl.vertexAttribPointer(aColor, 4, gl.UNSIGNED_BYTE, true, BYTES_PER_VERT, 8);
     gl.bindVertexArray(null);
 
+    // The race never needs this: the backdrop repaints every pixel each frame,
+    // and with preserveDrawingBuffer off the browser empties the buffer after
+    // it composites anyway. A surface that is read back instead of composited
+    // gets neither, so it asks for the clear explicitly.
+    this.clearFrames = !!opts.clear;
+
     gl.disable(gl.DEPTH_TEST);
     gl.disable(gl.CULL_FACE);
     gl.enable(gl.BLEND);
@@ -587,6 +593,12 @@ export class Graphics2D {
     const gl = this.gl;
     if (!gl) return;
     gl.viewport(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight);
+    // Ahead of the empty-frame return, so a frame that draws nothing leaves an
+    // empty surface rather than the last frame's picture.
+    if (this.clearFrames) {
+      gl.clearColor(0, 0, 0, 1);
+      gl.clear(gl.COLOR_BUFFER_BIT);
+    }
     if (this.count === 0) return;
 
     gl.useProgram(this.program);

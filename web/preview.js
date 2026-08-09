@@ -19,7 +19,7 @@ import { Mad } from './Mad.js';
 import { GameSparker, CAR_NAMES, TRACK_NAMES } from './GameSparker.js';
 import { XtGraphics } from './XtGraphics.js';
 import { ContO } from './ContO.js';
-import { objArray, setSeed } from './java.js';
+import { objArray, setSeed, idiv } from './java.js';
 import { readZip, readText, detectFpath } from './vfs.js';
 import { loadIntoCarDefine } from './carstore.js';
 
@@ -287,13 +287,53 @@ export function loadStage(n) {
   return run;
 }
 
+/**
+ * Run `fn` with the scenery generators stubbed out.
+ *
+ * The last thing loadstage does is generate ground blobs, clouds, mountains
+ * and stars (GameSparker.js:303-306). Every one of them is read back only by
+ * `Medium.d`, and drawStage3D stubs `Medium.d` out -- pointed straight down it
+ * fills the frame with sky -- so the preview was building all of that scenery
+ * and drawing none of it. Profiled at 176ms of the 198ms a preview cost, with
+ * newpolys alone a third of the total.
+ *
+ * newpolys has to leave `nrw` and `ncl` behind even so: loadstage reads them
+ * back to reject a stage whose ground grid is too large.
+ */
+function withoutBackdrop(medium, fn) {
+  const saved = { d: medium.newpolys, c: medium.newclouds,
+                  m: medium.newmountains, s: medium.newstars };
+  medium.newpolys = function (n, n2, n3, n4) {
+    this.nrw = idiv(n2, 1200) + 9;
+    this.ncl = idiv(n4, 1200) + 9;
+    this.sgpx = n - 4800;
+    this.sgpz = n3 - 4800;
+  };
+  medium.newclouds = () => {};
+  medium.newmountains = () => {};
+  medium.newstars = () => {};
+  try {
+    return fn();
+  } finally {
+    medium.newpolys = saved.d;
+    medium.newclouds = saved.c;
+    medium.newmountains = saved.m;
+    medium.newstars = saved.s;
+  }
+}
+
 async function buildStage(n) {
   const { medium, trackers, checkPoints, models, gs, xt, record, placed, mads } = world;
 
   const text = await readText(`stages/${n}.txt`);   // vfs caches the fetch
   checkPoints.stage = n;
-  xt.nplayers = 7;
-  gs.loadstage(placed, models, medium, trackers, checkPoints, xt, mads, record, text);
+  // One car on the grid rather than a full field. loadstage builds a real
+  // ContO per player and cars are the heaviest models in the game, while at
+  // map scale they are specks -- the flat map filters them out entirely.
+  // Worth about 25ms of the ~200ms a preview used to cost.
+  xt.nplayers = 1;
+  withoutBackdrop(medium, () =>
+    gs.loadstage(placed, models, medium, trackers, checkPoints, xt, mads, record, text));
   if (checkPoints.stage === -3) throw new Error(`stage ${n} failed to load`);
 
   if (stageMeta.has(n)) return stageMeta.get(n);
@@ -376,7 +416,11 @@ export function drawStage3D(canvas, stage) {
     const overlay = document.createElement('canvas');
     overlay.width = canvas.width;
     overlay.height = canvas.height;
-    canvas._rd = new Graphics2D(canvas, overlay, 800, 450);
+    // `clear: true` because this canvas spends time hidden, for the stages
+    // that fall back to the flat map. A hidden canvas is never composited, so
+    // the browser never empties its colour buffer either, and the next stage
+    // drew on top of the last one -- two maps superimposed.
+    canvas._rd = new Graphics2D(canvas, overlay, 800, 450, { clear: true });
   }
   const rd = canvas._rd;
 
@@ -470,7 +514,11 @@ export function drawMinimap(canvas, stage) {
     if (o.z - o.r < minZ) minZ = o.z - o.r;
     if (o.z + o.r > maxZ) maxZ = o.z + o.r;
   }
-  const pad = 12;
+  // The fixed sizes below -- padding, the floor on a tile, the start dot --
+  // are all in the 800-wide space they were chosen in, so they scale with the
+  // backing store rather than growing as it shrinks.
+  const k = W / 800;
+  const pad = 12 * k;
   const scale = Math.min((W - pad * 2) / Math.max(1, maxX - minX),
                          (H - pad * 2) / Math.max(1, maxZ - minZ));
   // z grows away from the camera in world space; up on the map reads better.
@@ -482,7 +530,7 @@ export function drawMinimap(canvas, stage) {
   // route reads as one path rather than a dotted line; scenery is drawn at
   // its true size, where separate dots are correct.
   const draw = (o, fill, spread = 1.41) => {
-    const s = Math.max(2, o.r * scale * spread);
+    const s = Math.max(2 * k, o.r * scale * spread);
     ctx.fillStyle = fill;
     ctx.fillRect(px(o.x) - s / 2, py(o.z) - s / 2, s, s);
   };
@@ -495,6 +543,6 @@ export function drawMinimap(canvas, stage) {
 
   ctx.fillStyle = '#6cf';
   ctx.beginPath();
-  ctx.arc(px(stage.start.x), py(stage.start.z), 4.5, 0, Math.PI * 2);
+  ctx.arc(px(stage.start.x), py(stage.start.z), 4.5 * k, 0, Math.PI * 2);
   ctx.fill();
 }
