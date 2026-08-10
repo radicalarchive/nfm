@@ -33,7 +33,8 @@ const STAGE_COUNT = 32;
 const STORE_KEY = 'nfm.launcher';
 const DEFAULTS = {
   name: '', car: 'Formula 7', stage: 1, players: 7, opponents: 'stage',
-  sfxvol: 100, musicvol: 100, res: 2, interp: true, visibility: 'public',
+  sfxvol: 100, musicvol: 100, res: 2, interp: true, ghost: false,
+  visibility: 'public',
 };
 let S = { ...DEFAULTS };
 try { S = { ...S, ...JSON.parse(localStorage.getItem(STORE_KEY) || '{}') }; } catch { /* first run */ }
@@ -103,13 +104,25 @@ const V = {
     set: (i) => { S.interp = !!i; save(); },
     text: () => (S.interp ? 'on — display rate' : 'off — 18.9 fps'),
   },
+  // Recording the replay clones every car's model six times a cycle, which is
+  // the game's largest source of garbage by a wide margin and shows up as a
+  // whole second of stutter when the collection lands. Off by default: the
+  // replay viewer is not ported yet, so nothing can play back what it costs
+  // so much to keep.
+  ghost: {
+    list: () => [false, true],
+    get: () => (S.ghost ? 1 : 0),
+    set: (i) => { S.ghost = !!i; save(); },
+    text: () => (S.ghost ? 'on' : 'off — smoother'),
+  },
 };
 
 /* ---- pages -------------------------------------------------------------- */
 const MENU = ['Single Player', 'Multiplayer', 'Car Maker', 'Settings'];
 const OPT_ROWS = [['players', 'Cars on track'], ['opponents', 'Opponents']];
 const SET_ROWS = [['sfxvol', 'Sound'], ['musicvol', 'Music'],
-                  ['res', 'Resolution'], ['interp', 'Smooth frames']];
+                  ['res', 'Resolution'], ['interp', 'Smooth frames'],
+                  ['ghost', 'Replay recording']];
 
 const valueBits = (k) =>
   `<span class="pvalue"><b class="ar l">◂</b><span class="val" data-val="${k}"></span><b class="ar r">▸</b></span>`;
@@ -332,6 +345,7 @@ function raceParams(extra = {}) {
   p.set('musicvol', String(S.musicvol));
   p.set('res', String(S.res));
   if (!S.interp) p.set('interp', '0');
+  if (!S.ghost) p.set('ghost', '0');
   for (const [k, v] of Object.entries(extra)) p.set(k, String(v));
   return p;
 }

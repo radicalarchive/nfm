@@ -29,6 +29,21 @@ const EXTRA = process.argv[3] ? '&' + process.argv[3] : '';
 const PORT = 9223;
 const URL = `http://localhost:8123/web/main.html?players=8&stats=1&spike=100${EXTRA}`;
 
+// Which key to hold. Default is accelerate, and that turns out NOT to be a
+// representative scene: the player's car gets shunted off the grid and spun
+// around, so the other cars spend most of the run off screen -- and the other
+// cars are what the shadow pass and most of the object loop cost. NFM_KEY=none
+// stays on the grid with the pack in view; that is the condition to measure a
+// draw cost in.
+const KEYS = {
+  up: { windowsVirtualKeyCode: 38, code: 'ArrowUp', key: 'ArrowUp' },
+  down: { windowsVirtualKeyCode: 40, code: 'ArrowDown', key: 'ArrowDown' },
+  left: { windowsVirtualKeyCode: 37, code: 'ArrowLeft', key: 'ArrowLeft' },
+  right: { windowsVirtualKeyCode: 39, code: 'ArrowRight', key: 'ArrowRight' },
+  none: null,
+};
+const KEY = KEYS[process.env.NFM_KEY || 'up'];
+
 // --- machine state ---------------------------------------------------------
 
 function readNum(path) {
@@ -84,6 +99,14 @@ const browser = spawn('chromium', [
   // renders, so the mixer cost this tool exists to measure is preserved.
   '--autoplay-policy=no-user-gesture-required', '--mute-audio',
   '--window-size=900,560',
+  // performance.memory exists without this, but quantised and rate-limited
+  // hard enough that a single frame's collection can round away entirely.
+  '--enable-precise-memory-info',
+  // Extra chromium flags for a one-off investigation, e.g.
+  // NFM_CHROME_FLAGS='--js-flags=--trace-gc' to put GC pauses on the same
+  // timeline as the spikes. They land in /tmp/nfm-spike.err with the rest of
+  // chromium's stderr.
+  ...(process.env.NFM_CHROME_FLAGS || '').split(' ').filter(Boolean),
   URL,
 ], { stdio: ['ignore', 'ignore', openSync('/tmp/nfm-spike.err', 'w')], detached: true });
 browser.unref();
@@ -124,9 +147,7 @@ while (Date.now() - t0 < SECONDS * 1000) {
   // The input listeners are not installed until the assets finish loading, so
   // a key dispatched at navigation is lost. Re-assert it every second, the
   // same reason browsern.mjs does.
-  await cdp.send('Input.dispatchKeyEvent', {
-    type: 'keyDown', windowsVirtualKeyCode: 38, code: 'ArrowUp', key: 'ArrowUp',
-  });
+  if (KEY) await cdp.send('Input.dispatchKeyEvent', { type: 'keyDown', ...KEY });
   samples.push({ t: (Date.now() - t0) / 1000, ...machine() });
   await sleep(1000);
 }

@@ -35,7 +35,18 @@ function float2(a, b) {
   return o;
 }
 
+// `?facesort=rank` restores the Java's O(npl^2) rank-count face ordering. The
+// stable sort that replaced it produces the identical permutation -- see
+// #faceOrder -- so this exists to A/B the cost, not to choose an order.
+let FACE_SORT_RANK = false;
+export function setFaceSortRank(v) { FACE_SORT_RANK = !!v; }
+
 export class ContO {
+  // Reused across frames: one index array per object, sorted in place. The
+  // permutation is recomputed from scratch every frame; only the storage is
+  // kept, and it is never read before being refilled.
+  #order = null;
+
   constructor(arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8) {
     this.npl = 0;
     this.x = 0;
@@ -1191,6 +1202,51 @@ export class ContO {
     ++t3.nt;
   }
 
+  /**
+   * The painter's-algorithm order for this object's own faces: farthest `av`
+   * first, ties keeping their original index order.
+   *
+   * The Java computes it as a rank count -- for every PAIR of faces, increment
+   * the rank of whichever is nearer -- which is O(npl^2) and, on a ~100-face
+   * car at 18.9 ticks a second, was 58.6% of `ContO.d` and ~12% of the whole
+   * frame. This is the identical permutation from a stable sort.
+   *
+   * The equivalence, since the ordering IS the depth buffer here and getting
+   * it wrong draws cars through walls: a face's rank in the original is the
+   * number of faces with strictly greater `av`, plus the number with equal
+   * `av` and a lower index (the `n11 > n12` arm can never fire, because the
+   * inner loop starts at `n11 + 1`, so every tie increments the LATER index).
+   * That is exactly a stable descending sort by `av`, and Array#sort has been
+   * stable by specification since ES2019.
+   *
+   * `?facesort=rank` restores the original loop, so the two can be compared
+   * without a rebuild.
+   */
+  #faceOrder() {
+    const order = this.#order && this.#order.length === this.npl
+      ? this.#order : (this.#order = new Array(this.npl));
+    for (let i = 0; i < this.npl; ++i) order[i] = i;
+    if (FACE_SORT_RANK) {
+      const rank = intArray(this.npl);
+      const out = intArray(this.npl);
+      for (let a = 0; a < this.npl; ++a) {
+        for (let b = a + 1; b < this.npl; ++b) {
+          if (this.p[a].av !== this.p[b].av) {
+            if (this.p[a].av < this.p[b].av) ++rank[a];
+            else ++rank[b];
+          } else {
+            ++rank[b];
+          }
+        }
+        out[rank[a]] = a;
+      }
+      return out;
+    }
+    const p = this.p;
+    order.sort((a, b) => p[b].av - p[a].av);
+    return order;
+  }
+
   d(graphics2D) {
     ++graphics2D.objCalls;        // scene-shape counter; see graphics.js
     if (this.dist !== 0) {
@@ -1277,35 +1333,7 @@ export class ContO {
           }
           this.dsprk(graphics2D, true);
         }
-        const array = intArray(this.npl);
-        const array2 = intArray(this.npl);
-        for (let n10 = 0; n10 < this.npl; ++n10) {
-          array[n10] = 0;
-        }
-        for (let n11 = 0; n11 < this.npl; ++n11) {
-          for (let n12 = n11 + 1; n12 < this.npl; ++n12) {
-            if (this.p[n11].av !== this.p[n12].av) {
-              if (this.p[n11].av < this.p[n12].av) {
-                const array3 = array;
-                const n13 = n11;
-                ++array3[n13];
-              } else {
-                const array4 = array;
-                const n14 = n12;
-                ++array4[n14];
-              }
-            } else if (n11 > n12) {
-              const array5 = array;
-              const n15 = n11;
-              ++array5[n15];
-            } else {
-              const array6 = array;
-              const n16 = n12;
-              ++array6[n16];
-            }
-          }
-          array2[array[n11]] = n11;
-        }
+        const array2 = this.#faceOrder();
         for (let n17 = 0; n17 < this.npl; ++n17) {
           this.p[array2[n17]].d(graphics2D, this.x - this.m.x, this.y - this.m.y, this.z - this.m.z, this.xz, this.xy, this.zy, this.wxz, this.wzy, this.noline, n4);
         }

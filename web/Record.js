@@ -35,6 +35,16 @@ function bool2(a, b) {
 
 export class Record {
   constructor(m) {
+    // Whether to keep the ghost buffer: the car MODELS behind the instant
+    // replay, as opposed to the pose tracks, which are plain number arrays and
+    // are always kept. Copy-constructing a ContO clones one Plane per face
+    // with several typed arrays inside each, and this one call site is ~74% of
+    // everything the game allocates -- ~5MB/s, enough to grow the heap to
+    // 150MB during a race and stall a whole second on the collection that
+    // follows. Nothing in the port reads these back yet: the replay viewer is
+    // in the unported xtGraphics menus, so today the buffer is pure cost.
+    // Turned off by the launcher's Replays setting and by ?ghost=0.
+    this.ghosts = true;
     this.caught = 0;
     this.hcaught = false;
     this.prepit = true;
@@ -180,7 +190,7 @@ export class Record {
     if (this.caught >= 300) {
       this.wasted = wasted;
       for (let i = 0; i < 8; ++i) {
-        this.starcar[i] = new ContO(this.car[0][i], 0, 0, 0, 0);
+        if (this.ghosts) this.starcar[i] = new ContO(this.car[0][i], 0, 0, 0, 0);
         this.hsquash[i] = this.squash[0][i];
         this.hfix[i] = this.fix[i];
         this.hdest[i] = this.dest[i];
@@ -249,10 +259,10 @@ export class Record {
     }
     if (this.cntf === 50) {
       for (let i = 0; i < 5; ++i) {
-        this.car[i][n] = new ContO(this.car[i + 1][n], 0, 0, 0, 0);
+        if (this.ghosts) this.car[i][n] = new ContO(this.car[i + 1][n], 0, 0, 0, 0);
         this.squash[i][n] = this.squash[i + 1][n];
       }
-      this.car[5][n] = new ContO(contO, 0, 0, 0, 0);
+      if (this.ghosts) this.car[5][n] = new ContO(contO, 0, 0, 0, 0);
       this.squash[5][n] = n2;
       this.cntf = 0;
     } else {

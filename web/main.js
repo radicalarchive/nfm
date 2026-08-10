@@ -15,9 +15,11 @@ import { Record } from './Record.js';
 import { CarDefine } from './CarDefine.js';
 import { Mad } from './Mad.js';
 import { GameSparker } from './GameSparker.js';
+import { setFaceSortRank } from './ContO.js';
+import { Plane } from './Plane.js';
 import { XtGraphics } from './XtGraphics.js';
 import { loadIntoCarDefine } from './carstore.js';
-import { objArray, setSeed, setPooling } from './java.js';
+import { objArray, setSeed } from './java.js';
 import { readZip, readText, detectFpath } from './vfs.js';
 import { loadHudImages } from './images.js';
 import { Audio } from './audio.js';
@@ -256,6 +258,7 @@ export async function boot(opts = {}) {
   // looking at this car" and then change the physics. Re-check this flag if
   // anything in the sim ever reads dist again.
   const DRAW = params.get('draw') !== '0';
+  const CATCHUP_DRAW = params.get('catchupdraw') === '1';
   const RASTER = params.get('raster') !== '0';
   const GEOMETRY = params.get('geom') !== '0';
   const OVERLAY = params.get('overlay') !== '0';
@@ -274,7 +277,12 @@ export async function boot(opts = {}) {
   const gs = new GameSparker();
   const carDefine = new CarDefine(array, medium, trackers, gs);
   const xt = new XtGraphics(medium, carDefine, rd, gs);
+  setFaceSortRank(params.get('facesort') === 'rank');
   const record = new Record(medium);
+  // ?ghost=0 stops the replay's ghost buffer cloning car models every cycle.
+  // See the note on Record.ghosts: it is the game's largest allocator by a
+  // wide margin, and nothing reads it back until the replay viewer is ported.
+  record.ghosts = params.get('ghost') !== '0';
 
   log('building base models...');
   gs.loadbase(array, medium, trackers, zip);
@@ -436,12 +444,53 @@ export async function boot(opts = {}) {
   }
 
   let backdropMs = 0;
+  // Per-frame slices of draw, for the spike line. The bench report wants the
+  // running total; a spike wants to know where THAT frame went, and the two
+  // are different accumulators.
+  let fBackdrop = 0, fRebuild = 0, fShadowMs = 0, fShadowN = 0;
+  let fPlaneMs = 0, fPlaneN = 0;
   if (PROFILE) {
     const inner = medium.d.bind(medium);
     medium.d = (g) => {
       const t = performance.now();
       inner(g);
-      backdropMs += performance.now() - t;
+      const dt = performance.now() - t;
+      backdropMs += dt;
+      fBackdrop += dt;
+    };
+    // Rebuilding a wasted car's model runs inside draw() and copy-constructs a
+    // whole ContO -- one Plane per face. It is charged to draw and scales with
+    // nothing the scene counters measure, which is the signature the spikes
+    // have.
+    // The ground shadow. ContO.d runs Plane.s for EVERY plane of an object --
+    // a car is ~100 -- and each call is three rot()s plus an O(n^2) sweep over
+    // the face's own vertices to find its silhouette extremes, then a fill.
+    // None of that is counted anywhere: a shadowed face submits its vertices
+    // like any other, so the scene counters cannot tell a frame with seven
+    // shadowed cars in it from a frame with none.
+    // Plane.d itself: calls and total ms per frame. The scene counters say how
+    // much geometry a frame had, and the late spikes have counters IDENTICAL
+    // to a fast frame, so the question is whether those frames make more calls
+    // or slower ones -- which no existing counter separates.
+    const planeD = Plane.prototype.d;
+    Plane.prototype.d = function (...a) {
+      const t = performance.now();
+      planeD.apply(this, a);
+      fPlaneMs += performance.now() - t;
+      fPlaneN++;
+    };
+    const shadow = Plane.prototype.s;
+    Plane.prototype.s = function (...a) {
+      const t = performance.now();
+      shadow.apply(this, a);
+      fShadowMs += performance.now() - t;
+      fShadowN++;
+    };
+    const rebuild = gs.rebuildNewCars.bind(gs);
+    gs.rebuildNewCars = (...a) => {
+      const t = performance.now();
+      rebuild(...a);
+      fRebuild += performance.now() - t;
     };
   }
 
@@ -469,8 +518,6 @@ export async function boot(opts = {}) {
   const INTERPOLATE = params.get('interp') !== '0';
   const MAX_FPS = parseFloat(params.get('maxfps') || '0');   // 0 = uncapped
   const SHOW_STATS = params.get('stats') === '1';
-  const POOLING = params.get('pool') === '1';
-  setPooling(POOLING);
 
   // ---- benchmark mode -----------------------------------------------------
   // A rolling 60-frame readout is useless for comparing two builds: whichever
@@ -645,6 +692,17 @@ export async function boot(opts = {}) {
   //         a vsync it missed. A big OUT means the fix is not in the renderer.
   const SPIKE_MS = parseFloat(params.get('spike') || '0');
   let prevRaf = 0, prevSim = 0, prevDraw = 0, prevGl = 0, prevCpu = 0;
+  // Scene weight for the same frame the timings above describe. Submitted
+  // vertices alone cannot explain a spike -- there are frames costing 20x the
+  // steady state at the SAME submitted count -- so the line carries projected
+  // (what Plane.d transformed), emitted (what the fill and triangulator
+  // produced, the only place polygon AREA shows up) and the object and face
+  // counts beside it.
+  let prevIn = 0, prevEmit = 0, prevProj = 0, prevObj = 0, prevFace = 0;
+  let prevHeap = 0, prevBackdrop = 0, prevRebuild = 0;
+  let prevShadowMs = 0, prevShadowN = 0;
+  let prevPlaneMs = 0, prevPlaneN = 0;
+  let heapAtLastReport = 0, shadowMsTotal = 0;
   let spikeCount = 0;
   // Coarse histogram of every frame gap, so a run reports how BAD the tail is
   // rather than just its mean. Buckets in ms.
@@ -662,7 +720,7 @@ export async function boot(opts = {}) {
 
   const config = () =>
     `res=${res} textres=${textRes} aa=${AA ? 1 : 0} interp=${INTERPOLATE ? 1 : 0}`
-    + ` players=${players} stage=${stage} pool=${POOLING ? 1 : 0}`
+    + ` players=${players} stage=${stage}`
     + `${RASTER ? '' : ' raster=0'}`
     + `${GEOMETRY ? '' : ' geom=0'}`
     + `${OVERLAY ? '' : ' overlay=0'}`
@@ -890,6 +948,14 @@ export async function boot(opts = {}) {
     if (benchDone || leaving) return;
 
     const frameEntry = performance.now();
+    // Heap at the top of the frame. A spike frame that also shows the heap
+    // DROPPING collected garbage, i.e. the pause was a GC and the fix is
+    // fewer allocations; one that shows the heap merely growing did the work
+    // it was charged for. Chrome-only and quantised, which is enough to tell
+    // a drop from a rise. Read before frameBody so `heap` is this frame's
+    // starting size and `dHeap` the previous frame's net change.
+    const heapNow = SPIKE_MS > 0 && performance.memory
+      ? performance.memory.usedJSHeapSize : 0;
     if (SPIKE_MS > 0 && prevRaf > 0) {
       const gap = now - prevRaf;
       const out = gap - prevCpu;
@@ -905,10 +971,18 @@ export async function boot(opts = {}) {
           `SPIKE t=${(now / 1000).toFixed(1)}s gap=${gap.toFixed(1)}ms`
           + ` sim=${prevSim.toFixed(1)} draw=${prevDraw.toFixed(1)}`
           + ` gl=${prevGl.toFixed(1)} othr=${othr.toFixed(1)}`
-          + ` OUT=${out.toFixed(1)} verts=${rd.inputVerts}`);
+          + (PROFILE ? ` bdrop=${prevBackdrop.toFixed(1)} rebld=${prevRebuild.toFixed(1)}`
+          + ` shadow=${prevShadowMs.toFixed(1)}ms/${prevShadowN}`
+          + ` planeD=${prevPlaneMs.toFixed(1)}ms/${prevPlaneN}` : '')
+          + ` OUT=${out.toFixed(1)}`
+          + ` obj=${prevObj} face=${prevFace}`
+          + ` proj=${prevProj} sub=${prevIn} emit=${prevEmit}`
+          + ` heap=${(heapNow / 1048576).toFixed(1)}MB`
+          + ` dHeap=${((heapNow - prevHeap) / 1048576).toFixed(2)}MB`);
       }
     }
     prevRaf = now;
+    prevHeap = heapNow;
 
     // frameBody has several early returns (the ?maxfps= gate, "nothing was
     // rendered", end of race). Wrapping it is the only way the cost of EVERY
@@ -920,6 +994,8 @@ export async function boot(opts = {}) {
 
   function frameBody(now) {
     let fSim = 0, fDraw = 0, fGl = 0, ticksThisFrame = 0;
+    fBackdrop = 0; fRebuild = 0; fShadowMs = 0; fShadowN = 0;
+    fPlaneMs = 0; fPlaneN = 0;
 
     // Optional presentation cap. rAF still fires at the display rate; we just
     // skip the work. ?maxfps=30 halves the draw cost without touching physics.
@@ -963,8 +1039,26 @@ export async function boot(opts = {}) {
       // configuration we care about.
       rd.begin();
       const t0 = performance.now();
-      // The respawn is simulation, not rendering, so it runs either way.
-      if (DRAW) gs.draw(rd, medium, xt, array2, array3);
+      // CATCH-UP TICKS DO NOT DRAW. When a frame runs late the loop below
+      // steps several ticks, and drawing on each one meant a frame could
+      // project and fill the entire scene four times -- 16,348 Plane.d calls
+      // against a 4,087-face scene -- while three of those four batches were
+      // thrown away by `rd.begin()` on the next iteration or by the
+      // interpolated redraw. It is a spiral, not just waste: a late frame
+      // earns extra ticks, extra ticks cost extra draws, and the next frame is
+      // later still. Measured as THE cause of the 100-330ms frames.
+      //
+      // The last tick still draws, and that matters: draw() is what advances
+      // per-tick visual state (Medium's flicker counters, ContO's dust and
+      // repair stages) and what refreshes ContO.dist for the depth sort. One
+      // tick draw per frame keeps both, and effects then animate at frame rate
+      // rather than tick rate only while the machine is already behind.
+      //
+      // The respawn is simulation, not rendering, so it runs on every tick
+      // either way -- same reason ?draw=0 calls it directly.
+      // ?catchupdraw=1 restores drawing on every catch-up tick, for the A/B.
+      const lastTick = CATCHUP_DRAW || acc - TICK_MS < TICK_MS;
+      if (DRAW && lastTick) gs.draw(rd, medium, xt, array2, array3);
       else gs.rebuildNewCars(medium, xt, array2, array3);
       const t1 = performance.now();
       // Everything simulate() emits lands after the scene, on top: the HUD's
@@ -1016,6 +1110,16 @@ export async function boot(opts = {}) {
     fGl = performance.now() - tGl;
 
     prevSim = fSim; prevDraw = fDraw; prevGl = fGl;
+    // The scene counters belong to the frame that was just drawn, and the
+    // spike line is printed one frame later, so they have to be latched here
+    // alongside the timings. Reading them at print time reports the NEXT
+    // frame's scene against the previous frame's cost.
+    prevBackdrop = fBackdrop; prevRebuild = fRebuild;
+    prevShadowMs = fShadowMs; prevShadowN = fShadowN;
+    prevPlaneMs = fPlaneMs; prevPlaneN = fPlaneN;
+    shadowMsTotal += fShadowMs;
+    prevIn = rd.inputVerts; prevEmit = rd.vertexCount;
+    prevProj = rd.projVerts; prevObj = rd.objDrawn; prevFace = rd.faceCalls;
     simMs += fSim;
     drawMs += fDraw;
 
@@ -1070,7 +1174,7 @@ export async function boot(opts = {}) {
       const fps = (frames * 1000) / dt;
       const tps = (ticks * 1000) / dt;
       const buf = rd.gl ? `${rd.gl.drawingBufferWidth}x${rd.gl.drawingBufferHeight}` : '';
-      let line = `${fps.toFixed(0)} fps  ${tps.toFixed(1)} tick/s  ${rd.inputVerts} verts  ${buf}  `
+      let line = `${fps.toFixed(0)} fps  ${tps.toFixed(1)} tick/s  ${rd.inputVerts}/${rd.vertexCount} verts  ${buf}  `
         + `spd=${array3[0].speed.toFixed(1)}`;
       if (BENCH_MS > 0) {
         line += benchStart === 0
@@ -1085,10 +1189,18 @@ export async function boot(opts = {}) {
           + `  draw ${(drawMs / Math.max(1, frames)).toFixed(1)}ms/frame`
           + `  -> ${((simPer + drawPer) / 10).toFixed(0)}% of one core`
           + `  [interp=${INTERPOLATE ? 1 : 0}`
-          + ` maxfps=${MAX_FPS || 'off'} pool=${POOLING ? 1 : 0}`
+          + ` maxfps=${MAX_FPS || 'off'}`
           + ` aa=${AA ? 1 : 0} textres=${textRes}]`;
       }
       if (SPIKE_MS > 0) {
+        // Allocation rate and shadow load for a NORMAL second, so the spike
+        // lines have something to be compared against. A spike that allocates
+        // 3MB says nothing until you know the quiet frames allocate 0.2MB.
+        line += `\n  heap ${(prevHeap / 1048576).toFixed(0)}MB`
+          + ` +${((prevHeap - heapAtLastReport) / 1048576).toFixed(1)}MB/s`
+          + `  shadow ${(shadowMsTotal / Math.max(1, frames)).toFixed(1)}ms/frame`;
+        heapAtLastReport = prevHeap;
+        shadowMsTotal = 0;
         // Where the frames actually landed, not their mean. Read left to
         // right: <20 <33 <50 <100 <200 <400 400+.
         line += `\n  gaps ${hist.join('/')}  spikes=${spikeCount}`

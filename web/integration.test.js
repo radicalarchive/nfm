@@ -22,7 +22,8 @@ import { CarDefine } from './CarDefine.js';
 import { Mad } from './Mad.js';
 import { GameSparker } from './GameSparker.js';
 import { XtGraphics } from './XtGraphics.js';
-import { objArray, setSeed, setPooling } from './java.js';
+import { setFaceSortRank } from './ContO.js';
+import { objArray, setSeed } from './java.js';
 
 const R = new URL('../', import.meta.url);
 const readRepo = (p, enc) => readFileSync(new URL(p, R), enc);
@@ -218,34 +219,6 @@ test('the run is deterministic for a fixed seed', async () => {
     return [w.array2[0].x, w.array2[0].y, w.array2[0].z, w.medium.xz];
   };
   assert.deepEqual(await run(), await run());
-});
-
-test('array pooling is output-identical to fresh allocation', async () => {
-  // Pooling is a deliberate deviation from the Java's allocate-per-frame, so
-  // it is only acceptable if it is invisible. Plane.d()'s scratch arrays are
-  // fully overwritten before any read, which is what makes reuse safe -- this
-  // guards that assumption.
-  const shot = async (pool) => {
-    setPooling(pool);
-    const w = await buildWorld({ seed: 4242 });
-    w.gs.u[0].up = true;
-    w.gs.u[0].right = true;
-    let sig = 0;
-    for (let t = 0; t < 60; t++) {
-      w.rd.begin();
-      w.gs.tick(w.rd, w.medium, w.trackers, w.checkPoints, w.xt, w.record, w.array2, w.array3);
-      // Sample the position words; the checksum only has to be stable across
-      // the two runs being compared, not meaningful on its own.
-      for (let i = 0; i < w.rd.count * 3 && i < 4000; i += 137) sig = (sig + w.rd.f32[i] * 7) | 0;
-    }
-    setPooling(false);
-    return [sig, w.rd.vertexCount, w.array2[0].x, w.array2[0].z, Math.fround(w.array3[0].speed)];
-  };
-  // Sequential, NOT Promise.all: setPooling is module-global state, so
-  // concurrent runs would clobber each other's flag.
-  const off = await shot(false);
-  const on = await shot(true);
-  assert.deepEqual(on, off, 'pooling changed the rendered output or the physics');
 });
 
 test('stat() executes for 60 ticks without throwing and emits HUD geometry', async () => {
@@ -547,4 +520,38 @@ test('a guest sees its own car, not the host\'s', async () => {
   const near = (a, b) => Math.abs(a - b) < 20000;
   assert.ok(near(w.medium.x, -40000) || near(w.medium.x, 40000),
     `camera at x=${w.medium.x} did not follow slot 1 at 40000`);
+});
+
+test('the stable face sort draws the identical picture to the Java rank sort', async () => {
+  // ContO.d orders an object's own faces back-to-front, and that ordering IS
+  // the depth buffer: there is no other occlusion. The Java computes it with
+  // an O(npl^2) pairwise rank count, which was ~12% of a frame; the port uses
+  // a stable descending sort instead. This asserts the two produce the same
+  // permutation the only way that counts -- by drawing a real scene with each
+  // and comparing every vertex, rather than by re-deriving the equivalence
+  // that the replacement was justified with.
+  const shot = async (rank) => {
+    setFaceSortRank(rank);
+    const w = await buildWorld();
+    for (let i = 0; i < 40; i++) w.gs.tick(w.rd, w.medium, w.trackers,
+      w.checkPoints, w.xt, w.record, w.array2, w.array3);
+    w.rd.begin();
+    w.gs.draw(w.rd, w.medium, w.xt, w.array2, w.array3);
+    return w.rd.snapshotFrom(0);
+  };
+  const sorted = await shot(false);
+  const ranked = await shot(true);
+  setFaceSortRank(false);
+
+  // By hand, for the reason the interpolation test gives: these are ~10^5-word
+  // typed arrays and the assertion library's diff of two of them is slower
+  // than the rest of the suite.
+  let diff = sorted.length === ranked.length ? -1 : 0;
+  if (diff === -1) {
+    for (let i = 0; i < sorted.length; i++) {
+      if (sorted[i] !== ranked[i]) { diff = i; break; }
+    }
+  }
+  assert.strictEqual(diff, -1,
+    `face order differs at word ${diff} (${sorted.length} vs ${ranked.length} words)`);
 });

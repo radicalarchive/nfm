@@ -81,6 +81,13 @@ Measured on the target machine, stage 1, res=2. `simulate()` is 0.6–2.5 ms/tic
 | geometry batching (triangulation, vertex writes) | 19% | `?geom=0` |
 | projection + traversal (`Plane.d`) | 81% | `?raster=0` |
 
+**Re-measured 2026-08-09 on a healthy machine (governor `performance`,
+2.5-2.7GHz).** Steady-state racing, stage 1, 8 cars: `res=1 interp=0` draw
+4.7-6.9 ms/frame, `res=1 interp=1` 6.3-7.6, `res=2 interp=1` 7.4-7.8 -- so
+**resolution is no longer a lever** (MSAA is off above 1x) and the table below
+predates that. `interp=0` cannot exceed 18.9fps by construction, so it is not
+a mode any fps target can be tested in.
+
 Cost model: `draw ≈ fixed + ~1.0–1.3us per PROJECTED vertex`. Projected is not
 submitted — `Plane.d` transforms 12–20 vertices per face before culling decides
 whether to submit any, so ~14,800 are projected to submit ~10,300. Do NOT trust
@@ -104,6 +111,93 @@ and it has returned a negative fixed cost). Measure fixed costs with `?prof=1`.
       extrapolate an intercept badly. Settle this BEFORE the shader rewrite —
       if it is real it may be a smaller change for a similar win, and if it is
       an artifact the shader payoff is larger than currently estimated.
+- [x] **The replay's ghost buffer was the game's largest allocator** —
+      `Record.rec` copy-constructs a whole `ContO` (one `Plane` per face) six
+      times a cycle per car, ~74% of all allocation and ~5MB/s, growing the
+      heap 57 -> 156MB across a race before a single frame freed 110.9MB.
+      Nothing reads it back until the replay viewer is ported. `Record.ghosts`
+      guards it, exposed as the launcher's **Replay recording** setting
+      (default off) and `?ghost=0`. Measured: heap flat at 110-115MB.
+      **It buys no frame rate** -- in the representative condition mean fps and
+      the frame-gap tail are unchanged with it on or off. Kept for the heap
+      alone: the growth is unbounded across a race, and one 110.9MB collection
+      was directly observed costing a 133ms frame. Do not cite it as a
+      performance fix; the "whole second at 17fps" it appeared to remove was
+      measured in the unrepresentative accelerate-held condition, and the real
+      cause of those frames was the catch-up draw.
+- [ ] **What is left of ">30fps consistently": ordinary draw cost with the
+      other cars on screen, worst on the big stages.** Parked at the grid with
+      the pack in view (`NFM_KEY=none`, the only condition worth measuring in
+      — holding accelerate spins the player away from everyone), 25s windows,
+      after the face sort and the catch-up fix: **stage 1 ~795-844 frames
+      (~32-34fps mean, 0-2 frames over 100ms), stage 9 ~557 (~22fps mean, 3
+      frames over 100ms)**, at 9.5-12.7k submitted and 23-28k emitted
+      vertices. So the WORST frames are essentially solved and the MEAN on the
+      big stages is not: stage 9 is still under 30. Profile of stage 9 after
+      the face sort: `Plane.d` 28.1%, `_fillTrapezoid` 8.6%, `ContO.d` 9.4%,
+      `Plane.s` 3.6%, `rot` 3.0%, GC ~2.5% — no idle time at all, and no
+      single item worth more than a few percent. The remaining lever is
+      drawing fewer faces, not drawing them faster.
+- [ ] **The ground shadow is uncounted and costs 20-60ms of a heavy frame.**
+      `ContO.d` runs `Plane.s` for EVERY plane of an object -- ~5,000 calls a
+      frame with the pack in view, against 1.0-2.4ms when the camera looks
+      away, which is why turning away restores 60fps. Each call is three
+      `rot()`s plus an O(n^2) sweep for the face's silhouette extremes plus a
+      fill. Candidates: one silhouette per OBJECT rather than per plane, or a
+      distance/LOD gate like the one `lowshadow()` already provides.
+- [x] **The per-object face sort — ~12% of the frame, now an O(n log n) sort.**
+      `ContO.d` ranked an object's faces back-to-front by comparing every pair
+      (58.6% of that method, ~5,000 comparisons a frame for a 100-face car).
+      It computes exactly a stable descending sort by `av`; `#faceOrder` does
+      that instead, `?facesort=rank` restores the original, and an integration
+      test draws a real scene both ways and compares every vertex word.
+      **Measured, stage 9 parked: +30% frames (406 -> 528 in 25s), frames under
+      20ms 28 -> 134. Stage 1: +8.5%, under 20ms 307 -> 405.**
+- [x] **The 100-330ms frames were the frame loop drawing once per CATCH-UP
+      TICK.** A late frame earns extra ticks, each ran a full `gs.draw()`, and
+      every batch but the last was discarded — a spiral, since the next frame
+      is then later still. Only the last tick of `while (acc >= TICK_MS)` draws
+      now; the others call `rebuildNewCars` directly. **Measured, parked:
+      frames over 100ms stage 9 17 -> 4, stage 1 9 -> 2, none over 200ms on
+      either, total frames +5.5%.** `?catchupdraw=1` restores the old
+      behaviour. Found with a per-FRAME count of `Plane.d` calls: `rd.faceCalls`
+      resets per batch, so a frame drawing four times reported one draw's
+      worth (`face=4087` beside `planeD=16348`).
+      Deviation to be aware of: during a catch-up burst the per-tick visual
+      effects now advance once per FRAME rather than once per tick, so they
+      animate slightly slow while the machine is already behind.
+- [ ] **`Plane.d` has no single hot block — stop looking for one.** Line-level
+      ticks: initial vertex copy 13.4%, the O(n^2) vertex-pair sweep 12.3%,
+      the O(n^2) screen-extent sweep 10.7%, the two projection loops ~12%,
+      colour and fog ~5%. Each is 2-3% of a frame, and an A/B of any one of
+      them returns noise. The lever here is calling `Plane.d` fewer times —
+      face count, LOD, earlier culling — not making it cheaper.
+- [!] **Read this before attempting GPU-side projection — it is much bigger
+      than the entry below says, and `dist` is not what blocks it.** Four
+      things in `Plane.d` consume the transformed coordinates BEFORE anything
+      is submitted, so a vertex shader taking over the transform means either
+      computing it twice or replacing the game's own culling and shading model:
+      1. **Culling.** Seven separate `n45 = 0` rules read the projected screen
+         coords (`array26`/`array27`) — every-vertex-off-screen on each of the
+         four edges, the `abs3 < 3 && abs4 < 3` sub-3px test — and `av`.
+      2. **`this.av`**, the face's distance, is the camera-space centroid plus
+         a `gr` term, and it drives the fog ramp, the `fade[disline]` cull and
+         the 12/20-vertex LOD.
+      3. **Face orientation.** `b4` and `lastmaf` come from comparing the
+         SCREEN x/y of particular vertices, and `lastmaf` is written back to
+         `m.lastmaf`, which a LATER face reads to decide whether to mirror its
+         own geometry (`gr === -11/-12/-13`). It is cross-face state derived
+         from screen space.
+      4. **Brightness `n66`**, which becomes the vertex colour, is a function
+         of `b4` and `av`.
+      On top of those, the even-odd trapezoid fill is a CPU algorithm over
+      screen coordinates, so every concave face needs them anyway.
+      **Also measured (2026-08-09):** `rot` is only 2.4% of a representative
+      frame while `Plane.d`'s own body is 25.1%, so the per-vertex rotation —
+      the part a shader would take — is not where the time is. And the O(n^2)
+      vertex-pair sweep at `Plane.js:487` is NOT the cost either: stubbing it
+      out (`b4` forced false) rendered 399 frames in 25s against 391, i.e.
+      nothing, so "reorder d() to cull before that sweep" is not worth writing.
 - [ ] **GPU-side projection.** The only term that provably scales, and the
       majority of draw. Budget ~2–3x on draw, not 5x. **But it will not fix
       the fps DIPS:** `?res=1` dips noticeably less than `?res=2` on the same
@@ -118,6 +212,13 @@ and it has returned a negative fixed cost). Measure fixed costs with `?prof=1`.
 - [ ] Cache polygon triangulation topology at load rather than re-deriving
       convexity per frame. Worth at most the batcher's ~13%, and the trapezoid
       work already took the expensive part of it.
+- [x] **Array pooling is deleted.** Measured as a pessimisation twice — once
+      in node, and again in a browser on a representative scene after being
+      rewritten to a direct property with no Map and no string key (stage 9,
+      445 frames against 514). A small `Int32Array` dies in V8's young
+      generation for free; a reused one is promoted and pays write barriers.
+      `scratchInt`/`setPooling`/`isPooling`/`?pool=` and the two equivalence
+      tests are gone. Original note follows.
 - [x] ~~Widen array pooling~~ — **pooling is a 30% PESSIMISATION**
       (10.96 → 14.27 ms, node, identical scene). The earlier "1.13x" figure and
       the in-game A/B that showed no difference were both wrong; the A/B
