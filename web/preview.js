@@ -44,20 +44,6 @@ TRACK_NAMES.forEach((name, j) => { BASE_NAMES[j + 56] = name; });
  */
 const GROUND = new Set(['hpground']);
 
-/**
- * Furthest the overhead view can pull back and still render.
- *
- * The renderer was never asked for a view this wide. The StageMaker's own
- * overhead mode stops at `m.y = -15000` and SCROLLS rather than zooming out,
- * and past a point the geometry simply stops arriving: stage 8 spans 91,000
- * units and emitted 24 vertices for 172 objects that pass every gate I could
- * check by hand. The cause is inside Plane.d's own culling and is NOT
- * understood. This bound is empirical -- stages 1, 3 and 9 render at ~67-81k,
- * stage 8 does not at ~91k -- and anything beyond it falls back to the flat
- * map rather than showing an empty frame.
- */
-const MAX_DEPTH = 85000;
-
 let world = null;
 
 /** Build the shared preview world. Idempotent. */
@@ -406,9 +392,9 @@ export async function stageName(n) {
  * Requires the stage to be the one currently built into `placed` -- loadStage
  * reuses that array -- so it is called immediately after it.
  *
- * `zy = 90` looks straight down and the camera height comes from the stage's
- * own bounds. Returns the vertex count so the caller can tell a stage that
- * rendered from one the renderer could not reach — see MAX_DEPTH.
+ * `zy = 90` looks straight down and the framing comes from the stage's own
+ * bounds. Returns the vertex count, so a stage that rendered nothing at all
+ * can still fall back to the flat map.
  */
 export function drawStage3D(canvas, stage) {
   const { medium, gs, xt, placed, mads } = world;
@@ -433,23 +419,33 @@ export function drawStage3D(canvas, stage) {
   //   screenX = cx + (x - m.x - cx) * focus / depth
   //   screenY = cy - (z - m.z - cz) * focus / depth
   //   depth   = cz + (y - m.y - cy)
-  // so fitting spanX into 800 needs depth >= spanX/2, and spanZ into 450
-  // needs depth >= spanZ * 400/450. Take the larger, with a margin.
-  let depth = Math.max(spanX / 2, spanZ * (400 / 450)) * 1.12;
+  // so at the game's own focus_point of 400 the whole stage needs a camera
+  // at framingDepth. That is only the RATIO though: what sets the framing is
+  // focus_point / depth, so the same picture can be had from any distance by
+  // scaling the focus point with it.
+  const framingDepth = Math.max(spanX / 2, spanZ * (400 / 450)) * 1.12;
   // The camera must clear the TALLEST object with room to spare. Framing off
   // the mean height alone leaves tall geometry at or above the camera plane,
   // where depth goes to zero and the projection stretches it across the whole
   // screen -- what stage 9's ramps did. `xs()` clamps the divisor but that
   // only bounds the blow-up, it does not prevent the smear.
   const clearance = (b.meanY - b.topY) * 2 + 2000;
-  if (depth < clearance) depth = clearance;
-  // The renderer was never asked for a view this wide: the StageMaker's own
-  // overhead mode stops at m.y = -15000 and SCROLLS instead. Past roughly that
-  // distance, face-level culling inside Plane.d strips the geometry -- stage 8
-  // spans 91,000 units and emitted 24 vertices for 172 visible objects.
-  // Clamp to the supported range; larger stages show their middle rather than
-  // an empty frame.
-  if (depth > MAX_DEPTH) return 0;      // caller falls back to the flat map
+  //
+  // Then stand as CLOSE as that clearance allows and shrink the focus point to
+  // match, rather than backing off to framingDepth with focus_point at 400.
+  //
+  // The distance is what broke the wide stages. Plane.xs is
+  //   idiv(Math.imul(cz - focus_point, cx - n), cz) + n
+  // and Math.imul wraps at int32, faithfully to the Java. At the far camera a
+  // stage 128,000 units across put `cz` near 71,000 and `cx - n` near 64,000
+  // at the frame's edge: their product passes 2^31, wraps, and the vertex
+  // lands somewhere absurd -- the track pieces smeared off the edge of stages
+  // 9 and 25. It is also what the old MAX_DEPTH cutoff was really measuring:
+  // stage 8's "the renderer stops delivering geometry past ~85k" was the same
+  // wrap, feeding garbage to the face-culling tests, and it renders 48,000
+  // vertices from up close. Every stage now draws; nothing overflows.
+  const depth = Math.max(clearance, 3000);
+  const focus = Math.max(1, Math.round(400 * depth / framingDepth));
 
 
   // trk = 2 is the StageMaker's overhead editing mode (StageMaker.java:886).
@@ -463,7 +459,7 @@ export function drawStage3D(canvas, stage) {
   medium.iw = 0;
   medium.w = 800;
   medium.h = 450;
-  medium.focus_point = 400;
+  medium.focus_point = focus;
   medium.cx = 400;
   medium.cy = 225;
   medium.cz = 50;

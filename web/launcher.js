@@ -301,13 +301,12 @@ async function drawStagePreview() {
     const s = await loadStage(n);
     if (mine !== stageToken) return;                 // superseded by a faster key
     // Must follow loadStage immediately: it reuses one placed-object array.
-    // Stages needing more than ~85k depth come back empty from the renderer
-    // and fall back to the flat map.
-    const verts = drawStage3D($('mapview'), s);
-    const tooBig = verts < 200;
-    $('mapview').hidden = tooBig;
-    $('mapflat').hidden = !tooBig;
-    if (tooBig) drawMinimap($('mapflat'), s);
+    // Every stage renders now, so the flat map is only a safety net for one
+    // that comes back empty.
+    const empty = drawStage3D($('mapview'), s) < 200;
+    $('mapview').hidden = empty;
+    $('mapflat').hidden = !empty;
+    if (empty) drawMinimap($('mapflat'), s);
     if (meta) meta.textContent = `${s.laps} laps · ${s.checkpoints} checkpoints`;
   } catch {
     if (meta) meta.textContent = 'could not load this stage';
