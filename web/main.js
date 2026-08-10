@@ -259,6 +259,7 @@ export async function boot(opts = {}) {
   // anything in the sim ever reads dist again.
   const DRAW = params.get('draw') !== '0';
   const CATCHUP_DRAW = params.get('catchupdraw') === '1';
+  const TICK_DRAW = params.get('tickdraw') === '1';
   const RASTER = params.get('raster') !== '0';
   const GEOMETRY = params.get('geom') !== '0';
   const OVERLAY = params.get('overlay') !== '0';
@@ -656,6 +657,28 @@ export async function boot(opts = {}) {
     for (const f of MED_STATE) medium[f] = snapCurr.cam[f];
     medium.drand.set(snapCurr.rand);
     for (let i = 0; i < 3; i++) medium.ddiup[i] = snapCurr.diup[i];
+  };
+
+  /**
+   * Re-record draw's OUTPUTS into snapCurr, after a draw that was the real
+   * one for this tick rather than a redraw of it.
+   *
+   * snapCurr is taken before the draw, because applyBlend needs the tick's
+   * positions; but draw also produces things restoreCurr would otherwise put
+   * back to their pre-draw values, and both would then never advance at all:
+   * `dist` would freeze at whatever it held on the first frame, and the draw
+   * PRNG bank would rewind every frame, so every effect would re-roll the same
+   * numbers forever. Refresh exactly those, and let restoreCurr undo the rest.
+   */
+  const recaptureDrawOutputs = () => {
+    for (let i = 0; i < gs.nob; i++) {
+      const o = array2[i];
+      const c = snapCurr.obj[i];
+      if (o && c) c.dist = o.dist;
+    }
+    for (const f of MED_STATE) snapCurr.cam[f] = medium[f];
+    snapCurr.rand.set(medium.drand);
+    for (let i = 0; i < 3; i++) snapCurr.diup[i] = medium.ddiup[i];
   };
 
   capture(snapPrev);
@@ -1056,9 +1079,20 @@ export async function boot(opts = {}) {
       //
       // The respawn is simulation, not rendering, so it runs on every tick
       // either way -- same reason ?draw=0 calls it directly.
-      // ?catchupdraw=1 restores drawing on every catch-up tick, for the A/B.
-      const lastTick = CATCHUP_DRAW || acc - TICK_MS < TICK_MS;
-      if (DRAW && lastTick) gs.draw(rd, medium, xt, array2, array3);
+      // ...and when interpolating, NO tick draws, because the interpolated
+      // pass below is a full draw of the same world a few milliseconds later
+      // and this one's vertices are discarded wholesale. That was the scene
+      // being projected and batched TWICE on every frame that ran a tick --
+      // `planeD=8174` against `face=4087` -- for one picture. The single draw
+      // below does both jobs: it advances the per-tick effects (it runs with
+      // `interpolating` false whenever a tick happened) and it is what the
+      // player sees. ?tickdraw=1 restores the second draw for the A/B.
+      //
+      // Without interpolation there is no pass below, so the tick draw IS the
+      // frame and the catch-up rule above applies to it.
+      const tickDraws = DRAW && (TICK_DRAW || !INTERPOLATE)
+        && (CATCHUP_DRAW || acc - TICK_MS < TICK_MS);
+      if (tickDraws) gs.draw(rd, medium, xt, array2, array3);
       else gs.rebuildNewCars(medium, xt, array2, array3);
       const t1 = performance.now();
       // Everything simulate() emits lands after the scene, on top: the HUD's
@@ -1092,16 +1126,26 @@ export async function boot(opts = {}) {
     if (INTERPOLATE) {
       const t1 = performance.now();
       applyBlend(Math.min(1, acc / TICK_MS));
-      // Marks the whole pass as a redraw of the tick's frame. Every effect
-      // that steps a counter from inside draw() reads this and holds still;
-      // see the note by MED_STATE.
-      medium.interpolating = true;
+      // Marks the pass as a REDRAW of a tick already drawn. Every effect that
+      // steps a counter from inside draw() reads this and holds still; see the
+      // note by MED_STATE.
+      //
+      // It is only a redraw when no tick ran this frame. When one did, and the
+      // tick itself no longer draws, this pass is that tick's one and only
+      // draw: the effects must advance here or never, and Medium.random() must
+      // RECORD here so the frames that follow have a sequence to replay.
+      // `stepped` is exactly "a tick ran", which is the condition for both.
+      const redraw = !stepped || TICK_DRAW;
+      medium.interpolating = redraw;
       // keepOverlay: the HUD was drawn on the overlay by simulate() and is
       // not part of the geometry being re-projected here.
       rd.begin(true);
       if (DRAW) gs.draw(rd, medium, xt, array2, array3);
       rd.replay(hudVerts);       // HUD last, so it stays on top
       medium.interpolating = false;
+      // An authoritative draw's outputs have to survive restoreCurr, or dist
+      // and the draw PRNG are rewound every frame and never advance.
+      if (!redraw) recaptureDrawOutputs();
       restoreCurr();
       fDraw += performance.now() - t1;
     }
@@ -1174,7 +1218,8 @@ export async function boot(opts = {}) {
       const fps = (frames * 1000) / dt;
       const tps = (ticks * 1000) / dt;
       const buf = rd.gl ? `${rd.gl.drawingBufferWidth}x${rd.gl.drawingBufferHeight}` : '';
-      let line = `${fps.toFixed(0)} fps  ${tps.toFixed(1)} tick/s  ${rd.inputVerts}/${rd.vertexCount} verts  ${buf}  `
+      let line = `${fps.toFixed(0)} fps  ${tps.toFixed(1)} tick/s  ${rd.inputVerts}/${rd.vertexCount} verts`
+        + `  fan=${rd.fanPolys} concave=${rd.concavePolys}/${rd.concaveVerts}v  ${buf}  `
         + `spd=${array3[0].speed.toFixed(1)}`;
       if (BENCH_MS > 0) {
         line += benchStart === 0

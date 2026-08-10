@@ -1,0 +1,1505 @@
+╭─── Claude Code v2.1.226 ─────────────────────────────────────────────────────╮
+│                                                    │ Tips for getting        │
+│                 Welcome back Evon!                 │ started                 │
+│                                                    │ Run /init to create a … │
+│                       ▐▛███▜▌                      │ ─────────────────────── │
+│                      ▝▜█████▛▘                     │ What's new              │
+│                        ▘▘ ▝▝                       │ Bug fixes and reliabil… │
+│  Opus 5 · Claude Pro · evan_claude@widloski.com's  │ Added gateway spend-li… │
+│  Organization                                      │ Added a workspace trus… │
+│                 ~/resources/nfm/web                │ /release-notes for more │
+╰──────────────────────────────────────────────────────────────────────────────╯
+
+
+❯ /clear                                                                        
+
+❯ you can eliminate the flash animation that occurs when a menu item is         
+  selected with [enter].                                                        
+                                                                                
+  map previews are slow to generate and also you can bug them out by rapidly    
+  pressing left/right (they superimpose on each other).  what options do we     
+  have for the slowness?  one sentence                                          
+
+● I'll look at the launcher code for the selection flash and map preview
+  generation.
+
+  Searched for 6 patterns, read 2 files, listed 3 directories (ctrl+o to expand)
+
+❯ continue                                                                      
+
+  Read 1 file (ctrl+o to expand)
+
+● Removing the fire flash:
+
+● Update(~/resources/nfm/index.html)
+  ⎿  Removed 2 lines
+      100  }
+      101  @keyframes slabStrobe { 0% { border-color: var(--hi); } 100% {
+            border-color: #ff3b00; } }
+      102  @keyframes hazard { from { transform: translateY(0); } to { tr
+           ansform: translateY(-22.627px); } }
+      103 -.item.fired { animation: fired .18s steps(2) 2 !important; }  
+      104 -@keyframes fired { 50% { filter: invert(1); } }               
+      103  .item.off { opacity: .45; cursor: default; }
+      104  
+      105  /* ---- shared page furniture --------------------------------
+           ---------- */
+
+● Update(~/resources/nfm/index.html)
+  ⎿  Added 1 line, removed 1 line
+      240  
+      241  @media (prefers-reduced-motion: reduce) {
+      242    /* every selection stays READABLE; it just stops flashing */
+      243 -  .item.is-sel, .item.is-sel::before, .is-sel .ar, .item.fired
+          -, #bg::before {                                               
+      243 +  .item.is-sel, .item.is-sel::before, .is-sel .ar, #bg::before
+          + {                                                            
+      244      animation: none !important;
+      245    }
+      246  }
+
+● Update(launcher.js)
+  ⎿  Removed 1 line
+      556    if (!el || el.classList.contains('off')) return;
+      557    const act = el.dataset.act;
+      558    if (!act) return;                  // value rows: left/right
+            is the whole thing
+      559 -  el.classList.remove('fired'); void el.offsetWidth; el.classL
+          -ist.add('fired');                                             
+      559    const [cmd, arg] = act.split(':');
+      560    switch (cmd) {
+      561      case 'menu':
+
+  Searched for 2 patterns, read 1 file (ctrl+o to expand)
+
+● Flash removed: dropped .item.fired/@keyframes fired from index.html and the
+  class-toggle line in web/launcher.js:559 (plus the now-dead entry in the
+  reduced-motion block).
+
+  On preview slowness — the cost is buildStage() in web/preview.js:290
+  re-running gs.loadstage (full geometry construction) plus a whole renderer
+  pass on every keypress, so the options are: debounce arrow input so only the
+  settled stage builds, cache each stage's finished preview as an ImageBitmap
+  and blit it on revisit, or precompute preview images offline and ship them as
+  assets.
+
+  The superimposition is a separate bug from the same path — Graphics2D.end()
+  (web/graphics.js:590) returns without clearing when a frame emits no geometry,
+  so a failed/empty render leaves the previous stage's image on the canvas
+  under the next one. Say the word and I'll fix that and whichever slowness
+  option you want.
+
+✻ Worked for 52s
+
+❯ is there any other path to making live load faster?  they are small images.   
+  one sentence                                                                  
+
+  Searched for 1 pattern (ctrl+o to expand)
+
+● Yes — the preview canvas is 1600×900 (index.html:282) for a ~200px thumbnail,
+  so dropping it to display size cuts the raster/fill cost, and since the images
+  are that small you can also warm the whole set during menu idle time (build
+  each stage once in the background, keep the bitmaps) so a live load is never
+  more than a blit.
+
+✻ Baked for 11s
+
+❯ do both, plus fix the superimpose bug                                         
+
+  Searched for 2 patterns, read 4 files, ran 3 shell commands (ctrl+o to expand)
+● Now implementing. First preview.js — cached, offscreen-rendered previews:
+
+● Update(preview.js)
+  ⎿  Added 1 line, removed 1 line
+      281   * stage's geometry in there while the camera moved to the new
+            stage's bounds
+      282   * -- which looked like the map being stuck and sliding around
+           .
+      283   */
+      284 -export function loadStage(n) {                                
+      284 +function loadStage(n) {                                       
+      285    const run = stageQueue.then(() => buildStage(n), () => build
+           Stage(n));
+      286    stageQueue = run.catch(() => {});      // a failure must not
+            wedge the queue
+      287    return run;
+
+● Update(preview.js)
+  ⎿  Added 5 lines, removed 2 lines
+      370   * own bounds. Returns the vertex count so the caller can tell
+            a stage that
+      371   * rendered from one the renderer could not reach — see MAX_DE
+           PTH.
+      372   */
+      373 -export function drawStage3D(canvas, stage) {                  
+      373 +function drawStage3D(canvas, stage) {                         
+      374    const { medium, gs, xt, placed, mads } = world;
+      375    if (!canvas._rd) {
+      376      const overlay = document.createElement('canvas');
+      377      overlay.width = canvas.width;
+      378      overlay.height = canvas.height;
+      379 -    canvas._rd = new Graphics2D(canvas, overlay, 800, 450);   
+      379 +    // `clear: true` because this canvas is never composited -
+          +- it is only ever                                             
+      380 +    // read back into a bitmap -- so nothing else ever empties
+          + its colour                                                   
+      381 +    // buffer, and one stage would draw on top of the last.   
+      382 +    canvas._rd = new Graphics2D(canvas, overlay, 800, 450, { c
+          +lear: true });                                                
+      383    }
+      384    const rd = canvas._rd;
+      385  
+
+● Update(preview.js)
+  ⎿  Added 1 line, removed 1 line
+      455   * grid. They are skipped entirely. Track pieces read solid, d
+           ecor is dimmed,
+      456   * checkpoints are picked out because those are what the route
+            threads through.
+      457   */
+      458 -export function drawMinimap(canvas, stage) {                  
+      458 +function drawMinimap(canvas, stage) {                         
+      459    const ctx = canvas.getContext('2d');
+      460    const W = canvas.width, H = canvas.height;
+      461    ctx.clearRect(0, 0, W, H);
+
+● Now the cached preview entry point at the end of preview.js:
+
+● Update(preview.js)
+  ⎿  Added 60 lines
+      501    ctx.arc(px(stage.start.x), py(stage.start.z), 4.5, 0, Math.P
+           I * 2);
+      502    ctx.fill();
+      503  }
+      504 +                                                              
+      505 +// ---- the cached preview -----------------------------------
+          +-----------------                                             
+      506 +                                                              
+      507 +/**                                                           
+      508 + * Backing store for a preview.                               
+      509 + *                                                            
+      510 + * The thumbnail is 12rem wide -- 192 CSS px -- so 2x covers a
+          + HiDPI display.                                               
+      511 + * Rendering it at 1600x900 was drawing nine times the pixels 
+          +the frame can                                                 
+      512 + * show, and this is a fill-bound scene: the camera looks stra
+          +ight down at a                                                
+      513 + * stage that covers the whole frame, with no depth buffer, so
+          + every triangle                                               
+      514 + * is rasterised whether or not anything lands on top of it.  
+      515 + */                                                           
+      516 +const PREVIEW_W = 384, PREVIEW_H = 216;                       
+      517 +                                                              
+      518 +/**                                                           
+      519 + * Finished previews by stage number, as promises.            
+      520 + *                                                            
+      521 + * Promises rather than bitmaps so a second request for a stag
+          +e still being                                                 
+      522 + * built joins the first instead of starting a second build --
+          + which is the                                                 
+      523 + * normal case once the idle warm-up is running behind the pla
+          +yer.                                                          
+      524 + */                                                           
+      525 +const previews = new Map();                                   
+      526 +let glScratch = null, flatScratch = null;                     
+      527 +                                                              
+      528 +/**                                                           
+      529 + * A stage's preview image and metadata, built once and then f
+          +ree.                                                          
+      530 + *                                                            
+      531 + * Building means running the real `loadstage` and a full rend
+          +erer pass, which                                              
+      532 + * is far too slow to repeat every time the player taps left o
+          +r right. The                                                  
+      533 + * result is a plain ImageBitmap, so every later visit to a st
+          +age is a blit.                                                
+      534 + */                                                           
+      535 +export function stagePreview(n) {                             
+      536 +  let p = previews.get(n);                                    
+      537 +  if (!p) {                                                   
+      538 +    p = buildPreview(n);                                      
+      539 +    previews.set(n, p);                                       
+      540 +    p.catch(() => previews.delete(n));   // a failure must not
+          + cache                                                        
+      541 +  }                                                           
+      542 +  return p;                                                   
+      543 +}                                                             
+      544 +                                                              
+      545 +async function buildPreview(n) {                              
+      546 +  const info = await loadStage(n);                            
+      547 +  if (!glScratch) {                                           
+      548 +    glScratch = document.createElement('canvas');             
+      549 +    flatScratch = document.createElement('canvas');           
+      550 +    for (const c of [glScratch, flatScratch]) { c.width = PREV
+          +IEW_W; c.height = PREVIEW_H; }                                
+      551 +  }                                                           
+      552 +  // Must follow loadStage immediately: it reuses one placed-o
+          +bject array.                                                  
+      553 +  const verts = drawStage3D(glScratch, info);                 
+      554 +  // Stages needing more than ~85k depth come back empty from 
+          +the renderer, and                                             
+      555 +  // the flat map is what they show instead.                  
+      556 +  const flat = verts < 200;                                   
+      557 +  if (flat) drawMinimap(flatScratch, info);                   
+      558 +  // createImageBitmap snapshots at the call, which is what ma
+          +kes this safe on                                              
+      559 +  // a canvas with preserveDrawingBuffer off: the GL buffer is
+          + only readable                                                
+      560 +  // until the frame composites.                              
+      561 +  const image = await createImageBitmap(flat ? flatScratch : g
+          +lScratch);                                                    
+      562 +  return { info, image };                                     
+      563 +}                                                             
+
+● Now the GL clear option in graphics.js:
+
+● Update(graphics.js)
+  ⎿  Added 6 lines
+      170      gl.vertexAttribPointer(aColor, 4, gl.UNSIGNED_BYTE, true, 
+           BYTES_PER_VERT, 8);
+      171      gl.bindVertexArray(null);
+      172  
+      173 +    // The race never needs this: the backdrop repaints every 
+          +pixel each frame,                                             
+      174 +    // and with preserveDrawingBuffer off the browser empties 
+          +the buffer after                                              
+      175 +    // it composites anyway. A surface that is read back inste
+          +ad of composited                                              
+      176 +    // gets neither, so it asks for the clear explicitly.     
+      177 +    this.clearFrames = !!opts.clear;                          
+      178 +                                                              
+      179      gl.disable(gl.DEPTH_TEST);
+      180      gl.disable(gl.CULL_FACE);
+      181      gl.enable(gl.BLEND);
+
+● Update(graphics.js)
+  ⎿  Added 6 lines
+      593      const gl = this.gl;
+      594      if (!gl) return;
+      595      gl.viewport(0, 0, gl.drawingBufferWidth, gl.drawingBufferH
+           eight);
+      596 +    // Ahead of the empty-frame return, so a frame that draws 
+          +nothing leaves an                                             
+      597 +    // empty surface rather than the last frame's picture.    
+      598 +    if (this.clearFrames) {                                   
+      599 +      gl.clearColor(0, 0, 0, 1);                              
+      600 +      gl.clear(gl.COLOR_BUFFER_BIT);                          
+      601 +    }                                                         
+      602      if (this.count === 0) return;
+      603  
+      604      gl.useProgram(this.program);
+
+● Now index.html — one 2D canvas at thumbnail size:
+
+● Update(~/resources/nfm/index.html)
+  ⎿  Added 4 lines, removed 6 lines
+      278          <b class="ar r solo">▸</b>
+      279        </li>
+      280        <li class="item pane" data-row="stage">
+      281 -        <span class="thumb thumb-map">                        
+      282 -          <canvas id="mapview" width="1600" height="900"></can
+          -vas>                                                          
+      283 -          <!-- A canvas keeps one context type for life, so th
+          -e flat fallback                                               
+      284 -               map needs its own element rather than a 2D cont
+          -ext on the GL one. -->                                        
+      285 -          <canvas id="mapflat" width="800" height="450" hidden
+          -></canvas>                                                    
+      286 -        </span>                                               
+      281 +        <!-- Both the 3D preview and the flat fallback arrive 
+          +here as a bitmap                                              
+      282 +             built off-screen (preview.js), so this is one pla
+          +in 2D canvas and                                              
+      283 +             a stage change is a blit. -->                    
+      284 +        <span class="thumb thumb-map"><canvas id="mapview" wid
+          +th="384" height="216"></canvas></span>                        
+      285          <span class="pbody">
+      286            <span class="ptitle">Stage</span>
+      287            <span class="pvalue"><b class="ar l">◂</b><span clas
+           s="val" data-val="stage"></span><b class="ar r">▸</b></span>
+
+● Now launcher.js — blit on change, warm the rest while idle:
+
+● Update(launcher.js)
+  ⎿  Added 2 lines, removed 2 lines
+      17  // client that regenerated any of it would diverge before the l
+          ights went out.
+      18  // See netlobby.js.
+      19  
+      20 -import { initPreview, carNames, carStats, drawCar, loadStage, s
+         -tageName,                                                      
+      21 -         faceURL, drawStage3D, drawMinimap, CAR_COUNT, loadCust
+         -omCars } from './preview.js';                                  
+      20 +import { initPreview, carNames, carStats, drawCar, stagePreview
+         +, stageName,                                                   
+      21 +         faceURL, CAR_COUNT, loadCustomCars } from './preview.j
+         +s';                                                            
+      22  import { NetPeer, makeRoomCode } from './netpeer.js';
+      23  import { Lobby, MAX_PLAYERS } from './netlobby.js';
+      24  import { Directory } from './netdirectory.js';
+
+● Update(launcher.js)
+  ⎿  Added 33 lines, removed 11 lines
+      274    if (lobby) lobby.setCar(car.slot);
+      275  }
+      276  
+      277 -let stageToken = 0;                                           
+      277 +let stageToken = 0, lastStageKey = 0;                         
+      278  async function onStageChanged() {
+      279    paintValues();
+      280    const n = S.stage;
+      281    const mine = ++stageToken;
+      282 +  lastStageKey = performance.now();                           
+      283    const meta = $('page-sp').querySelector('[data-meta="stage"]
+           ');
+      284    try {
+      284 -    const s = await loadStage(n);                             
+      285 +    const { info, image } = await stagePreview(n);            
+      286      if (mine !== stageToken) return;                 // supers
+           eded by a faster key
+      286 -    // Must follow loadStage immediately: it reuses one placed
+          --object array.                                                
+      287 -    // Stages needing more than ~85k depth come back empty fro
+          -m the renderer                                                
+      288 -    // and fall back to the flat map.                         
+      289 -    const verts = drawStage3D($('mapview'), s);               
+      290 -    const tooBig = verts < 200;                               
+      291 -    $('mapview').hidden = tooBig;                             
+      292 -    $('mapflat').hidden = !tooBig;                            
+      293 -    if (tooBig) drawMinimap($('mapflat'), s);                 
+      294 -    if (meta) meta.textContent = `${s.laps} laps · ${s.checkpo
+          -ints} checkpoints`;                                           
+      287 +    const c = $('mapview');                                   
+      288 +    const ctx = c.getContext('2d');                           
+      289 +    ctx.clearRect(0, 0, c.width, c.height);                   
+      290 +    ctx.drawImage(image, 0, 0, c.width, c.height);            
+      291 +    if (meta) meta.textContent = `${info.laps} laps · ${info.c
+          +heckpoints} checkpoints`;                                     
+      292    } catch {
+      293      if (meta) meta.textContent = 'could not load this stage';
+      294    }
+      295    if (lobby) onLobbyEdit();
+      296  }
+      297  
+      298 +const wait = (ms) => new Promise((r) => setTimeout(r, ms));   
+      299 +                                                              
+      300 +/**                                                           
+      301 + * Build every stage's preview in the background, nearest firs
+          +t.                                                            
+      302 + *                                                            
+      303 + * A preview costs a real `loadstage` and a renderer pass -- f
+          +ar too slow to                                                
+      304 + * pay per keypress -- but it is paid once and cached, so the 
+          +menu spends the                                               
+      305 + * time it is otherwise sitting idle and browsing stages becom
+          +es a blit.                                                    
+      306 + *                                                            
+      307 + * The build blocks the main thread and preview.js serialises 
+          +builds behind one                                             
+      308 + * queue, so a warm-up started on top of a keypress would dela
+          +y the preview the                                             
+      309 + * player is actually waiting for. Hence the pause after any s
+          +tage key, and the                                             
+      310 + * frame yielded between stages.                              
+      311 + */                                                           
+      312 +async function warmStagePreviews() {                          
+      313 +  const order = STAGES.map((s) => s.n)                        
+      314 +                      .sort((a, b) => Math.abs(a - S.stage) - 
+          +Math.abs(b - S.stage));                                       
+      315 +  for (const n of order) {                                    
+      316 +    while (performance.now() - lastStageKey < 400) await wait(
+          +200);                                                         
+      317 +    if (racing) return;                                       
+      318 +    try { await stagePreview(n); } catch { /* a stage that wil
+          +l not build */ }                                              
+      319 +    await new Promise(requestAnimationFrame);                 
+      320 +  }                                                           
+      321 +}                                                             
+      322 +                                                              
+      323  /* ---- the race ---------------------------------------------
+           ---------------
+      324   * Settings become a URLSearchParams because that is already t
+           he port's one
+      325   * configuration surface: main.html, the benchmark and every d
+           eep link read the
+
+● Update(launcher.js)
+  ⎿  Added 1 line
+      719      onCarChanged();
+      720      await onStageChanged();
+      721      draw();
+      722 +    warmStagePreviews();               // background; nothing 
+          +waits on it                                                   
+      723      await resumeRoom();
+      724    } catch (e) {
+      725      $('brandsub').textContent = 'failed to load game data';
+
+  Ran 3 shell commands (ctrl+o to expand)
+
+❯ can we try without caching first in case its good enough                      
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● The stash pop got interrupted — recovering my work first:
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Now stripping the cache and warm-up, keeping the resolution drop and the clear
+  fix:
+
+● Update(preview.js)  ⎿  Removed 60 lines
+      501    ctx.arc(px(stage.start.x), py(stage.start.z), 4.5, 0, Math.P
+           I * 2);
+      502    ctx.fill();
+      503  }
+      504 -                                                              
+      505 -// ---- the cached preview -----------------------------------
+          ------------------                                             
+      506 -                                                              
+      507 -/**                                                           
+      508 - * Backing store for a preview.                               
+      509 - *                                                            
+      510 - * The thumbnail is 12rem wide -- 192 CSS px -- so 2x covers a
+          - HiDPI display.                                               
+      511 - * Rendering it at 1600x900 was drawing nine times the pixels 
+          -the frame can                                                 
+      512 - * show, and this is a fill-bound scene: the camera looks stra
+          -ight down at a                                                
+      513 - * stage that covers the whole frame, with no depth buffer, so
+          - every triangle                                               
+      514 - * is rasterised whether or not anything lands on top of it.  
+      515 - */                                                           
+      516 -const PREVIEW_W = 384, PREVIEW_H = 216;                       
+      517 -                                                              
+      518 -/**                                                           
+      519 - * Finished previews by stage number, as promises.            
+      520 - *                                                            
+      521 - * Promises rather than bitmaps so a second request for a stag
+          -e still being                                                 
+      522 - * built joins the first instead of starting a second build --
+          - which is the                                                 
+      523 - * normal case once the idle warm-up is running behind the pla
+          -yer.                                                          
+      524 - */                                                           
+      525 -const previews = new Map();                                   
+      526 -let glScratch = null, flatScratch = null;                     
+      527 -                                                              
+      528 -/**                                                           
+      529 - * A stage's preview image and metadata, built once and then f
+          -ree.                                                          
+      530 - *                                                            
+      531 - * Building means running the real `loadstage` and a full rend
+          -erer pass, which                                              
+      532 - * is far too slow to repeat every time the player taps left o
+          -r right. The                                                  
+      533 - * result is a plain ImageBitmap, so every later visit to a st
+          -age is a blit.                                                
+      534 - */                                                           
+      535 -export function stagePreview(n) {                             
+      536 -  let p = previews.get(n);                                    
+      537 -  if (!p) {                                                   
+      538 -    p = buildPreview(n);                                      
+      539 -    previews.set(n, p);                                       
+      540 -    p.catch(() => previews.delete(n));   // a failure must not
+          - cache                                                        
+      541 -  }                                                           
+      542 -  return p;                                                   
+      543 -}                                                             
+      544 -                                                              
+      545 -async function buildPreview(n) {                              
+      546 -  const info = await loadStage(n);                            
+      547 -  if (!glScratch) {                                           
+      548 -    glScratch = document.createElement('canvas');             
+      549 -    flatScratch = document.createElement('canvas');           
+      550 -    for (const c of [glScratch, flatScratch]) { c.width = PREV
+          -IEW_W; c.height = PREVIEW_H; }                                
+      551 -  }                                                           
+      552 -  // Must follow loadStage immediately: it reuses one placed-o
+          -bject array.                                                  
+      553 -  const verts = drawStage3D(glScratch, info);                 
+      554 -  // Stages needing more than ~85k depth come back empty from 
+          -the renderer, and                                             
+      555 -  // the flat map is what they show instead.                  
+      556 -  const flat = verts < 200;                                   
+      557 -  if (flat) drawMinimap(flatScratch, info);                   
+      558 -  // createImageBitmap snapshots at the call, which is what ma
+          -kes this safe on                                              
+      559 -  // a canvas with preserveDrawingBuffer off: the GL buffer is
+          - only readable                                                
+      560 -  // until the frame composites.                              
+      561 -  const image = await createImageBitmap(flat ? flatScratch : g
+          -lScratch);                                                    
+      562 -  return { info, image };                                     
+      563 -}                                                             
+
+● Update(preview.js)
+  ⎿  Added 1 line, removed 1 line
+      281   * stage's geometry in there while the camera moved to the new
+            stage's bounds
+      282   * -- which looked like the map being stuck and sliding around
+           .
+      283   */
+      284 -function loadStage(n) {                                       
+      284 +export function loadStage(n) {                                
+      285    const run = stageQueue.then(() => buildStage(n), () => build
+           Stage(n));
+      286    stageQueue = run.catch(() => {});      // a failure must not
+            wedge the queue
+      287    return run;
+
+● Update(preview.js)
+  ⎿  Added 5 lines, removed 4 lines
+      370   * own bounds. Returns the vertex count so the caller can tell
+            a stage that
+      371   * rendered from one the renderer could not reach — see MAX_DE
+           PTH.
+      372   */
+      373 -function drawStage3D(canvas, stage) {                         
+      373 +export function drawStage3D(canvas, stage) {                  
+      374    const { medium, gs, xt, placed, mads } = world;
+      375    if (!canvas._rd) {
+      376      const overlay = document.createElement('canvas');
+      377      overlay.width = canvas.width;
+      378      overlay.height = canvas.height;
+      379 -    // `clear: true` because this canvas is never composited -
+          -- it is only ever                                             
+      380 -    // read back into a bitmap -- so nothing else ever empties
+          - its colour                                                   
+      381 -    // buffer, and one stage would draw on top of the last.   
+      379 +    // `clear: true` because this canvas spends time hidden, f
+          +or the stages                                                 
+      380 +    // that fall back to the flat map. A hidden canvas is neve
+          +r composited, so                                              
+      381 +    // the browser never empties its colour buffer either, and
+          + the next stage                                               
+      382 +    // drew on top of the last one -- two maps superimposed.  
+      383      canvas._rd = new Graphics2D(canvas, overlay, 800, 450, { c
+           lear: true });
+      384    }
+      385    const rd = canvas._rd;
+
+● Update(preview.js)
+  ⎿  Added 1 line, removed 1 line
+      456   * grid. They are skipped entirely. Track pieces read solid, d
+           ecor is dimmed,
+      457   * checkpoints are picked out because those are what the route
+            threads through.
+      458   */
+      459 -function drawMinimap(canvas, stage) {                         
+      459 +export function drawMinimap(canvas, stage) {                  
+      460    const ctx = canvas.getContext('2d');
+      461    const W = canvas.width, H = canvas.height;
+      462    ctx.clearRect(0, 0, W, H);
+
+● Now revert launcher.js to the direct-draw path (no cache, no warm loop):
+
+● Update(launcher.js)
+  ⎿  Added 2 lines, removed 2 lines
+      17  // client that regenerated any of it would diverge before the l
+          ights went out.
+      18  // See netlobby.js.
+      19  
+      20 -import { initPreview, carNames, carStats, drawCar, stagePreview
+         -, stageName,                                                   
+      21 -         faceURL, CAR_COUNT, loadCustomCars } from './preview.j
+         -s';                                                            
+      20 +import { initPreview, carNames, carStats, drawCar, loadStage, s
+         +tageName,                                                      
+      21 +         faceURL, drawStage3D, drawMinimap, CAR_COUNT, loadCust
+         +omCars } from './preview.js';                                  
+      22  import { NetPeer, makeRoomCode } from './netpeer.js';
+      23  import { Lobby, MAX_PLAYERS } from './netlobby.js';
+      24  import { Directory } from './netdirectory.js';
+
+● Update(launcher.js)
+  ⎿  Added 11 lines, removed 33 lines
+      274    if (lobby) lobby.setCar(car.slot);
+      275  }
+      276  
+      277 -let stageToken = 0, lastStageKey = 0;                         
+      277 +let stageToken = 0;                                           
+      278  async function onStageChanged() {
+      279    paintValues();
+      280    const n = S.stage;
+      281    const mine = ++stageToken;
+      282 -  lastStageKey = performance.now();                           
+      282    const meta = $('page-sp').querySelector('[data-meta="stage"]
+           ');
+      283    try {
+      285 -    const { info, image } = await stagePreview(n);            
+      284 +    const s = await loadStage(n);                             
+      285      if (mine !== stageToken) return;                 // supers
+           eded by a faster key
+      287 -    const c = $('mapview');                                   
+      288 -    const ctx = c.getContext('2d');                           
+      289 -    ctx.clearRect(0, 0, c.width, c.height);                   
+      290 -    ctx.drawImage(image, 0, 0, c.width, c.height);            
+      291 -    if (meta) meta.textContent = `${info.laps} laps · ${info.c
+          -heckpoints} checkpoints`;                                     
+      286 +    // Must follow loadStage immediately: it reuses one placed
+          +-object array.                                                
+      287 +    // Stages needing more than ~85k depth come back empty fro
+          +m the renderer                                                
+      288 +    // and fall back to the flat map.                         
+      289 +    const verts = drawStage3D($('mapview'), s);               
+      290 +    const tooBig = verts < 200;                               
+      291 +    $('mapview').hidden = tooBig;                             
+      292 +    $('mapflat').hidden = !tooBig;                            
+      293 +    if (tooBig) drawMinimap($('mapflat'), s);                 
+      294 +    if (meta) meta.textContent = `${s.laps} laps · ${s.checkpo
+          +ints} checkpoints`;                                           
+      295    } catch {
+      296      if (meta) meta.textContent = 'could not load this stage';
+      297    }
+      298    if (lobby) onLobbyEdit();
+      299  }
+      300  
+      298 -const wait = (ms) => new Promise((r) => setTimeout(r, ms));   
+      299 -                                                              
+      300 -/**                                                           
+      301 - * Build every stage's preview in the background, nearest firs
+          -t.                                                            
+      302 - *                                                            
+      303 - * A preview costs a real `loadstage` and a renderer pass -- f
+          -ar too slow to                                                
+      304 - * pay per keypress -- but it is paid once and cached, so the 
+          -menu spends the                                               
+      305 - * time it is otherwise sitting idle and browsing stages becom
+          -es a blit.                                                    
+      306 - *                                                            
+      307 - * The build blocks the main thread and preview.js serialises 
+          -builds behind one                                             
+      308 - * queue, so a warm-up started on top of a keypress would dela
+          -y the preview the                                             
+      309 - * player is actually waiting for. Hence the pause after any s
+          -tage key, and the                                             
+      310 - * frame yielded between stages.                              
+      311 - */                                                           
+      312 -async function warmStagePreviews() {                          
+      313 -  const order = STAGES.map((s) => s.n)                        
+      314 -                      .sort((a, b) => Math.abs(a - S.stage) - 
+          -Math.abs(b - S.stage));                                       
+      315 -  for (const n of order) {                                    
+      316 -    while (performance.now() - lastStageKey < 400) await wait(
+          -200);                                                         
+      317 -    if (racing) return;                                       
+      318 -    try { await stagePreview(n); } catch { /* a stage that wil
+          -l not build */ }                                              
+      319 -    await new Promise(requestAnimationFrame);                 
+      320 -  }                                                           
+      321 -}                                                             
+      322 -                                                              
+      301  /* ---- the race ---------------------------------------------
+           ---------------
+      302   * Settings become a URLSearchParams because that is already t
+           he port's one
+      303   * configuration surface: main.html, the benchmark and every d
+           eep link read the
+
+● Update(launcher.js)
+  ⎿  Removed 1 line
+      697      onCarChanged();
+      698      await onStageChanged();
+      699      draw();
+      700 -    warmStagePreviews();               // background; nothing 
+          -waits on it                                                   
+      700      await resumeRoom();
+      701    } catch (e) {
+      702      $('brandsub').textContent = 'failed to load game data';
+
+● Restoring the two-canvas markup, at thumbnail resolution:
+
+● Update(~/resources/nfm/index.html)
+  ⎿  Added 12 lines, removed 4 lines
+      278          <b class="ar r solo">▸</b>
+      279        </li>
+      280        <li class="item pane" data-row="stage">
+      281 -        <!-- Both the 3D preview and the flat fallback arrive 
+          -here as a bitmap                                              
+      282 -             built off-screen (preview.js), so this is one pla
+          -in 2D canvas and                                              
+      283 -             a stage change is a blit. -->                    
+      284 -        <span class="thumb thumb-map"><canvas id="mapview" wid
+          -th="384" height="216"></canvas></span>                        
+      281 +        <!-- The thumbnail is 12rem wide -- 192 CSS px -- so a
+          + 384x216 backing                                              
+      282 +             store covers a HiDPI display. This view is fill-b
+          +ound: the camera                                              
+      283 +             looks straight down at a stage that fills the fra
+          +me and there is                                               
+      284 +             no depth buffer, so every triangle is rasterised 
+          +whether or not                                                
+      285 +             something later covers it, and the 1600x900 this 
+          +replaced was                                                  
+      286 +             shading nine times the pixels the frame can show.
+          + -->                                                          
+      287 +        <span class="thumb thumb-map">                        
+      288 +          <canvas id="mapview" width="384" height="216"></canv
+          +as>                                                           
+      289 +          <!-- A canvas keeps one context type for life, so th
+          +e flat fallback                                               
+      290 +               map needs its own element rather than a 2D cont
+          +ext on the GL one. -->                                        
+      291 +          <canvas id="mapflat" width="384" height="216" hidden
+          +></canvas>                                                    
+      292 +        </span>                                               
+      293          <span class="pbody">
+      294            <span class="ptitle">Stage</span>
+      295            <span class="pvalue"><b class="ar l">◂</b><span clas
+           s="val" data-val="stage"></span><b class="ar r">▸</b></span>
+
+  Read 1 file (ctrl+o to expand)
+
+● Update(preview.js)
+  ⎿  Added 5 lines, removed 1 line
+      474      if (o.z - o.r < minZ) minZ = o.z - o.r;
+      475      if (o.z + o.r > maxZ) maxZ = o.z + o.r;
+      476    }
+      477 -  const pad = 12;                                             
+      477 +  // The fixed sizes below -- padding, the floor on a tile, th
+          +e start dot --                                                
+      478 +  // are all in the 800-wide space they were chosen in, so the
+          +y scale with the                                              
+      479 +  // backing store rather than growing as it shrinks.         
+      480 +  const k = W / 800;                                          
+      481 +  const pad = 12 * k;                                         
+      482    const scale = Math.min((W - pad * 2) / Math.max(1, maxX - mi
+           nX),
+      483                           (H - pad * 2) / Math.max(1, maxZ - mi
+           nZ));
+      484    // z grows away from the camera in world space; up on the ma
+           p reads better.
+
+● Update(preview.js)
+  ⎿  Added 1 line, removed 1 line
+      490    // route reads as one path rather than a dotted line; scener
+           y is drawn at
+      491    // its true size, where separate dots are correct.
+      492    const draw = (o, fill, spread = 1.41) => {
+      493 -    const s = Math.max(2, o.r * scale * spread);              
+      493 +    const s = Math.max(2 * k, o.r * scale * spread);          
+      494      ctx.fillStyle = fill;
+      495      ctx.fillRect(px(o.x) - s / 2, py(o.z) - s / 2, s, s);
+      496    };
+
+● Update(preview.js)
+  ⎿  Added 1 line, removed 1 line
+      503  
+      504    ctx.fillStyle = '#6cf';
+      505    ctx.beginPath();
+      506 -  ctx.arc(px(stage.start.x), py(stage.start.z), 4.5, 0, Math.P
+          -I * 2);                                                       
+      506 +  ctx.arc(px(stage.start.x), py(stage.start.z), 4.5 * k, 0, Ma
+          +th.PI * 2);                                                   
+      507    ctx.fill();
+      508  }
+
+● Now the test that failed earlier — checking whether it's pre-existing:
+
+  Ran 3 shell commands (ctrl+o to expand)
+
+● Done. Three changes, no caching:
+
+  - Resolution — index.html: both map canvases drop from 1600×900 to 384×216 (2×
+  the 12rem thumbnail). This view is fill-bound — camera straight down, stage
+  filling the frame, no depth buffer — so it was shading ~17× the pixels the
+  thumbnail can show. drawMinimap now scales its fixed sizes (padding, tile
+  floor, start dot) by W/800 so the flat map looks the same at the smaller size.
+  - Superimpose fix — web/graphics.js: new clear option makes end() clear the
+  colour buffer, ahead of the empty-frame early return; drawStage3D passes it.
+  The cause is that mapview is hidden for stages that fall back to the flat map,
+  and a hidden canvas is never composited, so with preserveDrawingBuffer: false
+  nothing ever emptied its buffer and the next 3D stage drew on top of the last
+  one. The race path is unaffected (clear defaults off).
+  - Flash — .item.fired/@keyframes fired and the class toggle in launcher.js are
+  gone.
+
+  Tests: 37 pass in graphics + integration. The one failure in the full run
+  (loadIntoCarDefine fills slots 16.., carstore.test.js) is pre-existing — it
+  fails identically on a clean tree.
+
+  Try browsing stages now; if it's still not snappy, the ImageBitmap cache +
+  idle warm-up is a small addition on top.
+
+✻ Churned for 2m 59s
+
+❯ still superimposing.  it seems to be specific tracks that get stuck on the    
+  screen.  (6, 8, 15, snowy tracks).  they get stuck until the next one shows   
+  up.                                                                           
+  ⎿  Interrupted · What should Claude do instead?
+
+❯ still superimposing.  it seems to be specific tracks that get stuck on the    
+  screen.  (6, 8, 15, snowy tracks).  they get stuck until the next one shows   
+  up.                                                                           
+
+❯ still superimposing.  it seems to be specific tracks that get stuck on the    
+  screen.  (6, 8, 15, snowy tracks).  they get stuck until the next one shows   
+  up.                                                                           
+                                                                                
+  also the preview is still slow.  trying to avoid caching code.  Is there      
+  anything else to try thats easy?                                              
+
+● Two things. First, the superimpose cause — let me check the hidden handling:
+
+  Searched for 1 pattern (ctrl+o to expand)
+● Found it. [hidden]'s UA rule is display: none at specificity 0,1,0 — .thumb 
+  canvas { display: block } (0,1,1) overrides it, so mapflat was never actually
+  hidden. It sat permanently on top of mapview once any flat-fallback stage (6,
+  8, 15, the snowy ones) had drawn into it.
+
+● Update(~/resources/nfm/index.html)
+  ⎿  Added 4 lines
+      136  .thumb { flex: none; width: 12rem; aspect-ratio: 16 / 9; align
+           -self: center;
+      137           position: relative; overflow: hidden; border: 3px sol
+           id var(--ink); background: #0b0d13; }
+      138  .thumb canvas { position: absolute; display: block; }
+      139 +/* `display: block` above outranks the UA rule behind the `hid
+          +den` attribute --                                             
+      140 +   a class plus a type beats an attribute -- so the flat fallb
+          +ack map stayed                                                
+      141 +   visible on top of the 3D one for every stage after the one 
+          +that drew it. */                                              
+      142 +.thumb canvas[hidden] { display: none; }                      
+      143  /* The car lands at (402, 264) in the game's 800x450 projectio
+           n space, and that
+      144     space is ABSOLUTE -- the projection centre and focus point 
+           are screen
+      145     coordinates, so moving the camera would stop showing what t
+           he game's own
+
+● Now the easy speed win: don't build the stages you pass through.
+
+  Read 1 file (ctrl+o to expand)
+
+● Update(launcher.js)
+  ⎿  Added 19 lines, removed 2 lines
+      274    if (lobby) lobby.setCar(car.slot);
+      275  }
+      276  
+      277 -let stageToken = 0;                                           
+      278 -async function onStageChanged() {                             
+      277 +/**                                                           
+      278 + * A stage changed: the name and the lobby update now, the pic
+          +ture shortly.                                                 
+      279 + *                                                            
+      280 + * A preview costs a real `loadstage` plus a renderer pass, an
+          +d preview.js runs                                             
+      281 + * them one at a time, so holding a key down queued one build 
+          +per stage passed                                              
+      282 + * and the picture arrived several stages behind the player. O
+          +nly the stage                                                 
+      283 + * they come to rest on is worth building; the wait is short e
+          +nough that a                                                  
+      284 + * single keypress still feels immediate.                     
+      285 + */                                                           
+      286 +let stageTimer = 0;                                           
+      287 +function onStageChanged() {                                   
+      288    paintValues();
+      289 +  if (lobby) onLobbyEdit();                                   
+      290 +  clearTimeout(stageTimer);                                   
+      291 +  stageTimer = setTimeout(drawStagePreview, 130);             
+      292 +  $('page-sp').querySelector('.thumb-map').classList.add('busy
+          +');                                                           
+      293 +}                                                             
+      294 +                                                              
+      295 +let stageToken = 0;                                           
+      296 +async function drawStagePreview() {                           
+      297    const n = S.stage;
+      298    const mine = ++stageToken;
+      299    const meta = $('page-sp').querySelector('[data-meta="stage"]
+           ');
+
+● Update(launcher.js)
+  ⎿  Added 3 lines, removed 1 line
+      312    } catch {
+      313      if (meta) meta.textContent = 'could not load this stage';
+      314    }
+      315 -  if (lobby) onLobbyEdit();                                   
+      315 +  if (mine === stageToken) {                                  
+      316 +    $('page-sp').querySelector('.thumb-map').classList.remove(
+          +'busy');                                                      
+      317 +  }                                                           
+      318  }
+      319  
+      320  /* ---- the race ---------------------------------------------
+           ---------------
+
+● Update(launcher.js)
+  ⎿  Added 1 line, removed 1 line
+      714      $('brandsub').textContent = 'press enter to race';
+      715      paintValues();
+      716      onCarChanged();
+      717 -    await onStageChanged();                                   
+      717 +    await drawStagePreview();                                 
+      718      draw();
+      719      await resumeRoom();
+      720    } catch (e) {
+
+● Update(~/resources/nfm/index.html)
+  ⎿  Added 4 lines
+      140     a class plus a type beats an attribute -- so the flat fallb
+           ack map stayed
+      141     visible on top of the 3D one for every stage after the one 
+           that drew it. */
+      142  .thumb canvas[hidden] { display: none; }
+      143 +/* A build takes long enough to see, and the frame still holds
+          + the LAST stage                                               
+      144 +   while it runs. Dimming says so, rather than letting the old
+          + map read as the                                              
+      145 +   new one's answer. */                                       
+      146 +.thumb.busy canvas { opacity: .3; }                           
+      147  /* The car lands at (402, 264) in the game's 800x450 projectio
+           n space, and that
+      148     space is ABSOLUTE -- the projection centre and focus point 
+           are screen
+      149     coordinates, so moving the camera would stop showing what t
+           he game's own
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● The superimposing was a CSS specificity bug, not a rendering one:
+
+  - index.html:141 — added .thumb canvas[hidden] { display: none; }. mapflat had
+  hidden set correctly the whole time, but .thumb canvas { display: block }
+  outranked the UA rule for the attribute, so the flat map stayed painted on top
+  of every later 3D preview. That's exactly your list: 6, 8, 15 and the snowy
+  stages are the ones over the depth limit that fall back to the flat map.
+
+  On speed, the easy thing left that isn't caching — stop building the stages 
+  you pass through. onStageChanged now updates the name and lobby immediately
+  and debounces the actual build by 130ms (web/launcher.js:277), so holding
+  left/right builds one stage instead of a dozen queued serially behind each
+  other. The thumbnail dims while a build is pending so the previous map doesn't
+  read as the new stage's.
+
+  That doesn't make a single build faster — one loadstage plus a renderer pass
+  is the floor, and only caching removes it on revisits. If it's still slow
+  after this, tell me the wait for one stage and I'll look at what inside
+  buildStage is actually costing it.
+
+✻ Sautéed for 2m 3s
+
+※ recap: Goal was speeding up the launcher's map previews and fixing the stuck-preview bug. I fixed the superimposing (a CSS `hidden` override) and debounced stage builds; next, test in the browser and report how slow one preview still feels. (disable recaps in /config)
+
+❯ its still slow.  can you profile it on your own then report what you think    
+  the noncache fix is (if there is one). dont make changes unless its profiling 
+  machinery                                                                     
+
+  Made 1 scratchpad edit +119, ran 2 shell commands (ctrl+o to expand)
+
+● loadstage dominates (238ms mean vs 47ms draw). Digging into where inside it:
+
+  Made 1 scratchpad edit +22, ran 4 shell commands (ctrl+o to expand)
+
+● newpolys/newclouds/newmountains are backdrop scenery — and the preview stubs
+  out medium.d, so it never draws any of it. Measuring what skipping them saves:
+
+  Searched for 1 pattern, ran 8 shell commands (ctrl+o to expand)
+
+● Profiled headlessly (node, Graphics2D(null,…) — so the draw column is the CPU
+  half; only the GL upload is missing). No repo changes; the harness is in the
+  scratchpad.
+
+  Where the time goes — mean over all 32 stages, best of 3 passes each:
+
+  ┌─────────────────┬─────┐
+  │                 │ ms  │
+  ├─────────────────┼─────┤
+  │ read stage file │ 0.2 │
+  ├─────────────────┼─────┤
+  │ gs.loadstage    │ 176 │
+  ├─────────────────┼─────┤
+  │ object scan     │ 0.1 │
+  ├─────────────────┼─────┤
+  │ drawStage3D     │ 22  │
+  └─────────────────┴─────┘
+
+  So the canvas shrink was aimed at the wrong 10%: the preview is
+  loadstage-bound, not fill-bound. Sampling profile: 22% GC, then
+  Medium.newpolys at 9.6% self, then Plane.d/ContO.d/#initCopy/#initBuf.
+
+  Two non-cache fixes, both measured:
+
+  1. Skip the backdrop generation. loadstage ends by calling medium.newpolys /
+  newclouds / newmountains / newstars (GameSparker.js:303-306). Those build the
+  ground blobs, clouds, mountains and stars — consumed only by
+  groundpolys/drawclouds/drawmountains, which are called only from Medium.d
+  (Medium.js:1385-1388)… which the preview already stubs out. The preview
+  generates all of it and draws none of it. Stubbing them the same way medium.d
+  is stubbed: 198 → ~130 ms. newpolys is the whole win; the other three are
+  free. One catch: the stub must still set nrw/ncl, because loadstage rejects a
+  stage with nrw * ncl >= 16000.
+  2. Load one car, not seven. xt.nplayers = 7 makes loadstage build 7 car
+  ContOs. Cars are the heaviest models and at map scale they're specks — the
+  flat minimap already filters them out. Setting it to 1 for previews: another
+  ~25 ms.
+
+  Together: 198 → 104 ms mean, a 47% cut, no cache. Worst stages (30, 2, 22)
+  come down proportionally.
+
+  What's left is the floor. The remaining ~80 ms of loadstage is new ContO(...)
+  per placed object — a deep copy of the base model's geometry, 300-600 times —
+  plus the GC that churn causes (36% of samples after fix 1). Nothing in there
+  is wasted work for a preview; it's what "have the real stage in memory" costs.
+  Below ~100 ms/stage the only levers are caching the result, or moving the
+  build into a Worker — which doesn't make it faster, just stops it freezing the
+  menu.
+
+  Two things I tested that don't help: setPooling(true) made the draw worse (43
+  → 92 ms — a single draw never reuses a scratch array, so it pays the pool
+  lookup for nothing), and clouds/mountains/stars cost nothing measurable on
+  their own.
+
+  Say the word and I'll apply 1 and 2.
+
+✻ Cogitated for 4m 55s
+
+❯ these are small oc changes? one sntence                                       
+
+● Yes — fix 2 is one line (xt.nplayers = 1 in buildStage), and fix 1 is about
+  eight: save and stub medium.newpolys/newclouds/newmountains/newstars around
+  the gs.loadstage call, with the newpolys stub still setting nrw/ncl/sgpx/sgpz
+  so the stage-rejection check and the flat map keep working.
+✻ Sautéed for 5s
+
+❯ is there an idiomatic loadstage change that makes it easy to read, or is that 
+  wht you were going to do?                                                     
+
+  Searched for 1 pattern, ran 2 shell commands (ctrl+o to expand)
+
+● That was the plan, and it's the idiomatic one here: TRANSPILE_SPEC.md's prime
+  directive is that GameSparker.js/Medium.js stay line-for-line diffable against
+  the Java, so a { backdrop: false } parameter on loadstage is exactly the kind
+  of restructuring that file forbids — stubbing the methods at the call site is
+  the established pattern, and drawStage3D already does it for medium.d with a
+  comment saying why.
+
+  What makes it read well is naming it rather than inlining it — a
+  withoutBackdrop(medium, () => gs.loadstage(...)) helper in preview.js, holding
+  the save/stub/restore and the one-line reason (nothing draws it; the preview
+  stubs medium.d), so buildStage stays a straight read.
+
+✻ Cooked for 21s
+
+❯ should the line-for-line req be dropped now?  can we make the code much more  
+  redaable by doing so?  one sen                                                
+
+● Not yet, and probably not much gain: the line-for-line rule buys you a
+  diffable oracle for exactly the files where silent numeric drift is
+  undebuggable (Plane, Medium, ContO, GameSparker physics), and renaming
+  array2/n36 would make them read better locally while removing the only cheap
+  way to check a suspect line against the Java — the code that actually benefits
+  from being readable (preview.js, launcher.js, graphics.js, the netcode) is
+  already outside the rule and free to be idiomatic.
+
+✻ Brewed for 7s
+
+❯ apply both fixes                                                              
+
+  Read 1 file (ctrl+o to expand)
+
+● Update(preview.js)
+  ⎿  Added 7 lines, removed 2 lines
+      292  
+      293    const text = await readText(`stages/${n}.txt`);   // vfs cac
+           hes the fetch
+      294    checkPoints.stage = n;
+      295 -  xt.nplayers = 7;                                            
+      296 -  gs.loadstage(placed, models, medium, trackers, checkPoints, 
+          -xt, mads, record, text);                                      
+      295 +  // One car on the grid rather than a full field. loadstage b
+          +uilds a real                                                  
+      296 +  // ContO per player and cars are the heaviest models in the 
+          +game, while at                                                
+      297 +  // map scale they are specks -- the flat map filters them ou
+          +t entirely.                                                   
+      298 +  // Worth about 25ms of the ~200ms a preview used to cost.   
+      299 +  xt.nplayers = 1;                                            
+      300 +  withoutBackdrop(medium, () =>                               
+      301 +    gs.loadstage(placed, models, medium, trackers, checkPoints
+          +, xt, mads, record, text));                                   
+      302    if (checkPoints.stage === -3) throw new Error(`stage ${n} fa
+           iled to load`);
+      303  
+      304    if (stageMeta.has(n)) return stageMeta.get(n);
+
+● Update(preview.js)
+  ⎿  Added 35 lines
+      287    return run;
+      288  }
+      289  
+      290 +/**                                                           
+      291 + * Run `fn` with the scenery generators stubbed out.          
+      292 + *                                                            
+      293 + * The last thing loadstage does is generate ground blobs, clo
+          +uds, mountains                                                
+      294 + * and stars (GameSparker.js:303-306). Every one of them is re
+          +ad back only by                                               
+      295 + * `Medium.d`, and drawStage3D stubs `Medium.d` out -- pointed
+          + straight down it                                             
+      296 + * fills the frame with sky -- so the preview was building all
+          + of that scenery                                              
+      297 + * and drawing none of it. Profiled at 176ms of the 198ms a pr
+          +eview cost, with                                              
+      298 + * newpolys alone a third of the total.                       
+      299 + *                                                            
+      300 + * newpolys has to leave `nrw` and `ncl` behind even so: loads
+          +tage reads them                                               
+      301 + * back to reject a stage whose ground grid is too large.     
+      302 + */                                                           
+      303 +function withoutBackdrop(medium, fn) {                        
+      304 +  const saved = { d: medium.newpolys, c: medium.newclouds,    
+      305 +                  m: medium.newmountains, s: medium.newstars }
+          +;                                                             
+      306 +  medium.newpolys = function (n, n2, n3, n4) {                
+      307 +    this.nrw = idiv(n2, 1200) + 9;                            
+      308 +    this.ncl = idiv(n4, 1200) + 9;                            
+      309 +    this.sgpx = n - 4800;                                     
+      310 +    this.sgpz = n3 - 4800;                                    
+      311 +  };                                                          
+      312 +  medium.newclouds = () => {};                                
+      313 +  medium.newmountains = () => {};                             
+      314 +  medium.newstars = () => {};                                 
+      315 +  try {                                                       
+      316 +    return fn();                                              
+      317 +  } finally {                                                 
+      318 +    medium.newpolys = saved.d;                                
+      319 +    medium.newclouds = saved.c;                               
+      320 +    medium.newmountains = saved.m;                            
+      321 +    medium.newstars = saved.s;                                
+      322 +  }                                                           
+      323 +}                                                             
+      324 +                                                              
+      325  async function buildStage(n) {
+      326    const { medium, trackers, checkPoints, models, gs, xt, recor
+           d, placed, mads } = world;
+      327  
+
+● Update(preview.js)
+  ⎿  Added 1 line, removed 1 line
+      19  import { GameSparker, CAR_NAMES, TRACK_NAMES } from './GameSpar
+          ker.js';
+      20  import { XtGraphics } from './XtGraphics.js';
+      21  import { ContO } from './ContO.js';
+      22 -import { objArray, setSeed } from './java.js';                 
+      22 +import { objArray, setSeed, idiv } from './java.js';           
+      23  import { readZip, readText, detectFpath } from './vfs.js';
+      24  import { loadIntoCarDefine } from './carstore.js';
+      25  
+
+  Searched for 3 patterns, ran 2 shell commands (ctrl+o to expand)
+
+● Both applied in web/preview.js:
+
+  - withoutBackdrop(medium, fn) wraps the gs.loadstage call, stubbing
+  newpolys/newclouds/newmountains/newstars. The newpolys stub still sets
+  nrw/ncl/sgpx/sgpz so loadstage's "ground grid too large" rejection still
+  fires. Same save/stub/restore shape drawStage3D already uses for medium.d, so
+  the transpiled files are untouched.
+  - xt.nplayers = 1 instead of 7 in buildStage.
+
+  Measured on the profiling harness: mean over all 32 stages 198 ms → 104 ms,
+  with loadstage going 176 → 81 ms. Test suite: 295 pass, and the one failure
+  (loadIntoCarDefine, carstore.test.js) is the pre-existing one that fails
+  identically on a clean tree.
+
+  Two visible consequences worth knowing: the grid now shows one car instead of
+  seven (invisible at map scale, and the flat map already filtered them), and
+  the preview world no longer holds generated clouds/mountains — nothing reads
+  them, since the race builds its own world in main.js.
+
+✻ Cogitated for 2m 32s
+
+※ recap: Goal was making launcher stage previews fast and clean. Fixed the selection flash, the map superimposing (a CSS specificity bug), and cut preview build time roughly in half after profiling. Next: reload the launcher and tell me whether browsing stages now feels fast enough. (disable recaps in /config)
+
+❯ there are some map preview rendering glitches that have been there forever    
+  where track pieces near the edge are smeared out to infinity.  not on every   
+  preview. most notable on 9 and 25                                             
+
+  Ran 3 shell commands (ctrl+o to expand)
+
+● The comment in drawStage3D blames stage 9's ramps; let me find what's actually
+  crossing the camera plane. xs/ys clamp depth to m.cz instead of clipping,
+  which is what turns a vertex into a smear:
+
+  Made 1 scratchpad edit +132, searched for 1 pattern, ran 4 shell commands (ctrl+o to expand)
+
+● The clamps at line 484 are a pre-pass (before the camera's zy rotation), so
+  they're not the smear. Instrumenting only the final projection:
+
+  Ran 1 shell command (ctrl+o to expand)
+● No near-plane clamping at all. Next hypothesis — xs() does Math.imul(cz - 
+  focus_point, cx - n), and at these camera depths that product overflows int32:
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● thewall and edge pieces on 9 and 25 — and nothing on 1, 3, 30. That's the
+  mechanism: at depth ~71680 the product (cz - focus_point) * (cx - n) passes
+  2³¹ and wraps. Testing a fix — pull the camera in and scale focus_point to
+  match, which keeps the framing identical:
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Overflow gone — and the vertex counts reveal something bigger: stage 8 goes
+  102 → 48057 verts, and stages 18/31 (currently flat-fallback) now render. The
+  MAX_DEPTH mystery in the comment was this same wrap. Measuring the full
+  picture:
+
+  Made 1 scratchpad edit +139, listed 1 directory, ran 2 shell commands (ctrl+o to expand)
+
+● There's a CDP screenshot tool — let me verify visually rather than by numbers.
+  First a "before" shot of stage 9:
+
+  Read 1 file, ran 2 shell commands (ctrl+o to expand)
+
+● The smear is visible (the pink bars). Now checking which stages would frame
+  badly before I change the camera:
+
+  Ran 2 shell commands (ctrl+o to expand)
+
+● Stage 16 really is a 17k × 422k strip, so a sliver is honest (the flat map is
+  a sliver too). No guard needed. Implementing:
+
+  Read 1 file (ctrl+o to expand)
+
+● Update(preview.js)
+  ⎿  Added 3 lines, removed 3 lines
+      406   * Requires the stage to be the one currently built into `plac
+           ed` -- loadStage
+      407   * reuses that array -- so it is called immediately after it.
+      408   *
+      409 - * `zy = 90` looks straight down and the camera height comes f
+          -rom the stage's                                               
+      410 - * own bounds. Returns the vertex count so the caller can tell
+          - a stage that                                                 
+      411 - * rendered from one the renderer could not reach — see MAX_DE
+          -PTH.                                                          
+      409 + * `zy = 90` looks straight down and the framing comes from th
+          +e stage's own                                                 
+      410 + * bounds. Returns the vertex count, so a stage that rendered 
+          +nothing at all                                                
+      411 + * can still fall back to the flat map.                       
+      412   */
+      413  export function drawStage3D(canvas, stage) {
+      414    const { medium, gs, xt, placed, mads } = world;
+
+  Read 1 file (ctrl+o to expand)
+
+● Update(preview.js)
+  ⎿  Added 21 lines, removed 11 lines
+      433    //   screenX = cx + (x - m.x - cx) * focus / depth
+      434    //   screenY = cy - (z - m.z - cz) * focus / depth
+      435    //   depth   = cz + (y - m.y - cy)
+      436 -  // so fitting spanX into 800 needs depth >= spanX/2, and spa
+          -nZ into 450                                                   
+      437 -  // needs depth >= spanZ * 400/450. Take the larger, with a m
+          -argin.                                                        
+      438 -  let depth = Math.max(spanX / 2, spanZ * (400 / 450)) * 1.12;
+      436 +  // so at the game's own focus_point of 400 the whole stage n
+          +eeds a camera                                                 
+      437 +  // at framingDepth. That is only the RATIO though: what sets
+          + the framing is                                               
+      438 +  // focus_point / depth, so the same picture can be had from 
+          +any distance by                                               
+      439 +  // scaling the focus point with it.                         
+      440 +  const framingDepth = Math.max(spanX / 2, spanZ * (400 / 450)
+          +) * 1.12;                                                     
+      441    // The camera must clear the TALLEST object with room to spa
+           re. Framing off
+      442    // the mean height alone leaves tall geometry at or above th
+           e camera plane,
+      443    // where depth goes to zero and the projection stretches it 
+           across the whole
+      444    // screen -- what stage 9's ramps did. `xs()` clamps the div
+           isor but that
+      445    // only bounds the blow-up, it does not prevent the smear.
+      446    const clearance = (b.meanY - b.topY) * 2 + 2000;
+      445 -  if (depth < clearance) depth = clearance;                   
+      446 -  // The renderer was never asked for a view this wide: the St
+          -ageMaker's own                                                
+      447 -  // overhead mode stops at m.y = -15000 and SCROLLS instead. 
+          -Past roughly that                                             
+      448 -  // distance, face-level culling inside Plane.d strips the ge
+          -ometry -- stage 8                                             
+      449 -  // spans 91,000 units and emitted 24 vertices for 172 visibl
+          -e objects.                                                    
+      450 -  // Clamp to the supported range; larger stages show their mi
+          -ddle rather than                                              
+      451 -  // an empty frame.                                          
+      452 -  if (depth > MAX_DEPTH) return 0;      // caller falls back t
+          -o the flat map                                                
+      447 +  //                                                          
+      448 +  // Then stand as CLOSE as that clearance allows and shrink t
+          +he focus point to                                             
+      449 +  // match, rather than backing off to framingDepth with focus
+          +_point at 400.                                                
+      450 +  //                                                          
+      451 +  // The distance is what broke the wide stages. Plane.xs is  
+      452 +  //   idiv(Math.imul(cz - focus_point, cx - n), cz) + n      
+      453 +  // and Math.imul wraps at int32, faithfully to the Java. At 
+          +the far camera a                                              
+      454 +  // stage 128,000 units across put `cz` near 71,000 and `cx -
+          + n` near 64,000                                               
+      455 +  // at the frame's edge: their product passes 2^31, wraps, an
+          +d the vertex                                                  
+      456 +  // lands somewhere absurd -- the track pieces smeared off th
+          +e edge of stages                                              
+      457 +  // 9 and 25. It is also what the old MAX_DEPTH cutoff was re
+          +ally measuring:                                               
+      458 +  // stage 8's "the renderer stops delivering geometry past ~8
+          +5k" was the same                                              
+      459 +  // wrap, feeding garbage to the face-culling tests, and it r
+          +enders 48,000                                                 
+      460 +  // vertices from up close. Every stage now draws; nothing ov
+          +erflows.                                                      
+      461 +  const depth = Math.max(clearance, 3000);                    
+      462 +  const focus = Math.max(1, Math.round(400 * depth / framingDe
+          +pth));                                                        
+      463  
+      464  
+      465    // trk = 2 is the StageMaker's overhead editing mode (StageM
+           aker.java:886).
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Update(preview.js)
+  ⎿  Error editing file
+
+  Read 1 file (ctrl+o to expand)
+
+● Update(preview.js)
+  ⎿  Added 1 line, removed 1 line
+      473    medium.iw = 0;
+      474    medium.w = 800;
+      475    medium.h = 450;
+      476 -  medium.focus_point = 400;                                   
+      476 +  medium.focus_point = focus;                                 
+      477    medium.cx = 400;
+      478    medium.cy = 225;
+      479    medium.cz = 50;
+
+● Now removing the dead MAX_DEPTH constant and its stale references:
+
+  Read 1 file (ctrl+o to expand)
+
+● Update(preview.js)
+  ⎿  Removed 14 lines
+      44   */
+      45  const GROUND = new Set(['hpground']);
+      46  
+      47 -/**                                                            
+      48 - * Furthest the overhead view can pull back and still render.  
+      49 - *                                                             
+      50 - * The renderer was never asked for a view this wide. The Stage
+         -Maker's own                                                    
+      51 - * overhead mode stops at `m.y = -15000` and SCROLLS rather tha
+         -n zooming out,                                                 
+      52 - * and past a point the geometry simply stops arriving: stage 8
+         - spans 91,000                                                  
+      53 - * units and emitted 24 vertices for 172 objects that pass ever
+         -y gate I could                                                 
+      54 - * check by hand. The cause is inside Plane.d's own culling and
+         - is NOT                                                        
+      55 - * understood. This bound is empirical -- stages 1, 3 and 9 ren
+         -der at ~67-81k,                                                
+      56 - * stage 8 does not at ~91k -- and anything beyond it falls bac
+         -k to the flat                                                  
+      57 - * map rather than showing an empty frame.                     
+      58 - */                                                            
+      59 -const MAX_DEPTH = 85000;                                       
+      60 -                                                               
+      47  let world = null;
+      48  
+      49  /** Build the shared preview world. Idempotent. */
+
+  Read 1 file, ran 1 shell command (ctrl+o to expand)
+
+● Update(launcher.js)
+  ⎿  Added 6 lines, removed 7 lines
+      301      const s = await loadStage(n);
+      302      if (mine !== stageToken) return;                 // supers
+           eded by a faster key
+      303      // Must follow loadStage immediately: it reuses one placed
+           -object array.
+      304 -    // Stages needing more than ~85k depth come back empty fro
+          -m the renderer                                                
+      305 -    // and fall back to the flat map.                         
+      306 -    const verts = drawStage3D($('mapview'), s);               
+      307 -    const tooBig = verts < 200;                               
+      308 -    $('mapview').hidden = tooBig;                             
+      309 -    $('mapflat').hidden = !tooBig;                            
+      310 -    if (tooBig) drawMinimap($('mapflat'), s);                 
+      304 +    // Every stage renders now, so the flat map is only a safe
+          +ty net for one                                                
+      305 +    // that comes back empty.                                 
+      306 +    const empty = drawStage3D($('mapview'), s) < 200;         
+      307 +    $('mapview').hidden = empty;                              
+      308 +    $('mapflat').hidden = !empty;                             
+      309 +    if (empty) drawMinimap($('mapflat'), s);                  
+      310      if (meta) meta.textContent = `${s.laps} laps · ${s.checkpo
+           ints} checkpoints`;
+      311    } catch {
+      312      if (meta) meta.textContent = 'could not load this stage';
+
+  Read 1 file, ran 1 shell command (ctrl+o to expand)
+● Stage 9 is clean. Checking 25 and one of the previously flat-fallback stages
+  (8):
+
+  Read 2 files, ran 3 shell commands (ctrl+o to expand)
+
+● Stage 8 renders honestly — it has only 34 track pieces across a 72,000-unit
+  arena, so it's mostly wall. Let me check the cost and tests:
+
+  Ran 3 shell commands (ctrl+o to expand)
+
+● Stage 9 before and after, then stage 8 (previously flat-fallback, now
+  rendered).
+
+  ›       /tmp/claude-1000/-home-evan-resources-nfm/86883e26-e185-4285-8b6 (8.1K
+  [image] d-7b36ae349fa6/scratchpad/crop_before9.png                      B)
+  ›       /tmp/claude-1000/-home-evan-resources-nfm/86883e26-e185-4285-8b (11.5K
+  [image] 6d-7b36ae349fa6/scratchpad/crop_after9.png                     B)
+  ›       /tmp/claude-1000/-home-evan-resources-nfm/86883e26-e185-4285-8b (10.6K
+  [image] 6d-7b36ae349fa6/scratchpad/crop_after_7.png                    B)
+
+● It's an int32 overflow in the projection, not a clipping problem.
+
+  Plane.xs is idiv(Math.imul(cz - focus_point, cx - n), cz) + n. On a stage
+  128,000 units wide the camera sat at depth ~71,600 and an edge piece is
+  ~64,000 from the camera axis — the product passes 2³¹, Math.imul wraps
+  (faithfully to the Java), and the vertex lands somewhere absurd. Stages 9 and
+  25 overflow; 1, 3, 30 don't. Exactly the two you named, and exactly at the
+  edges.
+
+  Fix: framing is the ratio focus_point / depth, so I stand the camera as close
+  as the object-clearance allows and scale focus_point down to match — same
+  picture, product an order of magnitude smaller. web/preview.js:436-450.
+
+  Verified in a headless Chromium shot of the real launcher: stage 9's smears
+  are gone (first two images).
+
+  It also explains MAX_DEPTH. That comment said geometry mysteriously stopped
+  arriving past ~85k and the cause "is NOT understood" — it was this same wrap
+  feeding garbage into Plane.d's face-culling tests. Stage 8 emitted 102
+  vertices from far away; from up close it emits 48,057. So MAX_DEPTH and the
+  "empty frame" fallback are gone, and all 7 stages that used to show the flat
+  map (6, 8, 16, 18, 20, 24, 31, 32) now render in 3D. Across all 32 stages:
+  overflowing projections 93,868 → 10,690 (the survivors are in a pre-pass that
+  never reaches the screen), off-frame vertices 2,360 → 0.
+
+  Two things to judge for yourself:
+
+  - Cost went up. Mean preview 104 → 169 ms — the geometry that used to vanish
+  now actually draws (mean 15k → 38k vertices). Still below the 198 ms you
+  started at, but the two perf fixes bought less than they did an hour ago.
+  - Stage 8 (third image) is a sparse purple box. That's honest — it has 34
+  track pieces spread over a 72,000-unit walled arena — but the flat map, which
+  draws pieces at a 2px floor, was more legible for stages like that. Say the
+  word and I'll route very sparse stages back to the flat map.
+
+  Tests: 295 pass, 1 pre-existing failure (loadIntoCarDefine), unchanged.
+
+✻ Sautéed for 17m 22s
+
+※ recap: Goal was making the launcher's stage previews fast and glitch-free; the smearing on stages 9 and 25 is fixed and all stages now render in 3D. Next: decide whether sparse stages like 8 should go back to the flat map. (disable recaps in /config)

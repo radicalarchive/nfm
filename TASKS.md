@@ -125,13 +125,20 @@ and it has returned a negative fixed cost). Measure fixed costs with `?prof=1`.
       performance fix; the "whole second at 17fps" it appeared to remove was
       measured in the unrepresentative accelerate-held condition, and the real
       cause of those frames was the catch-up draw.
+- [x] **Interpolation drew the whole scene twice per ticked frame.** The tick
+      draw's vertices were discarded by the interpolated pass; it existed only
+      to advance per-tick visual state and refresh `ContO.dist`, and the single
+      interpolated draw does both now (`interpolating = !stepped`, plus
+      `recaptureDrawOutputs()` so `dist` and the draw PRNG survive
+      `restoreCurr`). **Stage 9 451 -> 706 frames/25s (+57%), stage 1 677 ->
+      915 (+35%); over 100ms 9 -> 1 and 3 -> 0.** `?tickdraw=1` reverts.
 - [ ] **What is left of ">30fps consistently": ordinary draw cost with the
       other cars on screen, worst on the big stages.** Parked at the grid with
       the pack in view (`NFM_KEY=none`, the only condition worth measuring in
       — holding accelerate spins the player away from everyone), 25s windows,
-      after the face sort and the catch-up fix: **stage 1 ~795-844 frames
-      (~32-34fps mean, 0-2 frames over 100ms), stage 9 ~557 (~22fps mean, 3
-      frames over 100ms)**, at 9.5-12.7k submitted and 23-28k emitted
+      after the face sort, the catch-up fix and the single-draw change:
+      **stage 1 ~935 frames (~37fps mean, 0 over 100ms), stage 9 ~672 (~27fps
+      mean, 2 over 100ms)**, at 9.5-12.7k submitted and 23-28k emitted
       vertices. So the WORST frames are essentially solved and the MEAN on the
       big stages is not: stage 9 is still under 30. Profile of stage 9 after
       the face sort: `Plane.d` 28.1%, `_fillTrapezoid` 8.6%, `ContO.d` 9.4%,
@@ -209,9 +216,18 @@ and it has returned a negative fixed cost). Measure fixed costs with `?prof=1`.
       per-OBJECT (126 of them), not per-vertex, and stays CPU-side untouched
       while only the vertex transform moves. Still several hundred lines across
       `graphics.js` and `Plane.js`.
-- [ ] Cache polygon triangulation topology at load rather than re-deriving
-      convexity per frame. Worth at most the batcher's ~13%, and the trapezoid
-      work already took the expensive part of it.
+- [x] ~~Cache polygon triangulation topology at load rather than re-deriving
+      convexity per frame.~~ **Measured and dropped.** `isConvex` is ~29% of
+      `fillPolygon`'s ticks and `fillPolygon` is 3.1% of a frame, so the cache
+      is worth ~1%; the batcher's 13% is mostly `_fillTrapezoid`, the concave
+      path, which a convexity cache does not touch. It is also unsound:
+      convexity is a property of the PROJECTED polygon, so a face folded around
+      the camera arrives concave and a load-time flag would fan a
+      self-intersecting outline. `isConvex` is modulo-free now instead.
+      The fill splits 1,895 fan to 490 concave polygons a frame (stage 9,
+      parked), the concave ones carrying 3,699 vertices — `rd.fanPolys` /
+      `concavePolys` / `concaveVerts` on the fps line. The backdrop's bowtie
+      quads are the obvious special case if it is ever attacked.
 - [x] **Array pooling is deleted.** Measured as a pessimisation twice — once
       in node, and again in a browser on a representative scene after being
       rewritten to a direct property with no Map and no string key (stage 9,

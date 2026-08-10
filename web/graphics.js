@@ -74,6 +74,14 @@ export class Graphics2D {
     this.objCalls = 0;            // ContO.d entered
     this.objDrawn = 0;            // ...and passed the visibility test
     this.faceCalls = 0;           // Plane.d entered
+    // How many polygons took the concave path, and how many vertices they
+    // carried. The concave fill is the single biggest item in the fill half,
+    // and nothing said whether it runs on a handful of backdrop bowties or on
+    // most of the scene -- which decides whether specialising it is worth
+    // anything.
+    this.fanPolys = 0;
+    this.concavePolys = 0;
+    this.concaveVerts = 0;
     this.projVerts = 0;           // vertices PROJECTED (sum of Plane.n), which
                                   // is the work a vertex shader would take on.
                                   // Much larger than inputVerts: a face pays to
@@ -295,11 +303,14 @@ export class Graphics2D {
     this.inputVerts += n;
     if (n < 3) return;
     if (n === 3 || isConvex(xs, ys, n)) {
+      this.fanPolys++;
       for (let i = 1; i + 1 < n; i++) {
         this._tri(xs[0], ys[0], xs[i], ys[i], xs[i + 1], ys[i + 1]);
       }
       return;
     }
+    this.concavePolys++;
+    this.concaveVerts += n;
     this._fillConcave(xs, ys, n);
   }
 
@@ -575,6 +586,7 @@ export class Graphics2D {
     this.objDrawn = 0;
     this.faceCalls = 0;
     this.projVerts = 0;
+    this.fanPolys = 0; this.concavePolys = 0; this.concaveVerts = 0;
     this.a = 1;
     this._pack();
     // Opaque again for the new frame, so a composite left set by a throw
@@ -668,19 +680,35 @@ function clampByte(v) {
   return n < 0 ? 0 : (n > 255 ? 255 : n);
 }
 
-/** True if every turn has the same sign — i.e. the polygon is convex. */
+/**
+ * True if every turn has the same sign — i.e. the polygon is convex.
+ *
+ * Called for every filled polygon in the scene, so it walks the ring by
+ * carrying the two next indices rather than taking `(i + 1) % n` and
+ * `(i + 2) % n` per iteration: three integer modulos a vertex, on ~2,400
+ * polygons a frame, for a value that is just "the next one, wrapping".
+ * Identical output, and it is only worth doing here because it is identical —
+ * convexity is a property of the PROJECTED polygon, not of the model, so a
+ * face folded around the camera really can arrive concave and none of this
+ * can be hoisted to load time.
+ */
 function isConvex(xs, ys, n) {
   let sign = 0;
+  let j = 1;                 // i + 1, wrapped
+  let k = 2 % n;             // i + 2, wrapped
   for (let i = 0; i < n; i++) {
-    const ax = xs[(i + 1) % n] - xs[i];
-    const ay = ys[(i + 1) % n] - ys[i];
-    const bx = xs[(i + 2) % n] - xs[(i + 1) % n];
-    const by = ys[(i + 2) % n] - ys[(i + 1) % n];
+    const ax = xs[j] - xs[i];
+    const ay = ys[j] - ys[i];
+    const bx = xs[k] - xs[j];
+    const by = ys[k] - ys[j];
     const cross = ax * by - ay * bx;
-    if (cross === 0) continue;               // collinear, tells us nothing
-    const s = cross > 0 ? 1 : -1;
-    if (sign === 0) sign = s;
-    else if (s !== sign) return false;
+    if (cross !== 0) {                       // collinear tells us nothing
+      const s = cross > 0 ? 1 : -1;
+      if (sign === 0) sign = s;
+      else if (s !== sign) return false;
+    }
+    j = k;
+    if (++k === n) k = 0;
   }
   return true;
 }
