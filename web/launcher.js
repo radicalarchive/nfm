@@ -22,6 +22,7 @@ import { initPreview, carNames, carStats, drawCar, loadStage, stageName,
 import { NetPeer, makeRoomCode } from './netpeer.js';
 import { Lobby, MAX_PLAYERS } from './netlobby.js';
 import { Directory } from './netdirectory.js';
+import * as music from './music.js';
 
 const $ = (id) => document.getElementById(id);
 const STAGE_COUNT = 32;
@@ -89,7 +90,7 @@ const V = {
   musicvol: {
     list: () => [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100],
     get: () => V.musicvol.list().indexOf(S.musicvol),
-    set: (i) => { S.musicvol = V.musicvol.list()[i]; save(); },
+    set: (i) => { S.musicvol = V.musicvol.list()[i]; save(); menuMusicVolume(); },
     text: () => (S.musicvol ? `${S.musicvol}%` : 'off'),
   },
   res: {
@@ -329,6 +330,64 @@ async function drawStagePreview() {
   }
 }
 
+/* ---- menu music ----------------------------------------------------------
+ * The original plays its own `interface` module on the menus
+ * (`xtGraphics.loadmusic('interface')`, XtGraphics.js:953). Those menus are
+ * not ported -- this launcher replaces them -- so the track is played here
+ * instead, one fixed module for every launcher page.
+ *
+ * Two constraints shape this. **The autoplay policy:** BassoonTracker has its
+ * own AudioContext and it starts suspended, so `play()` here is a statement of
+ * intent and `music.unlock()` on the first key or click is what makes it
+ * audible. **The cost:** the tracker mixes in a ScriptProcessorNode on the
+ * MAIN THREAD, ~every 5.8ms, whatever the gain is set to -- so at Music: off
+ * it is never loaded at all rather than mixed and silenced. That is the same
+ * distinction `music.disable()` exists for, minus the latch, because the
+ * slider can come back up without a reload.
+ */
+let menuMusic = false;            // has the interface track been loaded here?
+async function startMenuMusic() {
+  if (menuMusic || racing || !S.musicvol) return;
+  menuMusic = true;
+  music.setVolume(S.musicvol / 100);
+  if (await music.load('interface')) {
+    music.play();
+    // The gesture that unlocks the context may already have happened -- boot
+    // is slow enough that the first keypress usually lands before the module
+    // has parsed. `music.unlock()` is safe with no gesture behind it (the
+    // resume is simply refused), so replaying it here costs nothing and is
+    // what keeps an early keypress from being the one that goes to waste.
+    if (gestured) music.unlock();
+  } else {
+    menuMusic = false;            // let a later volume change try again
+  }
+}
+
+/** The Music row, applied live. Raising it from off is what first loads. */
+function menuMusicVolume() {
+  music.setVolume(S.musicvol / 100);
+  if (!S.musicvol) music.stop();
+  else if (!menuMusic) void startMenuMusic();
+  else music.resume();
+}
+
+// The first gesture on the page, whichever it is. Cheap and idempotent, so it
+// is wired to both verbs rather than to a one-shot listener that has to guess
+// which one a given player will use.
+//
+// `gestured` is the load-bearing half: a gesture is a fact about the PAGE, not
+// an event the track has to be present for. Acting on the event alone silently
+// wasted every keypress made before the module finished parsing -- which is
+// most of them -- so the music waited for whichever key you happened to press
+// next, and the menu was silent until you moved.
+let gestured = false;
+const unlockMenuMusic = () => {
+  gestured = true;
+  if (menuMusic) music.unlock();
+};
+addEventListener('keydown', unlockMenuMusic);
+addEventListener('pointerdown', unlockMenuMusic);
+
 /* ---- the race ------------------------------------------------------------
  * Settings become a URLSearchParams because that is already the port's one
  * configuration surface: main.html, the benchmark and every deep link read the
@@ -367,6 +426,10 @@ let racing = false;
 async function startRace(session) {
   if (racing) return;
   racing = true;
+  // Hand the tracker over to the race: `resetstat()` loads the stage's module
+  // into the same player, and starting a race while the menu track is still
+  // sequencing swaps the module out from under a running mixer.
+  music.stop();
   stopSpin();
   stopBrowsing({ force: true });
   document.body.dataset.page = 'race';
@@ -708,6 +771,12 @@ async function resumeRoom() {
 /* ---- boot ---------------------------------------------------------------- */
 (async () => {
   $('brandsub').textContent = 'loading…';
+  // FIRST, and not awaited. Everything below is ~10s of serial CPU on a cold
+  // load (models.zip, 32 stage names, the car and stage previews), and the
+  // music started after all of it -- so the menu sat silent for ten seconds
+  // for no reason but position in this function. A zip fetch and a module
+  // parse are small enough to interleave with that work.
+  void startMenuMusic();
   try {
     await initPreview();
     // Decorative: a missing images.zip must not stop you racing.

@@ -60,6 +60,12 @@ export async function initPreview() {
   const gs = new GameSparker();
   const cd = new CarDefine(models, medium, trackers, gs);
   const xt = new XtGraphics(medium, cd, null, gs);
+  // The preview runs the game's real `loadstage`, which ends in
+  // `resetstat()` -> `loadmusic(stage)` (GameSparker.js:324) -- so previewing
+  // a stage was fetching that stage's module and starting it, in the launcher,
+  // under whichever stage you last scrolled past. That is a preview of the
+  // geometry, not of the race; the launcher owns the menu track.
+  xt.loadmusic = () => {};
   const record = new Record(medium);
 
   gs.loadbase(models, medium, trackers, zip);
