@@ -4,6 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Need for Madness</title>
+<!-- The slab tokens, the backdrop and the three animations, shared with
+     web/careditor.html. Loaded first so anything below can override it. -->
+<link rel="stylesheet" href="./web/styles.css">
 <style>
 /* ---------------------------------------------------------------------------
    The launcher: menu, single player, multiplayer browser, lobby, settings, and
@@ -27,28 +30,14 @@
   --fs-stat:  1rem;     /* stat bar names */
   --fs-chat:  1rem;     /* player list + chat log */
   --k-title: 1.55; --k-item: 1.04;
-  --ink: #111; --paper: #e8e4d9; --hi: #ffe400;
+  /* --ink / --paper / --hi / --warn are in web/styles.css */
 }
-* { box-sizing: border-box; }
 html, body { height: 100%; }
 body {
   margin: 0; overflow: hidden; background: var(--paper); color: var(--ink);
   font: 16px/1.4 "Arial Black", "Helvetica Neue", system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
 }
-
-/* The backdrop is CSS, not a canvas. It is a repeating pattern under a fixed
-   transform, so a compositor-only translate reproduces it exactly at zero CPU
-   -- the mockup's rAF loop existed only because it was painting one. The strip
-   overhangs by more than one period and travels exactly one period, so the
-   loop is seamless. */
-#bg { position: fixed; inset: 0; z-index: 0; overflow: hidden; background: var(--paper); }
-#bg::before {
-  content: ""; position: absolute; top: 0; bottom: 0; left: -240px; right: -240px;
-  background: repeating-linear-gradient(90deg, #11111112 0 60px, #0000 60px 120px);
-  animation: drift 4s linear infinite;
-}
-@keyframes drift { to { transform: translateX(120px); } }
 
 /* ---- shell ---------------------------------------------------------- */
 .page {
@@ -89,17 +78,12 @@ body[data-page="set"]   #page-set   { display: flex; }
   animation: slabStrobe .28s steps(2) infinite;
   overflow: hidden;                     /* the rail runs past the box; clip it */
 }
-/* 45° stripes with a 16px period repeat exactly every 16/sin45 = 22.627px of
-   travel, so one period of TRANSFORM is a seamless loop. Animating
-   background-position instead put the phase on subpixel boundaries and the
-   seam visibly twitched. */
+/* The hazard rail; its arithmetic is with the keyframes in web/styles.css. */
 .item.is-sel::before {
   content: ""; position: absolute; top: -32px; bottom: -32px; left: 0; width: 18px;
   background: repeating-linear-gradient(45deg, var(--hi) 0 8px, var(--ink) 8px 16px);
   animation: hazard .7s linear infinite;
 }
-@keyframes slabStrobe { 0% { border-color: var(--hi); } 100% { border-color: #ff3b00; } }
-@keyframes hazard { from { transform: translateY(0); } to { transform: translateY(-22.627px); } }
 .item.off { opacity: .45; cursor: default; }
 
 /* ---- shared page furniture ------------------------------------------ */

@@ -30,7 +30,7 @@ function fresh(entries = []) {
 test('listAll merges shipped and stored, with stored shadowing shipped', async () => {
   fresh([['Simple Car', 'edited'], ['My Car', 'new']]);
   const all = await listAll();
-  // 4 shipped + 1 new; 'Simple Car' appears once, not twice.
+  // the shipped ones + 1 new; 'Simple Car' appears once, not twice.
   assert.strictEqual(all.length, SHIPPED.length + 1);
   assert.strictEqual(all.filter((n) => n === 'Simple Car').length, 1);
   assert.deepStrictEqual(all, [...all].sort((a, b) => a.localeCompare(b)));
@@ -70,7 +70,10 @@ test('writeCar rejects an empty name', async () => {
 
 test('loadIntoCarDefine fills slots 16.. and skips cars loadcar rejects', async () => {
   // The real .rad off disk, so this exercises ContO's parser, not a stub.
-  const good = repo('mycars/custom_formula7.rad');
+  // It has to be a COMMITTED file: mycars/ is a runtime directory and the two
+  // cars this used to read are gitignored, so the test passed only on a
+  // machine that had run the desktop game.
+  const good = repo('mycars/Simple Car.rad');
   fresh([['aaa good', good], ['bbb bad', 'not a car at all'], ['ccc good', good]]);
 
   const cd = new CarDefine(new Array(56).fill(null), new Medium(), new Trackers(), null);

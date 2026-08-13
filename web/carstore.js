@@ -25,13 +25,18 @@ const STORE = 'mycars';
 /**
  * The cars committed under mycars/. A static list because HTTP has no
  * directory listing: the launcher and the editor both need the names before
- * they can fetch anything, and probing 40 candidate names is worse than
- * keeping four in sync. Unchanged since the game shipped.
+ * they can fetch anything, and probing candidate names is worse than keeping
+ * this in sync with the directory.
+ *
+ * It listed four until 2026-08-12, and three of those were wrong. `mycars/` is
+ * a RUNTIME directory -- .gitignore keeps only two files out of it -- so
+ * `badstat_car` and `custom_formula7` exist on a machine that has run the
+ * desktop game and 404 in a clean checkout, which is what made the editor boot
+ * on an empty car. `Example, MAX Revenge.rad` is still committed, but only as
+ * a fixture two tests read off disk (`careditor/rad.test.js`,
+ * `careditor/tab2.test.js`); nothing offers it to a player any more.
  */
 export const SHIPPED = [
-  'badstat_car',
-  'custom_formula7',
-  'Example, MAX Revenge',
   'Simple Car',
 ];
 

@@ -24,12 +24,23 @@ import { physicsHelp, crashHelp, crashTestHelp, STAT_HELP, CLASS_HELP,
          SCALE_HELP, ALIGN_HELP, ENGINE_HELP } from './helptext.js';
 import { newCarMaker } from './state.js';
 import { setupo } from './files.js';
-import { listAll, listStored, readCar, writeCar, deleteCar, BUILTIN_NAMES } from '../carstore.js';
+import { listAll, listStored, readCar, readBuiltin, writeCar, deleteCar,
+         BUILTIN_NAMES } from '../carstore.js';
 import { detectFpath } from '../vfs.js';
 import { Graphics2D } from '../graphics.js';
 
 const $ = (id) => document.getElementById(id);
 const code = $('code'), pick = $('pick'), status = $('status'), err = $('err');
+
+// What the editor opens with, when the URL does not say. One of the sixteen
+// base models, so a first-time load shows a real car whatever is in storage.
+const DEFAULT_CAR = 'Formula 7';
+
+// A picker option identifies a car by SOURCE as well as by name, because the
+// two lists can hold the same name: `base:` is a model out of models.zip,
+// `own:` goes through readCar(), which prefers storage over mycars/.
+const key = (name, base) => (name ? `${base ? 'base' : 'own'}:${name}` : '');
+const unkey = (k) => ({ base: (k || '').startsWith('base:'), name: (k || '').slice((k || '').indexOf(':') + 1) });
 
 // The CarMaker state bag. Not a bridge to the applet's UI -- the panes are
 // gone. It is here because the ported crash math writes into cm.o, cm.m,
@@ -38,6 +49,12 @@ const code = $('code'), pick = $('pick'), status = $('status'), err = $('err');
 let cm = null;
 let rd = null;
 let current = null;
+// Whether `current` is one of the sixteen base models rather than a car in
+// storage. It is not derivable from the name: you can save your own "Formula
+// 7", and then the name alone cannot say which of the two you are editing --
+// which is exactly the bug this fixes, where picking the game's Formula 7
+// opened the saved one because readCar() prefers storage.
+let currentBase = false;
 let stored = [];
 // True while a control is rewriting the source, so the textarea's own input
 // handler does not treat its own update as the user typing.
@@ -82,9 +99,11 @@ function reparse() {
   const parseErr = o.errd ? o.err.trim() : '';
   err.textContent = [parseErr, ...issues].filter(Boolean).join('\n');
   const ready = issues.length === 0 && !o.errd;
+  // Classes, not inline colours: the two shades this used to hardcode were the
+  // old dark theme's, and they survived the restyle by being invisible to it.
   $('ready').innerHTML = ready
-    ? '<b style="color:#7ddc9a">ready to race</b>'
-    : '<span style="color:#8b93a7">not raceable yet</span>';
+    ? '<b class="ok">ready to race</b>'
+    : '<span class="notok">not raceable yet</span>';
   $('drive').disabled = !ready;
 }
 
@@ -494,33 +513,40 @@ function stopSpin() {
  * out of that listing; saving one writes a copy under whatever name you give
  * it, and the copy is what the game picks up.
  */
-async function refreshList(select = current) {
+async function refreshList(select = key(current, currentBase)) {
   const all = await listAll();
   stored = await listStored();
   pick.innerHTML = '';
-  const group = (label, names, suffix) => {
+  const group = (label, names, base, suffix) => {
     const g = document.createElement('optgroup');
     g.label = label;
     for (const name of names) {
-      g.appendChild(new Option(stored.includes(name) ? name : `${name}${suffix}`, name));
+      const text = base || stored.includes(name) ? name : `${name}${suffix}`;
+      g.appendChild(new Option(text, key(name, base)));
     }
     pick.appendChild(g);
   };
-  group('My cars', all, ' (shipped)');
-  group('Default Cars', BUILTIN_NAMES, '');
+  group('My cars', all, false, ' (shipped)');
+  group('Default Cars', BUILTIN_NAMES, true, '');
   if (select) pick.value = select;
-  $('del').disabled = !stored.includes(pick.value);
+  const sel = unkey(pick.value);
+  // A base model is never deletable, and neither is the base model whose name
+  // you happen to have saved a car under -- deleting there would throw away a
+  // car you did not select.
+  $('del').disabled = sel.base || !stored.includes(sel.name);
   $('carname').textContent = current || '';
-  const readonly = current && !stored.includes(current);
+  const readonly = current && (currentBase || !stored.includes(current));
   $('save').title = readonly
     ? 'This is one of the game\'s cars. Saving makes your own copy of it — the original stays as it is.'
     : '';
 }
 
-async function open(name) {
-  const text = await readCar(name);
+async function open(k) {
+  const { name, base } = unkey(k);
+  const text = base ? await readBuiltin(name) : await readCar(name);
   if (text === null) { status.textContent = `no such car: ${name}`; return; }
   current = name;
+  currentBase = base;
   writing = true;
   code.value = text;
   writing = false;
@@ -528,15 +554,18 @@ async function open(name) {
   reparse();
   refresh();
   markClean();
-  await refreshList(name);
+  await refreshList(key(name, base));
   status.textContent = '';
 }
 
 async function save(name) {
   await writeCar(name, code.value);
+  // Saving a base model makes YOUR car of that name; from here on the editor
+  // is looking at the stored copy, not at models.zip.
   current = name;
+  currentBase = false;
   markClean();
-  await refreshList(name);
+  await refreshList(key(name, false));
   status.textContent = `saved ${name}`;
 }
 
@@ -551,7 +580,7 @@ code.addEventListener('input', () => {
   code._t = setTimeout(() => { reparse(); refresh(); }, 200);
 });
 
-pick.onchange = () => open(pick.value);
+pick.onchange = () => open(pick.value);   // the value carries the source too
 
 // ---- tabs -------------------------------------------------------------------
 //
@@ -598,15 +627,16 @@ $('new').onclick = async () => {
   const name = prompt('Name for the new car:');
   if (!name) return;
   await writeCar(name.trim(), TEMPLATE(name.trim()));
-  await open(name.trim());
+  await open(key(name.trim(), false));
 };
 
 $('del').onclick = async () => {
-  const name = pick.value;
-  if (!stored.includes(name)) return;
+  const { name, base } = unkey(pick.value);
+  if (base || !stored.includes(name)) return;
   if (!confirm(`Delete "${name}"? A shipped car of the same name comes back.`)) return;
   await deleteCar(name);
   current = null;
+  currentBase = false;
   await refreshList();
   await open(pick.value);
   status.textContent = `deleted ${name}`;
@@ -767,8 +797,12 @@ physics(50,50,50,50,0,0,0,0,0,50,50,50,50,50,0,0)
     }
 
     await refreshList();
+    // Open a BASE model, not whatever sorts first in `mycars/`: the picker's
+    // first entry is a car somebody else made, and the thing a player wants to
+    // start from is one of the game's own. Saving it writes a copy under a new
+    // name, so there is nothing to damage here.
     const wanted = new URLSearchParams(location.search).get('car');
-    await open(wanted || pick.value);
+    await open(wanted ? key(wanted, false) : key(DEFAULT_CAR, true));
     frame();
   } catch (e) {
     status.textContent = 'failed to start: ' + e.message;

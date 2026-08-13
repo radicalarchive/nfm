@@ -1,0 +1,49 @@
+/* ---------------------------------------------------------------------------
+   The `slab` design language, shared by every page of the port: the launcher
+   (index.html), the car maker (web/careditor.html), and the stage maker when
+   it lands. It was a theme in web/menu-mockups.html first.
+
+   Flat outlines, no radii, no drop shadows, paper and ink with one hazard
+   yellow, and a selection that INVERTS rather than tinting. What lives here is
+   only what more than one page needs: the tokens, the backdrop, and the three
+   animations. Page-specific furniture stays inline in the page -- the
+   launcher's menu rows are not primitives, and neither are the editor's
+   sliders.
+
+   Loaded BEFORE each page's own <style>, so a page can override any of this.
+--------------------------------------------------------------------------- */
+:root {
+  --ink: #111;          /* every border, every rule, the inverted fill */
+  --paper: #e8e4d9;
+  --hi: #ffe400;        /* legible on ink only -- never put it on paper */
+  --warn: #ff3b00;      /* the strobe's second colour; also errors and focus */
+  --mono: ui-monospace, Menlo, Consolas, monospace;
+  --slab: "Arial Black", "Helvetica Neue", system-ui, sans-serif;
+}
+* { box-sizing: border-box; }
+
+/* The backdrop is CSS, not a canvas. It is a repeating pattern under a fixed
+   transform, so a compositor-only translate reproduces it exactly at zero CPU
+   -- the mockup's rAF loop existed only because it was painting one. The strip
+   overhangs by more than one period and travels exactly one period, so the
+   loop is seamless. */
+#bg { position: fixed; inset: 0; z-index: 0; overflow: hidden; background: var(--paper); }
+#bg::before {
+  content: ""; position: absolute; top: 0; bottom: 0; left: -240px; right: -240px;
+  background: repeating-linear-gradient(90deg, #11111112 0 60px, #0000 60px 120px);
+  animation: drift 4s linear infinite;
+}
+@keyframes drift { to { transform: translateX(120px); } }
+
+/* 45° stripes with a 16px period repeat exactly every 16/sin45 = 22.627px of
+   travel, so one period of TRANSFORM is a seamless loop. Animating
+   background-position instead put the phase on subpixel boundaries and the
+   seam visibly twitched. The rail is 18px wide and overhangs its box top and
+   bottom, so whatever carries it must clip. */
+@keyframes hazard { from { transform: translateY(0); } to { transform: translateY(-22.627px); } }
+@keyframes slabStrobe { 0% { border-color: var(--hi); } 100% { border-color: var(--warn); } }
+
+@media (prefers-reduced-motion: reduce) {
+  /* the backdrop stays VISIBLE; it just stops moving */
+  #bg::before { animation: none !important; }
+}
