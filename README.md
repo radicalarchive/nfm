@@ -35,7 +35,11 @@ Both the Java and JS versions have a few enhancements to increase game resolutio
 - [x] basic game rendering
 - [x] basic game playability and physics
 - [x] in-game HUD
-- [ ] sound
-- [ ] game menus
-- [ ] private online multiplayer
-- [ ] upgrade ints to floats :o
+- [x] sound
+- [x] game menus
+- [x] private online multiplayer
+- [x] upgrade ints to floats :o
+- [ ] replays
+- [ ] track editor
+- [ ] port classic GUI elements
+- [ ] classic interface
