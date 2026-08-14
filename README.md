@@ -2,6 +2,8 @@
 
 ![icon](data/icon.png)
 
+[Play here!](https://radicalarchive.github.io/nfm)
+
 This is a WIP unofficial port of NFM to the web.  Currently gameplay/physics are implemented, with full game GUI coming soon.  The original game JAR files were decompiled and Java transcribed line-by-line to JS with Claude Opus, using WebGL for rendering.  
 
 This repo also contains a patched version of the original game to run on modern Java (run `./start.sh`).
