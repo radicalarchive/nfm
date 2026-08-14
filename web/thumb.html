@@ -1,0 +1,157 @@
+<!doctype html>
+<!--
+  Turntable renderer for the archive landing page — the nfm half.
+
+  Same idea as ra1's web/tools/thumb.html (this one lives in web/ rather than
+  web/tools/ because preview.js's detectFpath() probes ./ and ../ for
+  data/models.zip, and only web/ is one hop from the repo root): the car is a real ContO drawn
+  through the game's own renderer, over the game's own backdrop (Medium.d,
+  which paints the sky gradient, fog bands, horizon, mountains and clouds), so
+  the thumbnail cannot drift from what the game looks like.
+
+  Driven by ra1/web/tools/render-thumb.mjs, over the DevTools
+  protocol: window.__render(yaw) returns a frame as a data URL.
+-->
+<meta charset="utf-8">
+<title>nfm turntable</title>
+<style>
+  body { margin: 0; background: #111; }
+  #wrap { position: relative; width: 600px; height: 480px; }
+  canvas { position: absolute; inset: 0; display: block; }
+</style>
+<div id="wrap">
+  <canvas id="gl" width="600" height="480"></canvas>
+  <canvas id="tx" width="600" height="480"></canvas>
+</div>
+<script type="module">
+  import { Graphics2D } from './graphics.js';
+  import { initPreview } from './preview.js';
+  import { CAR_NAMES } from './GameSparker.js';
+  import { readText } from './vfs.js';
+
+  const W = 600, H = 480;
+  const cfg = Object.assign({
+    model: 'formula7',
+    elev: 45,
+    dist: 900,
+    panx: 0,           // projection-centre pan, screen pixels
+    pany: 0,
+    zoom: 1,
+    stage: 1,
+  }, window.__cfg || {});
+
+  const world = await initPreview();
+  const { medium, models } = world;
+
+  // A stage's colours, mountains, clouds, stars and ground scatter are what
+  // Medium.d paints. preview.js's own loadStage deliberately stubs the scatter
+  // out — it only wants the layout, and building it costs most of a preview —
+  // which leaves those arrays null and crashes Medium.d. So run the game's
+  // real loadstage here instead, and get the real backdrop with it.
+  {
+    const { medium, trackers, checkPoints, models, gs, xt, record, placed, mads } = world;
+    const text = await readText(`stages/${Number(cfg.stage)}.txt`);
+    checkPoints.stage = Number(cfg.stage);
+    xt.nplayers = 1;
+    gs.loadstage(placed, models, medium, trackers, checkPoints, xt, mads, record, text);
+    if (checkPoints.stage === -3) throw new Error(`stage ${cfg.stage} failed to load`);
+  }
+
+  const gl = document.getElementById('gl');
+  const tx = document.getElementById('tx');
+  // Game space IS the thumbnail here: the shader divides by u_size, and the
+  // projection below uses medium.w/h, so both are 600x480 rather than the
+  // game's 800x450. Nothing about the model or the transform changes.
+  const rd = new Graphics2D(gl, tx, W, H);
+
+  const car = models[CAR_NAMES.indexOf(cfg.model)];
+  if (!car) throw new Error(`no car ${cfg.model} — have ${CAR_NAMES.join(', ')}`);
+
+  // No shadow, the same call preview.js makes and for the same reason: ContO.d's
+  // `crs` path projects a flat silhouette that does not land under the car —
+  // measured here as a large dark shape up and to the left of it.
+  car.shadow = false;
+
+  function place() {
+    const rad = (cfg.elev * Math.PI) / 180;
+    medium.trk = 0;
+    medium.crs = true;          // the car-select detail level
+    medium.w = W;
+    medium.h = H;
+    medium.cx = Math.round(W / 2 + cfg.panx);
+    medium.cy = Math.round(H / 2 + cfg.pany);
+    medium.cz = 50;
+    medium.focus_point = Math.round(400 * cfg.zoom);
+    medium.ih = 0;
+    medium.iw = 0;
+    medium.xz = 0;
+    medium.zy = Math.round(cfg.elev);
+    // Camera above and behind a car at the origin. y is up-negative here.
+    medium.x = Math.round(-medium.cx);
+    medium.y = Math.round(-cfg.dist * Math.sin(rad));
+    medium.z = Math.round(-cfg.dist * Math.cos(rad));
+
+    car.x = 0;
+    car.y = 0;
+    car.z = 0;
+    car.zy = 0;
+    car.xy = 0;
+  }
+  place();
+
+  window.__cam = (patch) => {
+    Object.assign(cfg, patch);
+    place();
+    return JSON.stringify({ cam: [medium.x, medium.y, medium.z, medium.zy], car: [car.x, car.y, car.z], cfg });
+  };
+
+  window.__render = (yaw) => {
+    car.xz = ((Math.round(yaw) % 360) + 360) % 360;
+    rd.begin();
+    // No Medium.d: the backdrop is black. At the elevation these thumbnails
+    // use, the game's horizon falls outside the frame anyway, so the backdrop
+    // contributed a flat field of the stage's ground colour and nothing else.
+    car.d(rd);
+    rd.end();
+    // The WebGL canvas and the 2D text overlay are separate layers; flatten
+    // them the way the page composites them.
+    const out = document.createElement('canvas');
+    out.width = W; out.height = H;
+    const c = out.getContext('2d');
+    c.fillStyle = '#000';
+    c.fillRect(0, 0, W, H);
+    c.drawImage(gl, 0, 0);
+    c.drawImage(tx, 0, 0);
+    return out.toDataURL('image/png');
+  };
+
+  // Bounding box of the CAR only (the backdrop covers the frame), for framing.
+  window.__measure = (yaw) => {
+    const b = { minx: 1e9, miny: 1e9, maxx: -1e9, maxy: -1e9, polys: 0 };
+    const note = (x, y) => {
+      if (x < b.minx) b.minx = x; if (y < b.miny) b.miny = y;
+      if (x > b.maxx) b.maxx = x; if (y > b.maxy) b.maxy = y;
+    };
+    const realFill = rd.fillPolygon.bind(rd);
+    const realDraw = rd.drawPolygon ? rd.drawPolygon.bind(rd) : null;
+    rd.fillPolygon = (xs, ys, n) => { b.polys++; for (let i = 0; i < n; i++) note(xs[i], ys[i]); };
+    if (realDraw) rd.drawPolygon = (xs, ys, n) => { b.polys++; for (let i = 0; i < n; i++) note(xs[i], ys[i]); };
+    try {
+      car.xz = ((Math.round(yaw) % 360) + 360) % 360;
+      rd.begin();
+      car.d(rd);
+      rd.end();
+    } finally {
+      rd.fillPolygon = realFill;
+      if (realDraw) rd.drawPolygon = realDraw;
+    }
+    return JSON.stringify({
+      polys: b.polys,
+      bbox: [b.minx, b.miny, b.maxx, b.maxy],
+      size: [b.maxx - b.minx, b.maxy - b.miny],
+      centre: [(b.minx + b.maxx) / 2, (b.miny + b.maxy) / 2],
+    });
+  };
+
+  window.__ready = true;
+</script>
