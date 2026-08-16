@@ -87,6 +87,24 @@ export const TRACKERS = [
   'wss://tracker.btorrent.xyz',
 ];
 
+// The trackers are SIGNALLING, not traversal: they carry the offer/answer that
+// introduces two peers and say nothing about whether those peers can reach
+// each other. That is ICE's job, and it needs STUN to discover the public
+// ip:port a NAT has assigned. p2pt constructs itself with
+// `_rtcConfig = { iceServers: [] }` and hands that to every peer it creates,
+// OVERRIDING simple-peer's own STUN defaults, so without this list an offer
+// carries `typ host` candidates only -- which is all two tabs on one machine
+// or two players on a LAN ever need, and nothing across the internet.
+//
+// STUN is not sufficient in general: two symmetric NATs need a TURN relay, and
+// there is no free public one to point at. `chrome://webrtc-internals` during
+// a join is how to tell the two apart -- an `srflx` candidate means STUN
+// worked, and no selected candidate pair after that means TURN is what is
+// missing.
+export const ICE_SERVERS = [
+  { urls: ['stun:stun.l.google.com:19302', 'stun:global.stun.twilio.com:3478'] },
+];
+
 // The one identifier. It is hashed into a torrent info-hash and announced to
 // PUBLIC trackers, so it must not collide with another project's: namespace it
 // and version it, because the frame layout below is a wire protocol shared
@@ -159,6 +177,8 @@ export async function loadP2PT() {
 export async function makeP2PT(identifier) {
   const P2PT = await loadP2PT();
   const p2 = new P2PT(TRACKERS);
+  // Read when a peer is created, so it must be set before the first announce.
+  p2._rtcConfig = { iceServers: ICE_SERVERS };
   await p2.setIdentifier(identifier);
   return p2;
 }
