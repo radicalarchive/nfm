@@ -1298,20 +1298,51 @@ export async function boot(opts = {}) {
 /** Keyboard -> Control, matching GameSparker.keyDown/keyUp. */
 function installInput(u, snd, onEscape) {
   const set = (e, v) => {
-    switch (e.code) {
-      case 'Escape': if (v) onEscape?.(); e.preventDefault(); return true;
-      case 'ArrowUp':    case 'KeyW': u.up = v; break;
-      case 'ArrowDown':  case 'KeyS': u.down = v; break;
-      case 'ArrowLeft':  case 'KeyA': u.left = v; break;
-      case 'ArrowRight': case 'KeyD': u.right = v; break;
-      case 'Space':                   u.handb = v; break;
-      case 'Enter':                   u.enter = v; break;
-      case 'ShiftLeft':  case 'ShiftRight': u.lookback = v ? 1 : 0; break;
-      default: return false;
-    }
-    e.preventDefault();
-    return true;
-  };
+  if (e.ctrlKey || e.metaKey || e.altKey) return false;
+
+  const chatting = !!u.chatup;
+  const press = v && !e.repeat;
+  const driving = u.multion < 2;
+
+  switch (e.code) {
+    case 'Escape':
+      if (v) {
+        u.exit = true;
+        u.chatup = 0;
+        onEscape?.();
+      }
+      break;
+
+    case 'ArrowUp':    if (driving) u.up = v; break;
+    case 'ArrowDown':  if (driving) u.down = v; break;
+    case 'ArrowLeft':  if (driving) u.left = v; break;
+    case 'ArrowRight': if (driving) u.right = v; break;
+    case 'Space':      if (driving) u.handb = v; break;
+    case 'Enter':      u.enter = v; break;
+
+    // Gate presses only, so a release is never lost
+    case 'KeyZ': if (!v || !chatting) u.lookback = v ? 1 : 0; break;
+    case 'KeyX': if (!v || !chatting) u.lookback = v ? -1 : 0; break;
+
+    case 'KeyC':
+      if (press && u.multion !== 0 && !chatting) {
+        u.chatup = 2;
+        u.view = 0;
+      }
+      break;
+
+    case 'KeyN': if (press && !chatting) u.mutes = !u.mutes; break;
+    case 'KeyM': if (press && !chatting) u.mutem = !u.mutem; break;
+    case 'KeyA': if (press && !chatting) u.arrace = !u.arrace; break;
+    case 'KeyS': if (press && !chatting) u.radar = !u.radar; break;
+    // case 'KeyV': if (press && !chatting) u.view = (u.view + 1) % 3;  break;
+
+    default: return false;
+  }
+
+  e.preventDefault();
+  return true;
+};
   addEventListener('keydown', (e) => {
     // Two separate AudioContexts need the gesture: web/audio.js's for sound
     // effects, and BassoonTracker's own for the music.

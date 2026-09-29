@@ -157,12 +157,12 @@ const pageName = () => document.body.dataset.page;
 const page = () => PAGES[pageName()];
 
 const HINTS = {
-  menu:  '<kbd>↑</kbd><kbd>↓</kbd> move · <kbd>Enter</kbd> select',
-  sp:    '<kbd>↑</kbd><kbd>↓</kbd> move · <kbd>←</kbd><kbd>→</kbd> change · <kbd>Enter</kbd> open / start · <kbd>Esc</kbd> back',
-  opts:  '<kbd>↑</kbd><kbd>↓</kbd> move · <kbd>←</kbd><kbd>→</kbd> change · <kbd>Esc</kbd> back',
-  mp:    '<kbd>↑</kbd><kbd>↓</kbd> move · <kbd>Enter</kbd> join / host · <kbd>←</kbd><kbd>→</kbd> public–private · <kbd>Esc</kbd> back',
-  lobby: '<kbd>↑</kbd><kbd>↓</kbd> move · <kbd>←</kbd><kbd>→</kbd> change · <kbd>Enter</kbd> chat / start · <kbd>Esc</kbd> leave',
-  set:   '<kbd>↑</kbd><kbd>↓</kbd> move · <kbd>←</kbd><kbd>→</kbd> change · <kbd>Esc</kbd> back',
+  menu:  '<kbd>↑</kbd> <kbd>↓</kbd> move · <kbd>Enter</kbd> select',
+  sp:    '<kbd>↑</kbd> <kbd>↓</kbd> move · <kbd>←</kbd> <kbd>→</kbd> change · <kbd>Enter</kbd> open / start · <kbd>Esc</kbd> back',
+  opts:  '<kbd>↑</kbd> <kbd>↓</kbd> move · <kbd>←</kbd> <kbd>→</kbd> change · <kbd>Esc</kbd> back',
+  mp:    '<kbd>↑</kbd> <kbd>↓</kbd> move · <kbd>Enter</kbd> join / host · <kbd>←</kbd> <kbd>→</kbd> public–private · <kbd>Esc</kbd> back',
+  lobby: '<kbd>↑</kbd> <kbd>↓</kbd> move · <kbd>←</kbd> <kbd>→</kbd> change · <kbd>Enter</kbd> chat / start · <kbd>Esc</kbd> leave',
+  set:   '<kbd>↑</kbd> <kbd>↓</kbd> move · <kbd>←</kbd> <kbd>→</kbd> change · <kbd>Esc</kbd> back',
 };
 
 function draw() {
