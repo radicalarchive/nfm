@@ -213,10 +213,14 @@ export class Medium {
     // random shape rather than the same one, which reads as a buzz at display
     // rate instead of an animation at tick rate. Recording is armed in d(),
     // the first call of every draw. Sites that consume conditionally stay
-    // lined up because the counters they branch on are frozen too; the modulo
-    // only matters if a redraw somehow outruns the tick, and it keeps every
-    // interpolated frame of a tick identical to the others even then.
-    if (this.interpolating && this.rn !== 0) return this.rlog[this.rp++ % this.rn];
+    // lined up because the counters they branch on are frozen too -- but not
+    // the camera: a blended view culls a different set of objects, so a
+    // redraw can ask for more values than the tick recorded. Past the end of
+    // the log it rolls live values from the draw bank, which main.js restores
+    // after every interpolated frame, so each redraw of a tick still rolls the
+    // same ones. Cycling the log instead hangs the page: Plane's `pa != pb`
+    // rejection loop never exits once the log has only one distinct vertex.
+    if (this.interpolating && this.rp < this.rn) return this.rlog[this.rp++];
     // Pick the bank for this phase. Names shadow the fields deliberately: the
     // body below is the Java's, unchanged, operating on whichever bank is live.
     const draw = inDrawPhase();
@@ -245,7 +249,7 @@ export class Medium {
     if (trn === 3) trn = 0;
     if (draw) this.dtrn = trn; else this.trn = trn;
     const v = fr(rand[trn] / 10.0);
-    if (this.recording) {
+    if (this.recording && !this.interpolating) {
       if (this.rn === this.rlog.length) {
         const grown = new Float32Array(this.rn * 2);
         grown.set(this.rlog);
